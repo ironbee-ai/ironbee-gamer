@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head><title>opened fixture</title></head>
+<body>
+<script>
+    // A window a game opened (opener.html). ?visit: another host's, which counts its visits in its local storage and
+    // tells the game. Else one of the game's origin (?game=<token>&depth=<n>): the first opens a second itself (noopener),
+    // and each writes "<token>:<depth>" into the origin's local storage every 100 ms of its clock.
+    var params = new URLSearchParams(location.search);
+    if (params.has("visit")) {
+        var visits = Number(localStorage.getItem("visits") || "0") + 1;
+        localStorage.setItem("visits", String(visits));
+        if (window.opener) {
+            window.opener.postMessage({ visits: visits }, "*");
+        }
+    } else {
+        var me = params.get("game") + ":" + params.get("depth");
+        if (params.get("depth") === "1") {
+            window.open("opened.html?game=" + params.get("game") + "&depth=2", "_blank", "noopener");
+        }
+        setInterval(function () {
+            var writers = JSON.parse(localStorage.getItem("writers") || "[]");
+            if (writers.indexOf(me) < 0) {
+                writers.push(me);
+                localStorage.setItem("writers", JSON.stringify(writers));
+            }
+        }, 100);
+    }
+</script>
+</body>
+</html>

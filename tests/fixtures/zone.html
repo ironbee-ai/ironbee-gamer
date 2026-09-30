@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+<title>zone fixture</title>
+<script>
+    // What a game reads of the local time as it loads (a day's level, a night theme): the game epoch's hour and date, the
+    // time zone and its offset.
+    var epoch = new Date(Date.UTC(2026, 0, 1));
+    window.local = {
+        hours: epoch.getHours(),
+        date: epoch.getDate(),
+        offset: epoch.getTimezoneOffset(),
+        zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+</script>
+</head>
+<body></body>
+</html>

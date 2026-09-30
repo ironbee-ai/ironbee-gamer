@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head><title>decode fixture</title></head>
+<body>
+<script>
+    // A loader that decodes off the page's thread (a sound, a bitmap, an image), each job started when the last one
+    // is done, from its first frame: the page's frame each one finished in.
+    window.frame = 0;
+    window.decoded = [];
+
+    // A WAV of `seconds` of sound at 44.1 kHz, decoded into a 48 kHz context (resampled: a job that takes a while).
+    function wav(seconds) {
+        var rate = 44100, n = Math.round(rate * seconds), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        function str(at, s) { for (var i = 0; i < s.length; i++) { v.setUint8(at + i, s.charCodeAt(i)); } }
+        str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt ");
+        v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+        v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true);
+        for (var i = 0; i < n; i++) { v.setInt16(44 + i * 2, Math.round(Math.sin(i / 7) * 8000), true); }
+        return buf;
+    }
+    // A 32-bit BMP of w x h, as a blob to decode.
+    function bmp(w, h) {
+        var size = 54 + w * h * 4, buf = new ArrayBuffer(size), v = new DataView(buf), px = new Uint8Array(buf, 54);
+        v.setUint8(0, 66); v.setUint8(1, 77); v.setUint32(2, size, true); v.setUint32(10, 54, true); v.setUint32(14, 40, true);
+        v.setInt32(18, w, true); v.setInt32(22, h, true); v.setUint16(26, 1, true); v.setUint16(28, 32, true); v.setUint32(34, w * h * 4, true);
+        for (var i = 0; i < px.length; i += 4) { px[i] = i & 255; px[i + 1] = (i >> 8) & 255; px[i + 2] = 99; px[i + 3] = 255; }
+        return new Blob([buf], { type: "image/bmp" });
+    }
+    var picture = bmp(1024, 1024);
+    var audio = new OfflineAudioContext(1, 48000, 48000);
+    function done(next) { return function () { window.decoded.push(window.frame); next(); }; }
+    var jobs = [
+        // As a WebAudio loader does: callbacks.
+        function (next) { audio.decodeAudioData(wav(8), done(next), done(next)); },
+        // The promise form.
+        function (next) { audio.decodeAudioData(wav(8)).then(done(next), done(next)); },
+        function (next) { createImageBitmap(picture).then(done(next), done(next)); },
+        function (next) { var img = new Image(); img.src = URL.createObjectURL(picture); img.decode().then(done(next), done(next)); },
+        function (next) { audio.decodeAudioData(wav(8), done(next), done(next)); },
+    ];
+    function run(i) { if (i < jobs.length) { jobs[i](function () { run(i + 1); }); } }
+    requestAnimationFrame(function tick() {
+        window.frame++;
+        if (window.frame === 1) { run(0); }
+        requestAnimationFrame(tick);
+    });
+</script>
+</body>
+</html>

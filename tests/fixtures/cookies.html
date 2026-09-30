@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head><title>cookies fixture</title></head>
+<body>
+<script>
+    // A game whose cookies of another host (?other=<url>) no origin clearing reaches: ?shape=frame has a frame of that
+    // host (partitioned.html) that counts its loads in a partitioned cookie (CHIPS: kept under the game's site), ?shape=api
+    // fetches that host's API with its credentials (/visit, which counts the game's visits in a cookie of its host; the page
+    // never has a document there).
+    var params = new URLSearchParams(location.search);
+    var other = params.get("other");
+    window.seen = null;
+    if (params.get("shape") === "frame") {
+        addEventListener("message", function (e) { window.seen = e.data.partitioned; });
+        var frame = document.createElement("iframe");
+        frame.src = other + "partitioned.html";
+        document.body.appendChild(frame);
+    } else {
+        fetch(other + "visit", { credentials: "include" })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { window.seen = j.visits; });
+    }
+    window.state = function () { return window.seen; };
+</script>
+</body>
+</html>

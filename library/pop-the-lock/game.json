@@ -1,0 +1,67 @@
+{
+  "id": "pop-the-lock",
+  "name": "Pop the Lock",
+  "description": "A bar spins around a lock; tap the moment it crosses the dot. Every pop turns the bar around and moves the dot. One miss ends the game. A Phaser 2 game from the Phaser examples gallery.",
+  "url": "https://noowxela.github.io/phaser-examples/games/ready/pop-the-lock/",
+  "goal": "Pop the Lock. A bar spins around the centre of a ring and a dot sits on the ring. Click (tap) while the bar is on the dot to pop it: the bar then turns the other way and the dot jumps elsewhere on the ring. Clicking while the bar is not on the dot, or letting the bar pass the dot, ends the game. Pop as many dots as you can.",
+  "perception": {
+    "adapter": "phaser"
+  },
+  "viewport": {
+    "width": 600,
+    "height": 900
+  },
+  "bootMs": 1500,
+  "start": [
+    {
+      "click": true,
+      "advanceMs": 100
+    }
+  ],
+  "score": {
+    "expression": "(() => { const s = game && game.state && game.state.states && game.state.states.PlayGame; if (!s || !s.bar || !s.ball) { return { over: false, score: 0 }; } const m = window.__ibgamerLock || (window.__ibgamerLock = { angle: s.ball.ballAngle, pops: 0 }); if (s.ball.ballAngle !== m.angle) { m.angle = s.ball.ballAngle; m.pops++; } return { over: s.bar.rotationDirection === 0 && s.bar.tint === 0xff0000, score: m.pops, bar: Math.round(s.bar.angle), dot: Math.round(s.ball.ballAngle) }; })()",
+    "label": "dots popped"
+  },
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "reflex",
+    "timing",
+    "one-button",
+    "phaser"
+  ],
+  "credits": "Phaser examples gallery (noowxela/phaser-examples)",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "lagMs": 45
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "lagMs": 45
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya",
+    "live": true
+  }
+}

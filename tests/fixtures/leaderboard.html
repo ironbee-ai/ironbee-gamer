@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><title>leaderboard fixture</title></head>
+<body>
+<script>
+    // The window game-over.html opens at game over: counts its loads in the origin's local storage, and ticks there every
+    // 100 ms of its clock (the context's).
+    localStorage.setItem("board", String(Number(localStorage.getItem("board") || "0") + 1));
+    setInterval(function () {
+        localStorage.setItem("ticks", String(Number(localStorage.getItem("ticks") || "0") + 1));
+    }, 100);
+</script>
+</body>
+</html>

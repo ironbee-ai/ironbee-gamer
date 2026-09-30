@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head><title>first stop fixture</title></head>
+<body>
+<script>
+    // A game whose window starts on another host (?other=<url>) and leaves it at once: its first document there
+    // (visited.html) counts its visits in that host's local storage and a cookie, then sends the window back to this
+    // origin with the counts (?landed), which tells the game. The window is on this origin by the next open.
+    var params = new URLSearchParams(location.search);
+    if (params.has("landed")) {
+        if (window.opener) {
+            window.opener.postMessage({ local: Number(params.get("local")), cookie: Number(params.get("cookie")) }, "*");
+        }
+    } else {
+        window.visit = null;
+        addEventListener("message", function (e) {
+            if (e.data && typeof e.data.local === "number") {
+                window.visit = e.data;
+            }
+        });
+        window.open(params.get("other") + "visited.html?back=" + encodeURIComponent(location.origin + location.pathname + "?landed"), "_blank");
+    }
+    window.state = function () { return window.visit; };
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><title>menu fixture</title></head>
+<body style="margin:0">
+<canvas id="c" width="200" height="100" style="position:absolute;background:#0f0"></canvas>
+<script>
+    // A game's menu page (its canvas at the top left) whose click on the canvas goes on to its play page (?play: the same
+    // canvas at 400, 200), another document. Each page counts the presses that land on its canvas and those that miss.
+    var play = location.search === "?play";
+    var canvas = document.getElementById("c");
+    canvas.style.left = play ? "400px" : "0px";
+    canvas.style.top = play ? "200px" : "0px";
+    window.hits = 0;
+    window.misses = 0;
+    addEventListener("pointerdown", function (e) {
+        if (e.target === canvas) {
+            window.hits++;
+        } else {
+            window.misses++;
+        }
+    });
+    if (!play) {
+        canvas.addEventListener("click", function () { location.href = location.pathname + "?play"; });
+    }
+    window.state = function () { return { page: play ? "play" : "menu", hits: window.hits, misses: window.misses }; };
+</script>
+</body>
+</html>

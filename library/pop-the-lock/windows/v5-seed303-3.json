@@ -1,0 +1,603 @@
+{
+  "id": "v5-seed303-3",
+  "seed": 303,
+  "profileVersion": 5,
+  "rawFrames": [
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -72
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 12
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 15
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 18
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 24
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 27
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 30
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 42
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 45
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 48
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 51
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 54
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 60
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 63
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 72
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 75,
+          "tint": "#ff0000"
+        }
+      ]
+    }
+  ],
+  "lagMs": 463,
+  "frameInfo": [
+    {
+      "lagMs": 430,
+      "nowMs": 0
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 462
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 482
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 501
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 529
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 547
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 566
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 630
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 651
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 671
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 689
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 707
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 725
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 745
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 798
+    },
+    {
+      "lagMs": 463,
+      "nowMs": 818
+    }
+  ]
+}

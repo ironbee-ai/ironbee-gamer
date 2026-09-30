@@ -1,0 +1,74 @@
+{
+  "id": "pacman-ghosts",
+  "name": "Pac-Man (with ghosts)",
+  "description": "Pac-Man with four ghosts, three lives and power pellets: Pacman Canvas, an HTML5 remake by platzh1rsch.",
+  "url": "https://pacman.platzh1rsch.ch/",
+  "goal": "Pac-Man. The arrow keys steer Pac-Man through the maze. Eat the pellets (10 points each) and clear the maze. Four ghosts roam it: touching one costs a life, and there are three lives. After a big power pellet the ghosts turn blue for a while and can be eaten for bonus points. Score as many points as you can without losing your lives.",
+  "perception": {
+    "adapter": "pixels",
+    "grid": {
+      "width": 90
+    }
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "bootMs": 2000,
+  "start": [
+    {
+      "click": true,
+      "advanceMs": 500
+    }
+  ],
+  "resume": [
+    {
+      "click": true,
+      "advanceMs": 500
+    }
+  ],
+  "score": {
+    "expression": "(() => { const c = document.querySelector('#canvas-overlay-container'); const t = document.querySelector('#canvas-overlay-content #title'); const shown = !!c && getComputedStyle(c).display !== 'none'; const over = shown && /game over/i.test((t && t.textContent) || ''); const num = (q) => { const e = document.querySelector(q); return e ? Number(((e.textContent || '').match(/\\d+/) || ['0'])[0]) : 0; }; return { over, score: num('.score'), level: num('.level'), waiting: shown && !over }; })()",
+    "label": "points"
+  },
+  "budgets": {
+    "gameSeconds": 180,
+    "episodes": 1,
+    "trainSeconds": 180
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "arcade",
+    "maze",
+    "ghosts"
+  ],
+  "preferredEngine": "laya",
+  "credits": "Pacman Canvas by platzh1rsch (CC0), played where its author hosts it: pacman.platzh1rsch.ch",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya",
+    "live": true
+  }
+}

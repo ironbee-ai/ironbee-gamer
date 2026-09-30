@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><title>throws fixture</title></head>
+<body>
+<script>
+    // A frame callback that throws now and then, as a page on its own clock would log and go on: in the third
+    // frame (the boot) and in the 40th.
+    window.frame = 0;
+    requestAnimationFrame(function tick() {
+        window.frame++;
+        requestAnimationFrame(tick);
+        if (window.frame === 3 || window.frame === 40) {
+            null.boom;
+        }
+    });
+</script>
+</body>
+</html>

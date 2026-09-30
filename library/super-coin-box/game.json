@@ -1,0 +1,70 @@
+{
+  "id": "super-coin-box",
+  "name": "Super Coin Box",
+  "description": "Grab the coins, stomp or dodge the enemies that pour in faster and faster. Three lives. A Phaser 2 platformer from the Phaser examples gallery.",
+  "url": "https://noowxela.github.io/phaser-examples/games/ready/super-coin-box/",
+  "goal": "Super Coin Box. Use the arrow keys: Left and Right to run, Up to jump. Grab the coin; a new one appears somewhere else each time. Enemies keep coming down from the top: landing on one from above kills it, touching it any other way costs a life. You have three lives. Collect as many coins as you can.",
+  "perception": {
+    "adapter": "phaser",
+    "maps": true
+  },
+  "viewport": {
+    "width": 800,
+    "height": 600
+  },
+  "bootMs": 4000,
+  "start": [
+    {
+      "press": [
+        "ArrowUp"
+      ],
+      "advanceMs": 600
+    }
+  ],
+  "score": {
+    "expression": "(() => { const g = (window.Phaser && Phaser.GAMES || []).find(Boolean); if (!g || !g.global) { return { over: false, score: 0 }; } const s = g.state.current; return { over: s === 'gameOver', score: g.global.score, lives: g.global.playerLives, level: g.global.currentLevel, state: s }; })()",
+    "label": "coins"
+  },
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "platformer",
+    "reflex",
+    "phaser"
+  ],
+  "credits": "Phaser examples gallery (noowxela/phaser-examples)",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya"
+  }
+}

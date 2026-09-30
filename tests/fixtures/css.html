@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+<title>css clock fixture</title>
+<style>
+    #box { position: absolute; left: 0; top: 0; width: 10px; height: 10px; background: red; animation: slide 2000ms linear forwards; }
+    #held { position: absolute; left: 0; top: 20px; width: 10px; height: 10px; background: blue; animation: slide 2000ms linear forwards; animation-play-state: paused; }
+    @keyframes slide { from { left: 0px; } to { left: 2000px; } }
+</style>
+</head>
+<body>
+<div id="box"></div>
+<div id="held"></div>
+<script>
+    // Where the two boxes are: one the page lets run, one it holds itself.
+    window.pos = function () {
+        return { box: document.getElementById("box").getBoundingClientRect().left, held: document.getElementById("held").getBoundingClientRect().left };
+    };
+</script>
+</body>
+</html>

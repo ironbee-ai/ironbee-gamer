@@ -1,0 +1,240 @@
+{
+  "id": "v6-seed202",
+  "seed": 202,
+  "profileVersion": 6,
+  "rawFrames": [
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 477,
+          "y": 403,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -72
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 477,
+          "y": 403,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -69
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 477,
+          "y": 403,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -51
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 477,
+          "y": 403,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -33
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 477,
+          "y": 403,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -15,
+          "tint": "#ff0000"
+        }
+      ]
+    }
+  ],
+  "lagMs": 430,
+  "frameInfo": [
+    {
+      "lagMs": 430,
+      "nowMs": 0
+    },
+    {
+      "lagMs": 430,
+      "slots": [
+        430,
+        480,
+        530,
+        580,
+        630,
+        680,
+        730,
+        780
+      ],
+      "pending": [],
+      "nowMs": 6
+    },
+    {
+      "lagMs": 430,
+      "slots": [
+        430,
+        480,
+        530,
+        580,
+        630,
+        680,
+        730,
+        780
+      ],
+      "pending": [],
+      "nowMs": 108
+    },
+    {
+      "lagMs": 430,
+      "slots": [
+        430,
+        480,
+        530,
+        580,
+        630,
+        680,
+        730,
+        780
+      ],
+      "pending": [],
+      "nowMs": 216
+    },
+    {
+      "lagMs": 430,
+      "slots": [
+        430,
+        480,
+        530,
+        580,
+        630,
+        680,
+        730,
+        780
+      ],
+      "pending": [],
+      "nowMs": 324
+    }
+  ]
+}

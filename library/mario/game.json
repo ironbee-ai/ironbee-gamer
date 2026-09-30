@@ -1,0 +1,207 @@
+{
+  "id": "mario",
+  "name": "Infinite Mario",
+  "description": "Infinite Mario in HTML5: Mario runs, jumps and stomps through endless levels generated from the seed — goombas, koopas, piranha plants, pits and pipes. Drawn on a 2D canvas.",
+  "url": "https://kenspiretech.github.io/mariohtml5/main.html",
+  "goal": "Infinite Mario. Left and Right walk, S jumps (hold it for a higher jump), A runs (and throws fireballs with the fire flower), Down ducks. Run to the right through the level as far as you can: jump over pits and obstacles, stomp enemies by landing on them from above (touching one any other way hurts, and small Mario dies of it), avoid piranha plants and bullets. Reaching the end of the level wins it.",
+  "perception": {
+    "adapter": "custom",
+    "read": "(() => { const G = window.Mario, M = G && G.MarioCharacter, W = M && M.World; if (!M || !W || !W.Level || !W.Sprites || !G.Tile || !G.Tile.Behaviors || (G.GlobalMapState && G.GlobalMapState.WaterSprite)) return null; const L = W.Level, B = G.Tile.Behaviors, T = G.Tile, r = (v) => Math.round(v * 10) / 10; const mx = Math.floor(M.X / 16), my = Math.floor(M.Y / 16), x0 = Math.max(0, mx - 4), x1 = Math.min(L.Width - 1, mx + 16); const rows = []; for (let y = 0; y < L.Height; y++) { let row = ''; for (let x = x0; x <= x1; x++) { const b = B[L.Map[x][y] & 0xff] || 0; row += (b & T.BlockAll) ? ((b & T.Bumpable) ? '?' : (b & T.Breakable) ? 'B' : '#') : (b & T.BlockUpper) ? '=' : (b & T.PickUpable) ? 'c' : '.'; } rows.push(row); } const names = ['redKoopa', 'greenKoopa', 'goomba', 'spiky', 'flower'], things = []; for (const s of W.Sprites.Objects) { if (s === M) continue; let kind = null; if (G.FlowerEnemy && s instanceof G.FlowerEnemy) kind = 'piranha'; else if (G.Enemy && s instanceof G.Enemy) kind = (names[s.Type] || 'enemy') + (s.Winged ? 'Winged' : ''); else if (G.Shell && s instanceof G.Shell) kind = 'shell'; else if (G.BulletBill && s instanceof G.BulletBill) kind = 'bulletBill'; else if (G.Mushroom && s instanceof G.Mushroom) kind = 'mushroom'; else if (G.FireFlower && s instanceof G.FireFlower) kind = 'fireFlower'; else if (G.Fireball && s instanceof G.Fireball) kind = 'fireball'; if (!kind || s.X - M.X < -64 || s.X - M.X > 320) continue; things.push({ kind, dx: Math.round(s.X - M.X), dy: Math.round(s.Y - M.Y), xa: r(s.Xa), ya: r(s.Ya), dead: (s.DeadTime || 0) > 0 }); } return { mario: { x: Math.round(M.X), y: Math.round(M.Y), xa: r(M.Xa), ya: r(M.Ya), onGround: !!M.OnGround, large: !!M.Large, fire: !!M.Fire, ducking: !!M.Ducking, invulnerable: M.InvulnerableTime > 0, dying: M.DeathTime > 0, winning: M.WinTime > 0 }, tiles: { x0: x0, rows: rows }, marioTile: [mx, my], levelWidth: L.Width, timeLeft: Math.round(W.TimeLeft), things: things.sort((a, b) => a.dx - b.dx) }; })()",
+    "format": "{ mario: { x, y (pixels; a tile is 16, y down, y is Mario's feet), xa, ya (pixels a tick; + is right / down), onGround, large, fire, ducking, invulnerable, dying, winning }, tiles: { x0: the level column of the first character, rows: the level's rows top to bottom, one character a tile: '#' solid, '?' a block to bump from below, 'B' breakable brick, '=' a platform you can stand on from above, 'c' a coin, '.' empty — a column with no '#' or '=' at the bottom is a pit }, marioTile: [column, row] of Mario, levelWidth: columns, timeLeft: seconds, things: enemies and items from 4 tiles behind to 20 ahead, nearest first [{ kind: goomba | redKoopa | greenKoopa | spiky | piranha | shell | bulletBill | mushroom | fireFlower | fireball (+ 'Winged'), dx, dy: pixels from Mario, xa, ya, dead }] } — null when no level is being played"
+  },
+  "viewport": {
+    "width": 700,
+    "height": 540
+  },
+  "bootMs": 3000,
+  "start": [
+    {
+      "advanceMs": 500
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "hold": [],
+      "advanceMs": 1000
+    }
+  ],
+  "resume": [
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "holdFrom": "(() => { const M = window.Mario; if (!M || !M.MapTile) return null; const g = M.GlobalMapState; if (!g || !g.WaterSprite) { const w = M.MarioCharacter && M.MarioCharacter.World; return w && w.Level && w.Sprites ? null : 's'; } if (g.MoveTime > 0 || g.EnterLevel) return null; const T = M.MapTile, lv = g.Level, d = g.Data; const x0 = (g.XMario / 16) | 0, y0 = (g.YMario / 16) | 0; const open = (x, y) => lv[x][y] === T.Level && d[x][y] !== 0 && d[x][y] > -10; if (open(x0, y0)) return 's'; const W = lv.length, H = lv[0].length, seen = {}, q = [[x0, y0, null]]; seen[x0 + ',' + y0] = true; const dirs = [[1, 0, 'ArrowRight'], [0, -1, 'ArrowUp'], [0, 1, 'ArrowDown'], [-1, 0, 'ArrowLeft']]; while (q.length) { const c = q.shift(); for (const [dx, dy, key] of dirs) { const nx = c[0] + dx, ny = c[1] + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen[nx + ',' + ny]) continue; if (lv[nx][ny] !== T.Road && lv[nx][ny] !== T.Level) continue; seen[nx + ',' + ny] = true; const first = c[2] || key; if (open(nx, ny)) return first; q.push([nx, ny, first]); } } return null; })()",
+      "advanceMs": 70
+    },
+    {
+      "hold": [],
+      "advanceMs": 450
+    },
+    {
+      "hold": [],
+      "advanceMs": 1000
+    }
+  ],
+  "score": {
+    "expression": "(() => { const G = window.Mario, M = G && G.MarioCharacter, W = M && M.World; if (!W || !W.Level || !W.Sprites || (G.GlobalMapState && G.GlobalMapState.WaterSprite)) { return { over: false, score: 0, waiting: true }; } const m = window.__ibgamerMario || (window.__ibgamerMario = { startX: M.X, maxX: M.X }); if (M.X > m.maxX) { m.maxX = M.X; } const won = M.WinTime > 0; return { over: M.DeathTime > 0 || won || W.GotoMapState === true, score: Math.floor((m.maxX - m.startX) / 16) + (won ? 1000 : 0), won: won, coins: M.Coins, level: M.LevelString }; })()",
+    "label": "tiles run"
+  },
+  "budgets": {
+    "gameSeconds": 90,
+    "episodes": 1,
+    "trainSeconds": 90
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "platformer",
+    "mario",
+    "canvas2d"
+  ],
+  "credits": "Infinite Mario in HTML5 by Robert Kleffner (Unlicense), after Markus Persson's Infinite Mario; played where a copy of it is published on GitHub Pages (kenspiretech.github.io/mariohtml5 — a fork differing only by its Pages setup)",
+  "preferredEngine": "laya",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya"
+  }
+}

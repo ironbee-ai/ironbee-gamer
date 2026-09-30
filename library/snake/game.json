@@ -1,0 +1,76 @@
+{
+  "id": "snake",
+  "name": "Crazy Snake",
+  "description": "Snake on a 17 by 17 board: eat the coins and grow, without hitting the walls or yourself. Every five coins the board spins, shrinks or moves. A Phaser 2 game from the Phaser examples gallery.",
+  "url": "https://noowxela.github.io/phaser-examples/games/ready/crazy-snake/",
+  "goal": "Snake. The snake moves one cell every 200 ms in the direction it is heading. The arrow keys turn it (it cannot turn straight back). Eat the coin to grow and score; a new coin appears elsewhere. Hitting a wall (beyond 8 cells from the centre in any direction) or the snake's own body ends the game. Every five coins the board spins, shrinks or moves on screen; the rules stay the same. Eat as many coins as you can.",
+  "perception": {
+    "adapter": "phaser",
+    "read": "(() => { const g = window.game; const key = g && g.state && g.state.current; const s = g && g.state && g.state.getCurrentState && g.state.getCurrentState(); if (key !== 'Play' || !s || !s.snake_array || !s.coin) { return { playing: false, screen: key || null }; } const dir = [null, 'up', 'down', 'right', 'left']; const cell = (o) => [Math.round(o.x / 20), Math.round(o.y / 20)]; return { playing: !s.is_dead, head: cell(s.snake_array[0]), body: s.snake_array.slice(1).map(cell), coin: cell(s.coin), heading: dir[s.current_direction || s.direction], turn: dir[s.direction], edge: 8, score: window.score, headOnScreen: !!s.snake_array[0].inCamera }; })()",
+    "format": "{ playing, head: [x, y] cell of the snake's head, body: the other cells head to tail, coin: [x, y], heading: the direction it moves (up = y - 1, down = y + 1, right = x + 1, left = x - 1), turn: the direction it will take on its next move, edge: 8 (cells run from -8 to 8 on both axes; beyond is the wall), score, headOnScreen } — { playing: false, screen } on the menu and after the game."
+  },
+  "viewport": {
+    "width": 600,
+    "height": 600
+  },
+  "bootMs": 3000,
+  "start": [
+    {
+      "waitMs": 1500,
+      "advanceMs": 1500
+    },
+    {
+      "hold": [
+        "ArrowUp"
+      ],
+      "advanceMs": 100
+    },
+    {
+      "hold": [],
+      "advanceMs": 100
+    }
+  ],
+  "score": {
+    "expression": "(() => { const g = window.game; const key = g && g.state && g.state.current; const s = g && g.state && g.state.getCurrentState && g.state.getCurrentState(); return { over: key === 'End' || (key === 'Play' && !!(s && s.is_dead)), score: Number(window.score) || 0 }; })()",
+    "label": "coins eaten"
+  },
+  "budgets": {
+    "gameSeconds": 90,
+    "episodes": 1,
+    "trainSeconds": 90
+  },
+  "trainSeeds": [
+    101,
+    202
+  ],
+  "tags": [
+    "arcade",
+    "planning",
+    "phaser"
+  ],
+  "credits": "Crazy Snake by lessmilk.com, from the Phaser examples gallery (noowxela/phaser-examples)",
+  "preferredEngine": "laya",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya",
+    "live": true
+  }
+}

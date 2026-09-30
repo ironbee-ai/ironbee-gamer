@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head><title>chain fixture</title></head>
+<body>
+<script>
+    // A loader that asks for its files one after another (each in the last one's callback), from its first frame:
+    // the page's frame each file arrived in.
+    window.frame = 0;
+    window.loaded = [];
+    function next(i) {
+        if (i < 8) {
+            var img = new Image();
+            img.onload = img.onerror = function () { window.loaded.push(window.frame); next(i + 1); };
+            img.src = "/held?ms=15&file=" + i;
+        }
+    }
+    requestAnimationFrame(function tick() {
+        window.frame++;
+        if (window.frame === 1) { next(0); }
+        requestAnimationFrame(tick);
+    });
+</script>
+</body>
+</html>

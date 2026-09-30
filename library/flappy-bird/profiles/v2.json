@@ -1,0 +1,78 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-29T11:43:42.220Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "All three games ended because decisions were too coarse, not because the state was missing anything. At tickMs 96 the bird could only flap every 5-6 game frames, and the count varied between 5 and 6 because the game's setInterval period of about 16.7 ms is not a divisor of 96 ms. At the fatal spots (seed303 t=605, seed202 t=130, seed101 t=98-103) flapping one tick early hits the gap's top edge and flapping one tick later hits its bottom edge or the ground. The 6-frame planner then flickered between 'crash' and 3-4 px margins it could not keep. Now a decision is made every 16 ms. The lookahead is a memoised search over flap times: every frame for the next 10 frames, then every 2 frames, then every 3, over a 60-frame horizon, with good flap times tried first. The frame length estimate now counts steps where no game frame ran. The soft band around upcoming gaps now gets a 20 px pad, so guidance toward the next gap cannot outweigh clearance inside the current pipe. A categorical field flapEffect compares the two margins, and the rule reads only that field.",
+  "extractor": "function extract(raw, memory, info) {\n  raw = raw || {}; memory = memory || {}; info = info || {};\n  var TICK = 16, G = 0.25, JUMP = -4.6, OFF = 12, PAD = 2, BIG = 1e9, DEAD = -1e9;\n  var H = 60, CG = 190, S_UP = 1, S_DN = 1.2, SOFT = 10, SOFTPAD = 20, DISC = 0.05, BUDGET = 20000, AIM = 16;\n  var i, j, n;\n  function isNum(a) { return typeof a === 'number' && isFinite(a); }\n  function num(a, d) { return isNum(a) ? a : d; }\n  // tilted bird: [half height of the rotated box (ground test), half height of the game's reduced hitbox (pipe test)]\n  function boxOf(v) {\n    var a = Math.abs(Math.min(v / 10 * 90, 90)) * Math.PI / 180;\n    var bh = 34 * Math.sin(a) + 24 * Math.cos(a);\n    return [bh / 2, (24 + bh) / 4];\n  }\n  var screen = num(raw.screen, -1);\n  var ground = num(raw.ground, num(raw.height, 420));\n  var bird = raw.bird || {};\n  var cx = num(bird.x, 59) + num(bird.w, 36) / 2;\n  var BL = cx - 17, BR = cx + 17;\n  var top = num(raw.top, num(bird.y, 200));\n  var v0 = num(raw.velocity, 0);\n  var lag = Math.max(0, num(info.lagMs, 0));\n  var now = isNum(info.nowMs) ? info.nowMs : (isNum(memory.lastNow) ? memory.lastNow + TICK : 0);\n\n  // game frame length: whole gravity steps (+0.25 each) over flap-free intervals, counting intervals with no frame\n  if (screen === 1 && memory.lastScreen === 1 && isNum(memory.lastV) && isNum(memory.lastNow) && now > memory.lastNow && now - memory.lastNow <= 400) {\n    var frf = (v0 - memory.lastV) / G, fr = Math.round(frf);\n    if (memory.lastV > -3.5 && v0 > -4 && fr >= 0 && Math.abs(frf - fr) < 0.2) {\n      memory.fT = (memory.fT || 0) + now - memory.lastNow; memory.fN = (memory.fN || 0) + fr;\n    }\n  }\n  var FRAME = memory.fN >= 30 ? Math.min(18, Math.max(15, memory.fT / memory.fN)) : 1000 / 60;\n\n  var pipes = [], odd = [], list = Array.isArray(raw.pipes) ? raw.pipes : [];\n  for (i = 0; i < list.length; i++) {\n    var p = list[i];\n    if (!p || !isNum(p.x)) continue;\n    if (isNum(p.gapTop) && isNum(p.gapBottom)) pipes.push({ x: p.x, w: num(p.w, 52), gt: p.gapTop, gb: p.gapBottom });\n    else odd.push({ kind: 'pipe', x: p.x, y: num(p.y, 0), w: num(p.w, 52), h: num(p.h, ground) });\n  }\n  var known = { screen: 1, bird: 1, top: 1, velocity: 1, ground: 1, width: 1, height: 1, pipes: 1 };\n  for (var key in raw) {\n    if (known[key] || /cloud|star|score|digit|decor|sky|back|text|label|title|medal|best/i.test(key)) continue;\n    var val = raw[key], arr = Array.isArray(val) ? val : (val && typeof val === 'object' ? [val] : []);\n    for (i = 0; i < arr.length && i < 20; i++) {\n      var o = arr[i];\n      if (o && typeof o === 'object' && isNum(o.x)) odd.push({ kind: key, x: o.x, y: num(o.y, 0), w: num(o.w, num(o.width, 0)), h: num(o.h, num(o.height, 0)) });\n    }\n  }\n  var unk = null, unkN = 0;\n  for (i = 0; i < odd.length; i++) {\n    if (odd[i].x + odd[i].w < BL) continue;\n    unkN++;\n    if (!unk || odd[i].x < unk.x) unk = odd[i];\n  }\n  pipes.sort(function (a, b) { return a.x - b.x; });\n  var ahead = [];\n  for (i = 0; i < pipes.length; i++) if (pipes[i].x + pipes[i].w >= BL) ahead.push(pipes[i]);\n  var lead = ahead[0], sec = ahead[1];\n\n  // pipe speed (px/ms), measured on the leading pipe\n  var speed = isNum(memory.speed) ? memory.speed : 1000 / 7500;\n  if (screen === 1 && lead) {\n    var tr = memory.track;\n    if (tr && tr.gt === lead.gt && tr.gb === lead.gb && lead.x <= tr.x + 1 && now >= tr.t) {\n      if (now - tr.t >= 200) { var sp = (tr.x - lead.x) / (now - tr.t); if (sp > 0.03 && sp < 0.6) speed = sp; }\n    } else memory.track = { gt: lead.gt, gb: lead.gb, x: lead.x, t: now };\n  } else if (screen !== 1) memory.track = null;\n  memory.speed = speed;\n\n  var passed = memory.passed || 0;\n  if (screen === 1 && lead && isNum(memory.leadX) && lead.x > memory.leadX + 60) passed++;\n  memory.passed = passed;\n  memory.leadX = lead ? lead.x : null;\n\n  // lookahead: memoised search over flap times (every frame for 10 frames, then every 2, then every 3), max-min clearance\n  var hT = [], hB = [], sT = [], sB = [], tg = [], FA = [], EA = [], FB = [], EB = [];\n  var memo = {}, steps = 0;\n  function clr(j, cy, e, fh) {\n    var c = ground - cy - fh;\n    if (c <= 0) return DEAD;\n    var bt = cy - e, bb = cy + e, x;\n    if (hT[j] > -BIG) {\n      x = bt - hT[j]; if (x <= 0) return DEAD; if (x < c) c = x;\n      x = hB[j] - bb; if (x <= 0) return DEAD; if (x < c) c = x;\n    }\n    x = Math.min(bt - sT[j], sB[j] - bb) + SOFTPAD;\n    if (x < c) c = x;\n    c += DISC * j;\n    return c > CG ? CG : (c < -150 ? -150 : c);\n  }\n  function canFlap(j) { return j < H && (j <= 10 || (j <= 30 ? j % 2 === 0 : j % 3 === 0)); }\n  function run(f, y, flap) {\n    var E = flap ? EB : EA, Fh = flap ? FB : FA, base = flap ? JUMP : v0;\n    var cj = [], cy = [], cm = [], cs = [], m = BIG, dead = 0, yy = y, jj, nn, vv, c, a, b;\n    for (jj = f + 1; jj <= H; jj++) {\n      nn = flap ? jj - f : jj; vv = base + G * nn; yy += vv; steps++;\n      c = clr(jj, yy + OFF, E[nn], Fh[nn]);\n      if (c === DEAD) { dead = jj; break; }\n      if (c < m) m = c;\n      if (yy + OFF - E[nn] <= 0) yy = 0;\n      if (canFlap(jj)) { cj.push(jj); cy.push(yy); cm.push(m); cs.push(Math.abs(yy + OFF - tg[jj + 1] - AIM) + (vv < 0 ? 60 : 0)); }\n    }\n    var best = dead ? dead - 300 : (m >= BIG ? CG : m), ord = [];\n    for (a = 0; a < cj.length; a++) ord.push(a);\n    ord.sort(function (p1, p2) { return cs[p1] - cs[p2]; });\n    for (b = 0; b < ord.length && best < CG && steps <= BUDGET; b++) {\n      a = ord[b];\n      if (cm[a] <= best) continue;\n      c = V(cj[a], cy[a]);\n      if (c > cm[a]) c = cm[a];\n      if (c > best) best = c;\n    }\n    return best;\n  }\n  function V(f, y) {\n    var k = f * 4096 + Math.round(y) + 1024, r = memo[k];\n    if (r === undefined) { r = run(f, y, true); memo[k] = r; }\n    return r;\n  }\n\n  var mF = 0, mW = 0;\n  if (screen === 1) {\n    try {\n      var nA = Math.min(ahead.length, 4);\n      for (j = 0; j <= H; j++) {\n        var t = (j - 0.5) * FRAME, ht = -BIG, hb = BIG, st = -BIG, sb = BIG, first = true;\n        for (i = 0; i < nA; i++) {\n          var q = ahead[i], xj = q.x - speed * t;\n          if (xj + q.w - PAD < BL) continue;\n          if (first) { first = false; if (xj - PAD < BR) { ht = q.gt; hb = q.gb; continue; } }\n          var d = Math.max(0, xj - PAD - BR);\n          st = Math.max(st, q.gt - S_UP * d - SOFT);\n          sb = Math.min(sb, q.gb + S_DN * d + SOFT);\n        }\n        hT.push(ht); hB.push(hb); sT.push(st); sB.push(sb);\n        tg.push(ht > -BIG ? (ht + hb) / 2 : (st > -BIG ? (Math.max(st, 40) + Math.min(sb, ground - 40)) / 2 : ground - 200));\n      }\n      for (n = 0; n <= H + 1; n++) {\n        var ba = boxOf(v0 + G * n), bf = boxOf(JUMP + G * n);\n        FA.push(ba[0]); EA.push(ba[1]); FB.push(bf[0]); EB.push(bf[1]);\n      }\n      var L = lag > 0 ? Math.min(20, Math.round(lag / FRAME)) : 0, yL = top, mPre = BIG, deadPre = 0;\n      for (n = 1; n <= L; n++) {\n        yL += v0 + G * n;\n        var cp = clr(n, yL + OFF, EA[n], FA[n]);\n        if (cp === DEAD) { deadPre = n; break; }\n        if (cp < mPre) mPre = cp;\n        if (yL + OFF - EA[n] <= 0) yL = 0;\n      }\n      if (deadPre) { mF = deadPre - 300; mW = mF; }\n      else {\n        steps = 0; mF = Math.min(mPre, V(L, yL));\n        steps = 0; mW = Math.min(mPre, run(L, yL, false));\n      }\n    } catch (err) { mF = 0; mW = 0; }\n  }\n\n  var b0 = boxOf(v0), cy0 = top + OFF, bt0 = cy0 - b0[1], bb0 = cy0 + b0[1], diff = mF - mW;\n  memory.lastNow = now; memory.lastV = v0; memory.lastScreen = screen;\n  return {\n    over: screen === 2,\n    playing: screen === 1,\n    birdY: Math.round(cy0),\n    vel: Math.round(v0 * 10) / 10,\n    roomToGround: Math.round(ground - cy0 - b0[0]),\n    pipeDx: lead ? Math.round(lead.x - BR) : null,\n    inPipe: lead ? lead.x - PAD < BR : false,\n    roomAbove: lead ? Math.round(bt0 - lead.gt) : null,\n    roomBelow: lead ? Math.round(lead.gb - bb0) : null,\n    msToPipe: lead ? Math.round(Math.max(0, lead.x - PAD - BR) / speed) : null,\n    msToClear: lead ? Math.round(Math.max(0, lead.x + lead.w - PAD - BL) / speed) : null,\n    nextGapShift: lead && sec ? Math.round((sec.gt + sec.gb - lead.gt - lead.gb) / 2) : null,\n    marginIfFlap: Math.round(mF),\n    marginIfWait: Math.round(mW),\n    flapEffect: screen !== 1 ? 'same' : (diff > 0.1 ? 'moreRoom' : (diff < -0.1 ? 'lessRoom' : 'same')),\n    crashIfFlap: screen === 1 && mF < -200,\n    crashIfWait: screen === 1 && mW < -200,\n    passed: passed,\n    unknownThing: unk ? { kind: String(unk.kind).slice(0, 16), dx: Math.round(unk.x - BR), y: Math.round(unk.y), w: Math.round(unk.w), h: Math.round(unk.h), count: unkN } : null\n  };\n}",
+  "instructions": "Play the game well. Flappy Bird. Press Space (or click) to flap: the bird jumps up, then gravity pulls it down. Fly through the gaps between the pipes without touching a pipe or the ground. One point for every pipe passed.\nDecide every 16 ms (one game frame): flap or wait. If over is true: wait. If playing is false (splash screen): flap to start. Otherwise flap only when flapEffect is \"moreRoom\" (flapping now keeps more clearance than not flapping this frame, i.e. marginIfFlap > marginIfWait). When flapEffect is \"same\" or \"lessRoom\", wait.\nmarginIfFlap and marginIfWait are the best worst-case clearance in px the bird can keep over the next ~1 s if it flaps now or does not flap this frame. Every later flap is assumed to be timed as well as possible: frame by frame for the next 10 frames, then every 2-3 frames. Clearance is measured to the gap edges while inside a pipe, to the ground, and to a band that widens with distance around the upcoming gaps. It is capped at 190. A value below -200 (crashIfFlap / crashIfWait true) means a crash can't be avoided; less negative means the crash comes later.\nThe other fields are context. vel is px per 60 Hz frame (+ is down). roomToGround is the px left above the ground. pipeDx / msToPipe are the distance and time until the bird's front enters the next pipe (inPipe is true while inside it). msToClear is the time until the bird is past that pipe. roomAbove / roomBelow are the px between the bird's hitbox and that gap's top and bottom edges. nextGapShift is how much lower (+) or higher (-) the following gap is. passed is the number of pipes cleared. unknownThing is an unrecognised object ahead; treat it as an obstacle.",
+  "actions": [
+    {
+      "id": "flap",
+      "description": "Click once: the bird jumps (velocity set to -4.6 px/frame, rising about 40 px over the next 0.3 s before falling again). On the splash screen this starts the game.",
+      "click": true
+    },
+    {
+      "id": "wait",
+      "description": "Do nothing this frame. Gravity keeps pulling the bird down (+0.25 px/frame each frame).",
+      "keys": []
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 16,
+  "maxHoldMs": 200,
+  "teacher": "function teach(state) {\n  if (!state || state.over) return 'wait';\n  if (!state.playing) return 'flap';\n  return state.flapEffect === 'moreRoom' ? 'flap' : 'wait';\n}",
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": [
+        62,
+        63,
+        64
+      ],
+      "expect": "state.crashIfWait === false || state.crashIfFlap === false",
+      "why": "Frames around v1 t=98-100: the bird is high after the 92-182 gap and the 212-302 gap is 0.6-0.75 s away. It can survive by diving and then flapping at the right frame, but the 6-frame planner reported a certain crash with both actions. Frame-level planning must find a way through."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": [
+        57,
+        58,
+        59
+      ],
+      "expect": "state.crashIfWait === false || state.crashIfFlap === false",
+      "why": "Frames around v1 t=129-131: dropping into the 156-246 gap is possible if the flap comes at the right frame (~frame 18). v1 flickered between crash and alive here. The new planner must see that the bird can survive."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": [
+        64,
+        65,
+        66
+      ],
+      "expect": "state.crashIfWait === false",
+      "why": "Frames around v1 t=601-603, inside the 241-331 gap: holding off and flapping a few frames later keeps 5-10 px of clearance. v1's 6-frame grid called waiting a crash, and the game was lost two ticks later."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || (state.flapEffect === 'moreRoom' ? state.marginIfFlap >= state.marginIfWait : state.flapEffect === 'lessRoom' ? state.marginIfFlap <= state.marginIfWait : state.flapEffect === 'same')",
+      "why": "The categorical flapEffect field that the rule reads must always exist and agree with the two margins."
+    }
+  ],
+  "results": {
+    "mean": 29.33,
+    "scores": [
+      38,
+      12,
+      38
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 60,
+    "measuredAt": "2026-09-29T11:44:10.303Z"
+  }
+}

@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><title>launched fixture</title></head>
+<body>
+<script>
+    // The game a launcher sends the tab on to: reads the launcher's token and counts its own loads in the tab's
+    // session storage.
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    window.state = function () { return { token: sessionStorage.getItem("token"), loads: Number(sessionStorage.getItem("loads")) }; };
+</script>
+</body>
+</html>

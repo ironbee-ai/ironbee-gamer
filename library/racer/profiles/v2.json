@@ -1,0 +1,108 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-29T22:31:57.561Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "v1 lost about 300 segments per game. Most of it went in the curvy stretches (20–30 s: S-curves into the +4 curve; 40–50 s: the long +4 curve), where speed fell to 0.3–0.7, plus rear-end hits. Its lookahead moved the car sideways at a fixed rate and ignored both the curve's outward push and speed changes, so on curve 4 at full speed it chased lines it could not reach. At the end of the seed-101 run it held gasRight while drifting left into a slower car, openX kept flipping between 0.75 and -0.5, and it braked only once slowMarginMs was under 150, which was too late; its edgeMs brake rule also ignored traffic. The new extractor replays the game's own physics frame by frame (steering 2·s per second, outward push 0.6·s²·curve, gas +0.2/s, brake -1/s, off-road -0.5/s, a hit on a slower car in the same segment dropping speed to cs²/s using the segment phase taken from the roadside-object dz, roadside objects stopping the car at 0.2) for 12 target lines × 9 throttle plans, scoring each by distance plus the cost of re-accelerating from its final speed. The rules now steer by openDxSteps (±0.5) toward the best line and brake only when slowGain >= 0.5, meaning braking this decision beats accelerating now and braking later; no failure windows were saved, so no regression tests could be added.",
+  "extractor": "function extract(raw, memory, info) {\n  info = info || {};\n  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.road) || typeof raw.playerX !== 'number') {\n    memory.x = null; memory.s = null; memory.t = null; memory.cars = {}; memory.target = null;\n    return { ready: false };\n  }\n  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }\n  function r2(v) { return Math.round(v * 100) / 100; }\n  var i, j, k;\n  var lag = clamp((+info.lagMs || 0) / 1000, 0, 0.5);\n  var DT = 0.016, TK = 6, TICK = DT * TK, NSTEP = 125, HM = 0.03, SOFT = 0.12;\n  var seg = +raw.segmentLength || 200;\n  var MAXV = seg * 60;\n  var cf = typeof raw.centrifugal === 'number' ? raw.centrifugal : 0.3;\n  var pw = +raw.playerW || 0.3;\n  var s0 = clamp(+raw.speed || 0, 0, 1);\n  var x0 = raw.playerX;\n  var road = raw.road, RL = road.length;\n  function cv(q) { if (!RL) return 0; var r = road[q < 0 ? 0 : (q < RL ? q : RL - 1)]; return r ? (+r.curve || 0) : 0; }\n  var now = typeof info.nowMs === 'number' ? info.nowMs : (typeof memory.t === 'number' ? memory.t + 96 : 0);\n  var dt = typeof memory.t === 'number' ? (now - memory.t) / 1000 : 0;\n  if (!(dt > 0.005 && dt < 0.5)) dt = 0;\n  var vx = -2 * cf * s0 * s0 * cv(0), sv = 0;\n  if (dt && typeof memory.x === 'number') {\n    var lim = 2 * s0 + Math.abs(vx) + 0.05;\n    vx = clamp((x0 - memory.x) / dt, -lim, lim);\n  }\n  if (dt && typeof memory.s === 'number') sv = clamp((s0 - memory.s) / dt, -1.2, 0.2);\n  memory.x = x0; memory.s = s0; memory.t = now;\n  var xL = x0 + vx * lag, sL = clamp(s0 + sv * lag, 0, 1);\n  var pz0 = (s0 + sL) / 2 * MAXV * lag;\n  var side = Array.isArray(raw.side) ? raw.side : [], frac = null;\n  for (i = 0; i < side.length; i++) {\n    var sd = side[i];\n    if (!sd || typeof sd !== 'object' || typeof sd.dz !== 'number') continue;\n    var f = ((-sd.dz) % seg + seg) % seg;\n    if (frac === null) frac = f;\n    else if (Math.min(Math.abs(f - frac), seg - Math.abs(f - frac)) > 4) { frac = null; break; }\n  }\n  var fr = frac === null ? seg / 2 : frac, ZM = frac === null ? seg / 2 : 30;\n  var sprites = [];\n  for (i = 0; i < side.length; i++) {\n    var so = side[i];\n    if (!so || typeof so !== 'object') continue;\n    var off = +so.offset || 0, sw = +so.w || 0.5;\n    sprites.push({ k: Math.round(((+so.dz || 0) + fr) / seg), ctr: off + (off > 0 ? 1 : -1) * sw / 2, half: (pw + sw) / 2 });\n  }\n  var T = lag + NSTEP * DT, prev = memory.cars || {}, seen = {}, cars = [];\n  var list = Array.isArray(raw.cars) ? raw.cars : [];\n  for (i = 0; i < list.length; i++) {\n    var c = list[i];\n    if (!c || typeof c !== 'object') continue;\n    var o = +c.offset || 0, w = +c.w || 0.3, cs = +c.speed || 0, dz = +c.dz || 0;\n    var key = w.toFixed(3) + '|' + cs.toFixed(3);\n    var cvx = 0;\n    if (dt && typeof prev[key] === 'number' && Math.abs(o - prev[key]) < 0.5) cvx = clamp((o - prev[key]) / dt, -1.5, 1.5);\n    seen[key] = o;\n    if (cs >= 1 || dz < -2 * seg || dz + (cs - 1) * MAXV * T > seg + ZM) continue;\n    var lo = [], hi = [], cx = [];\n    for (k = 0; k < NSTEP; k++) {\n      var ct = lag + (k + 1) * DT, cz = fr + dz + cs * MAXV * ct;\n      lo.push(Math.floor((cz - ZM) / seg)); hi.push(Math.floor((cz + ZM) / seg));\n      cx.push(o + cvx * Math.min(ct, 0.3));\n    }\n    cars.push({ cs: cs, dz: dz, half: 0.4 * (pw + w), lo: lo, hi: hi, cx: cx });\n  }\n  memory.cars = seen;\n  var n = cars.length;\n  function sim(xt, b0, b1) {\n    var x = xL, sp = sL, pz = pz0, pen = 0, off = false, hitT = 0, steer = 0, g = [], a, m, t;\n    for (a = 0; a < n; a++) g.push(9);\n    for (t = 0; t < NSTEP; t++) {\n      var idx = Math.floor((fr + pz) / seg), cu = cv(idx);\n      if (t % TK === 0) {\n        var st = 2 * sp * TICK, d = xt - (x - 2 * cf * sp * sp * cu * TICK);\n        steer = d > st / 2 ? 1 : (d < -st / 2 ? -1 : 0);\n      }\n      var dx = 2 * sp * DT;\n      pz += sp * MAXV * DT;\n      x += steer * dx - dx * sp * cu * cf;\n      sp += (t >= b0 && t < b1) ? -DT : 0.2 * DT;\n      if (x < -1 || x > 1) {\n        if (sp > 0.25) sp -= 0.5 * DT;\n        pen += 0.5 * DT;\n        if (!off) { off = true; pen += 0.5; }\n        for (m = 0; m < sprites.length; m++) {\n          var p = sprites[m];\n          if (p.k === idx && Math.abs(x - p.ctr) <= p.half) { sp = 0.2; pz = idx * seg - fr; break; }\n        }\n      }\n      if (sp < 0) sp = 0; else if (sp > 1) sp = 1;\n      for (a = 0; a < n; a++) {\n        var cr = cars[a];\n        if (sp <= cr.cs || idx < cr.lo[t] || idx > cr.hi[t]) continue;\n        var gap = Math.abs(x - cr.cx[t]) - cr.half;\n        if (gap < HM) {\n          sp = cr.cs * cr.cs / sp;\n          pz = cr.dz + cr.cs * MAXV * (lag + (t + 1) * DT);\n          if (!hitT) hitT = (t + 1) * DT;\n          break;\n        }\n        if (gap < g[a]) g[a] = gap;\n      }\n    }\n    var v = pz / MAXV - 2.5 * (1 - sp) * (1 - sp) - pen;\n    for (a = 0; a < n; a++) if (g[a] < SOFT) v -= 0.12 * (SOFT - g[a]);\n    return { v: v, hit: hitT };\n  }\n  var fz = pz0, fs = sL;\n  for (k = 0; k < NSTEP; k++) { fz += fs * MAXV * DT; fs = Math.min(1, fs + 0.2 * DT); }\n  var vFree = fz / MAXV - 2.5 * (1 - fs) * (1 - fs);\n  var cMax = 0;\n  for (i = 0; i < RL; i++) { var cc = cv(i); if (Math.abs(cc) > Math.abs(cMax) + 1e-9) cMax = cc; }\n  var xPref = (cMax > 0 ? 1 : -1) * clamp((Math.abs(cMax) - 1) * 0.2, 0, 0.6);\n  var cands = [clamp(xL, -0.8, 0.8)];\n  for (i = -5; i <= 5; i++) cands.push(i * 0.16);\n  var sch = [[TK, TK], [TK, 2 * TK], [TK, 3 * TK], [TK, 5 * TK], [TK, 9 * TK], [0, TK], [0, 2 * TK], [0, 4 * TK], [0, 8 * TK]];\n  var pt = memory.target, bestK = null, bestS = null, lineHit = 0;\n  for (i = 0; i < cands.length; i++) {\n    var xc = cands[i];\n    var tie = 0.02 * Math.abs(xc - xL) + 0.03 * Math.abs(xc - xPref) - (typeof pt === 'number' && Math.abs(xc - pt) < 0.09 ? 0.01 : 0);\n    for (j = 0; j < sch.length; j++) {\n      var res = sim(xc, sch[j][0], sch[j][1]), sc = res.v - tie;\n      if (i === 0 && j === 0) lineHit = res.hit;\n      if (sch[j][0] > 0) { if (!bestK || sc > bestK.sc + 1e-9) bestK = { sc: sc, x: xc }; }\n      else if (!bestS || sc > bestS.sc + 1e-9) bestS = { sc: sc, x: xc };\n    }\n  }\n  var keepLoss = (vFree - bestK.sc) * 60, gain = (bestS.sc - bestK.sc) * 60;\n  var slow = gain >= 0.5, best = slow ? bestS : bestK;\n  memory.target = best.x;\n  var sg = Math.round(gain * 10) / 10;\n  if (slow && sg < 0.5) sg = 0.5;\n  if (!slow && sg >= 0.5) sg = 0.4;\n  var cL = cv(Math.floor((fr + pz0) / seg));\n  var xNo = xL - 2 * cf * sL * sL * cL * TICK;\n  var dxs = clamp((best.x - xNo) / (2 * Math.max(sL, 0.05) * TICK), -9.9, 9.9);\n  return {\n    ready: true,\n    speed: r2(sL),\n    x: r2(xL),\n    offRoad: Math.abs(xL) > 1,\n    curve: Math.round(cL * 10) / 10,\n    openX: r2(best.x),\n    openDxSteps: Math.round(dxs * 10) / 10,\n    keepLoss: Math.round(clamp(keepLoss, 0, 999)),\n    slowGain: clamp(sg, -9.9, 99),\n    lineHitMs: lineHit ? Math.round(lineHit * 1000) : 2000\n  };\n}",
+  "instructions": "Javascript Racer: Up accelerates, Down brakes, Left/Right steer. Drive as far as possible: stay on the road (off it the car slows down and stops dead against trees and billboards), steer into the curves (they push the car outward), and pass slower cars without touching them (running into one from behind drops you below its speed). Every field describes the moment the chosen action takes effect. The perception simulates the game's own physics for the next 2 s (steering, the curve's outward push, gas/brake/off-road speed changes, hitting slower cars, roadside objects) for 12 target lines across the road and 9 throttle plans (brake now for 1-8 decisions, or accelerate now and possibly brake from the next decision on). openX is the target line of the best plan; openDxSteps is how far openX is from where the car will be after one decision without steering, measured in the distance one decision of steering covers (positive: openX is to the right). keepLoss is how many road segments the best accelerate-now plan loses over the next 2 s compared with an empty straight road. slowGain is how many segments braking now gains over the best accelerate-now plan (negative: braking now would cost that many). RULES. STEERING: if openDxSteps >= 0.5 use a Right action; if openDxSteps <= -0.5 use a Left action; otherwise do not steer. THROTTLE: if slowGain >= 0.5 use a brake action (brake, brakeLeft or brakeRight); otherwise use a gas action (gas, gasLeft or gasRight). Combine the two: slowGain 1.2 with openDxSteps -0.8 gives brakeLeft; slowGain -3 with openDxSteps 0.2 gives gas; slowGain -1.7 with openDxSteps 2.4 gives gasRight. Context only: speed (0-1 of top speed), x (the car across the road, -1 left edge, 1 right edge), offRoad, curve (the bend under the car, positive to the right), lineHitMs (time until you hit a slower car if you keep this line and accelerate; 2000 means none).",
+  "actions": [
+    {
+      "id": "gas",
+      "description": "accelerate, no steering",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "gasLeft",
+      "description": "accelerate and steer left",
+      "keys": [
+        "ArrowUp",
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "gasRight",
+      "description": "accelerate and steer right",
+      "keys": [
+        "ArrowUp",
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "brake",
+      "description": "brake, no steering",
+      "keys": [
+        "ArrowDown"
+      ]
+    },
+    {
+      "id": "brakeLeft",
+      "description": "brake and steer left",
+      "keys": [
+        "ArrowDown",
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "brakeRight",
+      "description": "brake and steer right",
+      "keys": [
+        "ArrowDown",
+        "ArrowRight"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 96,
+  "maxHoldMs": 200,
+  "teacher": "function teach(state) {\n  if (!state || !state.ready) return 'gas';\n  var side = state.openDxSteps >= 0.5 ? 'Right' : (state.openDxSteps <= -0.5 ? 'Left' : '');\n  return (state.slowGain >= 0.5 ? 'brake' : 'gas') + side;\n}",
+  "lagAware": true,
+  "tests": [],
+  "results": {
+    "mean": 3223.67,
+    "scores": [
+      3138,
+      3247,
+      3286
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 60,
+    "measuredAt": "2026-09-29T22:32:24.466Z",
+    "realtime": {
+      "mean": 3236.33,
+      "scores": [
+        3167,
+        3161,
+        3381
+      ],
+      "lagMs": 53
+    },
+    "test": {
+      "mean": 3246.33,
+      "scores": [
+        3298,
+        3208,
+        3233
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 61.33,
+      "scores": [
+        63,
+        58,
+        63
+      ]
+    }
+  }
+}

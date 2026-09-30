@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebGL fixture</title>
+<style>body { margin: 0; background: #222; }</style>
+</head>
+<body>
+<canvas id="gl" width="320" height="160"></canvas>
+<script>
+// A WebGL canvas cleared to magenta every animation frame, asking for no preserveDrawingBuffer: read
+// back after its frame is presented it is blank — unless the context keeps its drawing buffer.
+(function () {
+    var gl = document.getElementById("gl").getContext("webgl", { antialias: false });
+    window.glInfo = { ok: Boolean(gl), preserve: gl ? gl.getContextAttributes().preserveDrawingBuffer : null };
+    function frame() {
+        gl.clearColor(1, 0, 1, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        requestAnimationFrame(frame);
+    }
+    if (gl) {
+        requestAnimationFrame(frame);
+    }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,537 @@
+{
+  "id": "v5-seed303",
+  "seed": 303,
+  "profileVersion": 5,
+  "rawFrames": [
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": -72
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 12
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 15
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 30
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 36
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 39
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 42
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 45
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 48
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 51
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 57
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 60
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 63
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 66
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 69
+        }
+      ]
+    },
+    {
+      "version": "2.6.2",
+      "objects": [
+        {
+          "type": "0",
+          "tex": "ring",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/ring.png",
+          "w": 400,
+          "h": 400
+        },
+        {
+          "type": "0",
+          "tex": "ball",
+          "x": 399,
+          "y": 636,
+          "frame": "assets/ball.png",
+          "w": 50,
+          "h": 50
+        },
+        {
+          "type": "0",
+          "tex": "bar",
+          "x": 320,
+          "y": 480,
+          "frame": "assets/bar.png",
+          "w": 200,
+          "h": 20,
+          "a": 75,
+          "tint": "#ff0000"
+        }
+      ]
+    }
+  ],
+  "lagMs": 464
+}

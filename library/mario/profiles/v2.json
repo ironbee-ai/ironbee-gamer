@@ -1,0 +1,148 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-29T23:33:45.209Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "Seed 303 stalled for 88 s at a 3-tile wall. The lookahead assumed Mario would hop on his own later, so 'run' tied with jumping. Both plans were also stopped at a fake wall, made by copying the last visible column past the tile window, and the tie-break against jumping put it off forever. Seeds 101 and 202 died because the only escape was pressing S just before touching down, and the rule 'never jump in the air unless boosting' forbade it. Changes: 1) The lookahead now tests one extra jump at each later decision. 2) Gain is now the average progress, so an earlier jump scores higher. 3) Each non-jump outcome now reports when its plan must jump (hop: none/next/later), and Mario jumps now when that is 'next'. 4) Beyond the visible tiles the level is assumed to be ground no higher than Mario. 5) jumpReady and boosting are replaced by a categorical jumpKey (start/boost/landing/wait), which allows a press that lands just after touch-down.",
+  "extractor": "function extract(raw, memory, info) { info = info || {}; var ab = Math.abs, fl = Math.floor; function rd(v) { return Math.round(v * 10) / 10; } var lag = (typeof info.lagMs === 'number' && info.lagMs > 0) ? info.lagMs : 0; var prevT = memory.t; var now = (typeof info.nowMs === 'number') ? info.nowMs : ((typeof prevT === 'number') ? prevT + 96 : 0); memory.t = now; if (!raw || !raw.mario) { memory.x = null; memory.lastBoost = null; memory.landT = null; memory.boosting = false; return { status: 'none' }; } var m = raw.mario; if (m.dying || m.winning) { memory.x = null; memory.lastBoost = null; memory.landT = null; memory.boosting = false; return { status: m.dying ? 'dying' : 'won', big: !!m.large, fire: !!m.fire }; } var dt = (typeof prevT === 'number' && now > prevT) ? now - prevT : 0; if (dt > 0 && dt < 400) memory.fdt = memory.fdt ? memory.fdt * 0.8 + dt * 0.2 : dt; var fdt = memory.fdt || 96; var mx = +m.x || 0, my = +m.y || 0, mxa = +m.xa || 0, mya = +m.ya || 0, og = !!m.onGround, big = !!m.large; var mh = (m.large && !m.ducking) ? 24 : 12; var things = Array.isArray(raw.things) ? raw.things : []; var i, j, r, t, th, walk = []; for (i = 0; i < things.length; i++) { th = things[i]; if (!th || th.dead) continue; var kd = String(th.kind || ''); if ((kd === 'goomba' || kd === 'redKoopa' || kd === 'greenKoopa' || kd === 'spiky') && ab(th.xa) > 1.3 && ab(th.xa) < 1.8) walk.push({ k: kd, x: mx + (+th.dx || 0), y: my + (+th.dy || 0), s: th.xa > 0 ? 1 : -1 }); } if (dt > 0 && dt < 400) { var est = []; if (memory.x != null && og && memory.og && ab(mxa) > 2 && ab(mxa - memory.xa) < 0.2 && mxa * memory.xa > 0) { var tk = ab(mx - memory.x) / (ab(mxa) / 0.89); if (tk >= 1) est.push(dt / tk); } var pw = memory.walk || []; for (i = 0; i < walk.length; i++) { var w = walk[i], bd = 1e9; for (j = 0; j < pw.length; j++) { var pv = pw[j]; if (pv.k !== w.k || pv.s !== w.s || ab(pv.y - w.y) > 1) continue; var dd = (w.x - pv.x) * w.s; if (dd > 0 && dd < bd && dd < dt * 0.22 + 2) bd = dd; } if (bd < 1e9 && bd >= 1.75) est.push(dt * 1.75 / bd); } for (i = 0; i < est.length; i++) if (est[i] > 8 && est[i] < 80) memory.mpt = memory.mpt ? memory.mpt * 0.85 + est[i] * 0.15 : est[i]; } memory.walk = walk; var mpt = memory.mpt || 1000 / 30; var tl = raw.tiles || {}, rows = Array.isArray(tl.rows) ? tl.rows : []; var NR = rows.length || 15, x0 = typeof tl.x0 === 'number' ? tl.x0 : 0, W = 0; for (r = 0; r < rows.length; r++) if (rows[r] && rows[r].length > W) W = rows[r].length; var g = [], unk = null, unkD = 1e9, mcol = fl(mx / 16), mrow = fl(my / 16); for (r = 0; r < NR; r++) { var row = String(rows[r] || ''); for (i = 0; i < W; i++) { var ch = row.charAt(i) || '.', v = 0; if (ch === '#' || ch === '?' || ch === 'B') v = 1; else if (ch === '=') v = 2; else if (ch !== '.' && ch !== 'c') { v = 1; var ud = ab(x0 + i - mcol) + ab(r - mrow); if (ud < unkD) { unkD = ud; unk = { tile: ch, dx: x0 + i - mcol, dy: r - mrow }; } } g[r * W + i] = v; } } var fillRow = NR - 1; for (i = W - 1; i >= 0; i--) if (g[(NR - 1) * W + i] === 1) { r = NR - 1; while (r > 0 && g[(r - 1) * W + i] === 1) r--; fillRow = r; break; } if (fillRow < mrow + 1) fillRow = Math.min(NR - 1, mrow + 1); var LW = +raw.levelWidth || 100000; function G(c, rr) { if (rr < 0) return 0; if (rr >= NR) rr = NR - 1; if (!W) return rr === NR - 1 ? 1 : 0; if (c >= LW) c = LW - 1; var ii = c - x0; if (ii < 0) ii = 0; else if (ii >= W) return rr >= fillRow ? 1 : 0; return g[rr * W + ii]; } function stand(c, rr) { return G(c, rr) > 0; } var jt0 = 0; if (!og && mya < 2) { var qq = (3 - mya) / 1.615, nq = Math.round(qq); if (nq >= 1 && nq <= 8 && ab(qq - nq) < 0.05) jt0 = nq - 1; } if (!og && memory.og === true && mya < -3 && jt0 === 0) memory.bfail = (memory.bfail || 0) + 1; var wasB = memory.boosting === true, boosting = jt0 > 0; if (memory.bfail >= 2) { boosting = !og && mya < 0 && (wasB || memory.og === true); jt0 = boosting ? 3 : 0; } memory.boosting = boosting; if (boosting) memory.lastBoost = now; memory.stall = (og && memory.x != null && ab(mx - memory.x) < 0.5) ? (memory.stall || 0) + 1 : 0; var recentLand = typeof memory.landT === 'number' && now - memory.landT < fdt * 1.5; var jumpReady = og && !(typeof memory.lastBoost === 'number' && now - memory.lastBoost < fdt * 1.5) && !recentLand && !(memory.stall >= 3 && memory.stall % 3 === 0); var lk = { l: false, r: false, run: false, s: boosting || wasB || recentLand || (og && !jumpReady) }; if (ab(mxa) > 0.5 && !(typeof memory.xa === 'number' && ab(mxa) < ab(memory.xa) - 0.3)) { lk.r = mxa > 0; lk.l = mxa < 0; lk.run = ab(mxa) > 5.2; } var Lt = Math.round(lag / mpt), K = Math.max(1, Math.min(8, Math.round(fdt / mpt))), H = Math.max(12, Math.min(45, Math.round(900 / mpt))), END = Lt + H, T = END + 20, J = Math.max(0, Math.min(10, fl((H - 1) / K))); var ens = [], pirs = [], unkThing = null, pm = memory.pir || (memory.pir = {}); for (i = 0; i < things.length && ens.length + pirs.length < 12; i++) { th = things[i]; if (!th || th.dead) continue; var kind = String(th.kind || 'unknown'), wing = kind.indexOf('Winged') >= 0, base = kind.replace('Winged', ''); if (base === 'fireball' || base === 'mushroom' || base === 'fireFlower') continue; var ex = mx + (+th.dx || 0), ey = my + (+th.dy || 0), exa = +th.xa || 0, eya = +th.ya || 0; if (base === 'piranha') { var key = 'k' + Math.round(ex), P = pm[key]; if (!P) P = pm[key] = { my: ey, out: false, hs: null }; P.seen = now; if (ey > P.my) P.my = ey; if (ab(eya - 0.1) < 0.005) P.rest = ey; var yS = P.my; if (typeof P.rest === 'number') yS = P.rest; else { var pc = fl(ex / 16), pr = fl(ey / 16), top = -1; if (G(pc, pr) === 1) { top = pr; while (top > 0 && G(pc, top - 1) === 1) top--; } else { for (r = pr + 1; r < NR; r++) if (G(pc, r) === 1) { top = r; break; } } if (top >= 0 && top * 16 + 24 > yS) yS = top * 16 + 24; } var hid = ey >= yS - 0.5; if (hid) { if (P.hs == null) P.hs = P.out ? now : now - 5000; } else { P.hs = null; P.out = true; } pirs.push({ kind: kind, x: ex, y: ey, ya: eya, yS: yS, jt: hid ? (now - P.hs) / mpt : 0 }); continue; } var e = { kind: kind, w: wing, x: ex, y: ey, vx: exa, ya: eya, xr: 12, h: 12, st: true, fly: false, avoid: false, rest: false, X: [ex], Y: [ey] }; if (base === 'goomba') e.vx = exa / 0.89; else if (base === 'redKoopa' || base === 'greenKoopa') { e.h = 24; e.vx = exa / 0.89; e.avoid = base === 'redKoopa' && !wing; } else if (base === 'spiky') { e.st = false; e.vx = exa / 0.89; } else if (base === 'shell') { e.xr = 16; e.vx = exa / 0.89; e.rest = ab(exa) < 0.5; } else if (base === 'bulletBill') { e.xr = 16; e.fly = true; e.ya = 0; } else { e.st = false; e.h = 16; e.fly = true; if (!unkThing) unkThing = { kind: kind, dx: rd((ex - mx) / 16), dy: rd((ey - my) / 16), w: 1, h: 1 }; } var gone = false; for (t = 1; t <= T; t++) { if (!gone) { if (e.fly) { e.x += e.vx; e.y += e.ya; } else { if (e.vx) { var sg = e.vx > 0 ? 1 : -1, nx = e.x + e.vx, fc = fl((nx + sg * 4) / 16), bl = G(fc, fl((e.y - 1) / 16)) === 1 || (e.h > 12 && G(fc, fl((e.y - e.h + 2) / 16)) === 1); if (!bl && e.avoid && stand(fl(e.x / 16), fl((e.y + 2) / 16)) && !stand(fc, fl((e.y + 2) / 16))) bl = true; if (bl) e.vx = -e.vx; else e.x = nx; } var ec = fl(e.x / 16), R = Math.round((e.y + 1) / 16), grd = e.ya >= 0 && ab(e.y + 1 - R * 16) < 1.5 && stand(ec, R); if (grd) { e.y = R * 16 - 1; e.ya = e.w ? -10 : 0; } if (!grd || e.w) { var ny = e.y + e.ya, landed = false; if (e.ya > 0) { for (var RR = Math.ceil((e.y + 1) / 16 - 0.01); RR <= fl((ny + 1) / 16); RR++) if (stand(ec, RR)) { ny = RR * 16 - 1; landed = true; break; } } e.y = ny; if (landed) e.ya = e.w ? -10 : 0; else e.ya = e.ya * (e.w ? 0.95 : 0.85) + (e.w ? 0.6 : 2); } } if (e.y > NR * 16 + 32 || e.x < mx - 400 || e.x > mx + 800) gone = true; } e.X[t] = gone ? NaN : e.x; e.Y[t] = e.y; } ens.push(e); } for (var pk in pm) if (now - pm[pk].seen > 5000 || ab(+pk.slice(1) - mx) > 600) delete pm[pk]; function blk(s, px, py, ya) { var c = fl(px / 16), rr = fl(py / 16); if (c === fl(s.x / 16) && rr === fl(s.y / 16)) return false; var vv = G(c, rr); return vv === 1 || (vv === 2 && ya > 0); } function mv(s, xa, ya) { while (xa > 8) { if (!mv(s, 8, 0)) return false; xa -= 8; } while (xa < -8) { if (!mv(s, -8, 0)) return false; xa += 8; } while (ya > 8) { if (!mv(s, 0, 8)) return false; ya -= 8; } while (ya < -8) { if (!mv(s, 0, -8)) return false; ya += 8; } var h = s.h, nx = s.x + xa, ny = s.y + ya, c = false; if (ya > 0 && (blk(s, nx - 4, ny, 0) || blk(s, nx + 4, ny, 0) || blk(s, nx - 4, ny + 1, ya) || blk(s, nx + 4, ny + 1, ya))) c = true; if (ya < 0 && (blk(s, nx, ny - h, ya) || blk(s, nx - 4, ny - h, ya) || blk(s, nx + 4, ny - h, ya))) c = true; if (xa > 0 && (blk(s, nx + 4, ny - h, ya) || blk(s, nx + 4, ny - h / 2, ya) || blk(s, nx + 4, ny, ya))) c = true; if (xa < 0 && (blk(s, nx - 4, ny - h, ya) || blk(s, nx - 4, ny - h / 2, ya) || blk(s, nx - 4, ny, ya))) c = true; if (!c) { s.x = nx; s.y = ny; return true; } if (xa < 0) { s.x = fl((s.x - 4) / 16) * 16 + 4; s.xa = 0; } if (xa > 0) { s.x = fl((s.x + 4) / 16 + 1) * 16 - 5; s.xa = 0; } if (ya < 0) { s.y = fl((s.y - h) / 16) * 16 + h; s.jt = 0; s.ya = 0; } if (ya > 0) { s.y = fl((s.y - 1) / 16 + 1) * 16 - 1; s.og = true; } return false; } function step(s, k, tk2) { var sp = k.run ? 1.2 : 0.6; s.wog = s.og; if (k.s) { if (s.og && s.mj) { s.jt = 7; s.ya = -13.3; s.og = false; s.js = tk2; } else if (s.jt > 0) { s.ya = s.jt * -1.9; s.jt--; } } else s.jt = 0; if (k.l) s.xa -= sp; if (k.r) s.xa += sp; s.mj = s.og && !k.s; if (ab(s.xa) < 0.5) s.xa = 0; s.og = false; mv(s, s.xa, 0); mv(s, 0, s.ya); if (s.x < 0) { s.x = 0; s.xa = 0; } if (s.x > LW * 16) { s.x = LW * 16; s.xa = 0; } s.ya *= 0.85; s.xa *= 0.89; if (!s.og) s.ya += 3; } function ms10(q) { return Math.round(q * mpt / 10) * 10; } function sim(A, jj) { var s = { x: mx, y: my, xa: mxa, ya: mya, og: og, wog: og, mj: jumpReady, jt: jt0, h: mh, js: 0 }; var P = [], gn = [], stomped = false, sum = 0, n = 0, tp = jj ? Lt + jj * K + 1 : -1, k = { l: false, r: false, run: false, s: false }, a, e, p; for (a = 0; a < pirs.length; a++) P.push({ x: pirs[a].x, y: pirs[a].y, ya: pirs[a].ya, yS: pirs[a].yS, jt: pirs[a].jt }); for (var t = 1; t <= T; t++) { var ti = t - 1; if (ti < Lt) { k.l = lk.l; k.r = lk.r; k.run = lk.run; k.s = lk.s; } else { k.l = A.l; k.r = A.r; k.run = A.run; k.s = ti < Lt + K ? A.s : (!s.og && s.jt > 0); } if (t === tp) { if (!s.og || !s.mj) return null; k.s = true; } step(s, k, t); if (s.y > NR * 16 + 16) return { fate: 'pit', t: ms10(t), js: s.js }; if (t > END) { if (s.og) break; continue; } if (t > Lt) { sum += s.x - mx; n++; } for (a = 0; a < ens.length; a++) { e = ens[a]; var ex = e.X[t]; if (gn[a] || ex !== ex) continue; var xd = s.x - ex, yd = s.y - e.Y[t]; if (xd > -e.xr && xd < e.xr && yd > -e.h && yd < s.h) { if (e.rest) { gn[a] = 1; continue; } if (e.st && s.ya > 0 && yd <= 0 && (!s.og || !s.wog)) { s.y = e.Y[t] - e.h / 2; s.jt = 8; s.ya = -15.2; s.og = false; gn[a] = 1; stomped = true; continue; } return { fate: 'hurt', t: ms10(t), js: s.js }; } } for (a = 0; a < P.length; a++) { p = P[a]; if (p.y >= p.yS) { p.y = p.yS; p.jt++; p.ya = (p.jt > 40 && ab(s.x - p.x) > 24) ? -8 : 0; } else p.jt = 0; p.y += p.ya; p.ya = p.ya * 0.9 + 0.1; var qx = s.x - p.x, qy = s.y - p.y; if (qx > -8 && qx < 8 && qy > -12 && qy < s.h) return { fate: 'hurt', t: ms10(t), js: s.js }; } } return { fate: stomped ? 'stomp' : 'safe', gain: n ? rd(sum / n / 16) : 0, js: s.js }; } function sc(q) { return (q.t || 0) + (q.fate === 'hurt' && big ? 5000 : 0); } var ACTS = [['idle', 0, 0, 0, 0], ['left', 1, 0, 0, 0], ['right', 0, 1, 0, 0], ['run', 0, 1, 1, 0], ['jump', 0, 0, 0, 1], ['jumpRight', 0, 1, 0, 1], ['runJumpRight', 0, 1, 1, 1]]; var outcome = {}, jsNow = false; for (i = 0; i < ACTS.length; i++) { var ac = ACTS[i], A = { l: !!ac[1], r: !!ac[2], run: !!ac[3], s: !!ac[4] }, res = [], jj, o, bg = -1e9, hp = null, bo = null; for (jj = 0; jj <= J; jj++) { o = sim(A, jj); if (o) { o.j = jj; res.push(o); } } if (ac[0] === 'runJumpRight') jsNow = res[0].js === Lt + 1; for (j = 0; j < res.length; j++) { o = res[j]; if (o.fate !== 'pit' && o.fate !== 'hurt' && o.gain > bg) bg = o.gain; } if (bg > -1e9) { for (j = 0; j < res.length; j++) { o = res[j]; if (o.fate === 'pit' || o.fate === 'hurt' || o.gain < bg - 0.1001) continue; if (!hp || (hp.j !== 0 && (o.j === 0 || o.j > hp.j))) hp = o; } var out = { fate: hp.fate, gain: hp.gain }; if (!A.s) out.hop = hp.j === 0 ? 'none' : (hp.j === 1 ? 'next' : 'later'); outcome[ac[0]] = out; } else { for (j = 0; j < res.length; j++) if (!bo || sc(res[j]) > sc(bo)) bo = res[j]; outcome[ac[0]] = { fate: bo.fate, t: bo.t }; } } var jumpKey = og ? (jumpReady ? 'start' : 'wait') : (boosting ? 'boost' : (jsNow ? 'landing' : 'wait')); if (jumpKey === 'landing') memory.landT = now; var xL = mx + mxa / 0.89 * Lt, fr0 = fl(my / 16), mc = fl((xL + 4) / 16), pitAhead = null, pitWidth = 0, wallAhead = null, wallHeight = 0; for (var c = mc + 1; c <= mc + 12 && (pitAhead === null || wallAhead === null); c++) { if (wallAhead === null && G(c, fr0) === 1) { var tq = fr0; while (tq > 0 && G(c, tq - 1) === 1) tq--; wallAhead = rd((c * 16 - xL - 4) / 16); wallHeight = fr0 - tq + 1; } if (pitAhead === null && wallAhead === null) { var cc = c; while (cc < c + 12) { var has = false; for (r = fr0 + 1; r < NR; r++) if (stand(cc, r)) { has = true; break; } if (has) break; cc++; } if (cc > c) { pitAhead = rd((c * 16 - xL - 4) / 16); pitWidth = cc - c; } } } var threat = null, best = 1e9, tt = Math.min(Lt, T); for (i = 0; i < ens.length; i++) { var en = ens[i], tx = en.X[tt]; if (en.rest || tx !== tx) continue; var ddx = tx - xL, ddy = en.Y[tt] - my, dist = ab(ddx) + ab(ddy); if (ddx > -24 && dist < best) { best = dist; threat = { kind: en.kind, dx: rd(ddx / 16), dy: rd(ddy / 16) }; } } for (i = 0; i < pirs.length; i++) { var pp = pirs[i], pdx = pp.x - xL, pdy = pp.y - my, pd = ab(pdx) + ab(pdy); if (pdx > -24 && pd < best) { best = pd; threat = { kind: pp.y >= pp.yS - 0.5 ? 'piranha(hidden)' : 'piranha', dx: rd(pdx / 16), dy: rd(pdy / 16) }; } } memory.x = mx; memory.xa = mxa; memory.og = og; var st = { status: 'playing', big: big, fire: !!m.fire, onGround: og, jumpKey: jumpKey, vx: rd(mxa), threat: threat, pitAhead: pitAhead, pitWidth: pitWidth, wallAhead: wallAhead, wallHeight: wallHeight, outcome: outcome }; if (unk) st.unknownTile = unk; if (unkThing) st.unknownThing = unkThing; return st; }",
+  "instructions": "Play the game well. Infinite Mario. Left and Right walk, S jumps (hold it for a higher jump), A runs (and throws fireballs with the fire flower), Down ducks. Run to the right through the level as far as you can: jump over pits and obstacles, stomp enemies by landing on them from above (touching one any other way hurts, and small Mario dies of it), avoid piranha plants and bullets. Reaching the end of the level wins it.\njumpKey tells what pressing S (the actions jump, jumpRight, runJumpRight) does now: start = on the ground, a jump starts; boost = rising in a jump that holding S still lifts; landing = in the air but touching down just before the press takes effect, so the press starts a jump right on landing; wait = pressing S now starts nothing, and holding it would block the next jump.\noutcome[action] is a physics lookahead of about 0.9 s after the input lag. The action is held for one decision, then Mario keeps that direction and keeps S held while a jump still lifts. Mario may also start one more jump at a later decision, and the best of those plans is reported. fate: safe; stomp (lands on an enemy, which is fine); hurt (touches an enemy, piranha or bullet, and small Mario dies); pit (falls to death). t = ms until the harm when no plan avoids it. gain = tiles ahead of Mario's current position, averaged over the lookahead, so more progress made sooner scores higher. hop (non-jump actions only) = when that plan must start its jump: none, next (at the very next decision) or later.\nRules. When status is none, press jump or idle (equally good). When it is dying or won, idle. Otherwise:\n1. When jumpKey is wait, never choose jump, jumpRight or runJumpRight.\n2. Keep the remaining actions whose fate is safe or stomp. If there are none, take the remaining action with the largest t, counting a hurt as 5000 ms later when big is true (big Mario survives a hit).\n3. When jumpKey is boost and a jump action is kept, keep only the jump actions (finish the jump).\n4. Keep the actions whose gain is within 0.3 of the highest gain.\n5. When jumpKey is start or landing: if a kept non-jump action has hop none or later, keep only those non-jump actions, so Mario jumps only when it helps. Otherwise, if any jump actions are kept, keep only those: a plan that needs its jump at the next decision should jump now.\n6. Take the highest gain; actions within 0.1 of it are equally good.\nthreat (nearest danger), pitAhead/pitWidth and wallAhead/wallHeight (tiles from Mario's front) tell what the outcomes are reacting to.",
+  "actions": [
+    {
+      "id": "idle",
+      "description": "release every key: slow down and wait",
+      "keys": []
+    },
+    {
+      "id": "left",
+      "description": "walk left, back off",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "right",
+      "description": "walk right",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "run",
+      "description": "run right with A held (fire Mario throws a fireball each time A is pressed again)",
+      "keys": [
+        "ArrowRight",
+        "a"
+      ]
+    },
+    {
+      "id": "jump",
+      "description": "jump straight up, or keep holding jump to rise higher",
+      "keys": [
+        "s"
+      ]
+    },
+    {
+      "id": "jumpRight",
+      "description": "jump while walking right, or keep holding jump",
+      "keys": [
+        "ArrowRight",
+        "s"
+      ]
+    },
+    {
+      "id": "runJumpRight",
+      "description": "jump while running right, or keep holding jump",
+      "keys": [
+        "ArrowRight",
+        "a",
+        "s"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 96,
+  "maxHoldMs": 300,
+  "teacher": "function teach(st) { if (!st || st.status === 'none') return { jump: 0.5, idle: 0.5 }; if (st.status !== 'playing' || !st.outcome) return 'idle'; var o = st.outcome, jk = st.jumpKey, ids = ['idle', 'left', 'right', 'run', 'jump', 'jumpRight', 'runJumpRight'], S = { jump: 1, jumpRight: 1, runJumpRight: 1 }, c = [], i, a; for (i = 0; i < ids.length; i++) { a = ids[i]; if (!o[a]) continue; if (S[a] && jk === 'wait') continue; c.push(a); } if (!c.length) return 'right'; function g(x) { return typeof o[x].gain === 'number' ? o[x].gain : -99; } function sc(x) { return (o[x].t || 0) + (o[x].fate === 'hurt' && st.big ? 5000 : 0); } function top(list, f, tol) { var b = -1e9, k, out = []; for (k = 0; k < list.length; k++) if (f(list[k]) > b) b = f(list[k]); for (k = 0; k < list.length; k++) if (f(list[k]) >= b - tol - 1e-6) out.push(list[k]); return out; } var ok = c.filter(function (x) { return o[x].fate === 'safe' || o[x].fate === 'stomp'; }), pick; if (ok.length) { var pool = ok; if (jk === 'boost') { var sp = ok.filter(function (x) { return S[x]; }); if (sp.length) pool = sp; } var near = top(pool, g, 0.3); if (jk === 'start' || jk === 'landing') { var nj = near.filter(function (x) { return !S[x] && o[x].hop !== 'next'; }); if (nj.length) near = nj; else { var jn = near.filter(function (x) { return S[x]; }); if (jn.length) near = jn; } } pick = top(near, g, 0.1); } else pick = top(c, sc, 20); if (pick.length === 1) return pick[0]; var res = {}; for (i = 0; i < pick.length; i++) res[pick[i]] = 1 / pick.length; return res; }",
+  "lagAware": true,
+  "tests": [
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (['start','boost','landing','wait'].indexOf(state.jumpKey) >= 0 && ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ['safe','stomp','hurt','pit'].indexOf(o.fate) >= 0 && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : typeof o.t === 'number'); }))",
+      "why": "Every playing frame carries the new jumpKey and a complete outcome per action (gain when survivable, t when not), which the rules rely on."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'landing' || ['idle','left','right','run'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Seed 101 fell into a pit because Mario, about to land at the edge, could only survive by pressing jump just before touching down, and the old rule forbade jumping in the air."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'landing' || ['idle','left','right','run'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Seed 202 ran into a green koopa when a jump pressed just before landing was the only escape and the old rule did not allow it."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'wait' || ['jump','jumpRight','runJumpRight'].indexOf(choice) < 0",
+      "why": "S is pressed only when it starts or extends a jump; holding it through a landing would block the next jump and the extractor would misjudge the held keys."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'start' || typeof choice !== 'string' || !state.outcome[choice] || state.outcome[choice].hop !== 'next' || !['jump','jumpRight','runJumpRight'].some(function (a) { var o = state.outcome[a]; return (o.fate === 'safe' || o.fate === 'stomp') && o.gain >= state.outcome[choice].gain; })",
+      "why": "Seed 303 stood 88 s at a wall because running with a jump planned for the next decision tied with jumping now and the tie always went to not jumping; a plan that needs its jump next must jump now."
+    }
+  ],
+  "results": {
+    "mean": 494.67,
+    "scores": [
+      173,
+      43,
+      1268
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-09-29T23:34:03.679Z",
+    "realtime": {
+      "mean": 502,
+      "scores": [
+        234,
+        1264,
+        8
+      ],
+      "lagMs": 53
+    },
+    "test": {
+      "mean": 431.33,
+      "scores": [
+        1270,
+        13,
+        11
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 21.67,
+      "scores": [
+        17,
+        14,
+        34
+      ]
+    }
+  }
+}

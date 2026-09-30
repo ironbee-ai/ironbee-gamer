@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head><title>storage fixture</title></head>
+<body>
+<script>
+    // Counts its own loads in local storage, as a game keeps a high score, and in the tab's session storage, and writes
+    // as it leaves (a save on unload).
+    localStorage.setItem("loads", String(Number(localStorage.getItem("loads") || "0") + 1));
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    document.cookie = "visits=" + (Number((document.cookie.match(/visits=(\d+)/) || [0, 0])[1]) + 1) + "; max-age=3600";
+    addEventListener("pagehide", function () { localStorage.setItem("left", "yes"); });
+    window.state = function () {
+        return {
+            loads: Number(localStorage.getItem("loads")),
+            visits: Number((document.cookie.match(/visits=(\d+)/) || [0, 0])[1]),
+            left: localStorage.getItem("left"),
+            session: Number(sessionStorage.getItem("loads")),
+        };
+    };
+</script>
+</body>
+</html>

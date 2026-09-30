@@ -1,0 +1,58 @@
+{
+  "id": "doodle-jump",
+  "name": "Doodle Climb",
+  "description": "Climb a tower of moving platforms: ice ones slide under your feet. A Phaser 2 game (a Doodle Jump take) from the Phaser examples gallery.",
+  "url": "https://noowxela.github.io/phaser-examples/games/ready/doodle-jump/",
+  "goal": "Doodle Climb. Use the arrow keys: Left and Right to move, Up to jump (only while standing). Jump from platform to platform to climb to the top of the tower. The platforms move sideways; the icy ones carry you with them less. Falling costs the height you had climbed.",
+  "perception": {
+    "adapter": "phaser"
+  },
+  "viewport": {
+    "width": 800,
+    "height": 700
+  },
+  "bootMs": 2500,
+  "start": [],
+  "score": {
+    "expression": "(() => { const g = game.state.states.Game; if (!g || !g.player) { return { over: false, score: 0 }; } const m = window.__ibgamerClimb || (window.__ibgamerClimb = { top: g.player.y }); m.top = Math.min(m.top, g.player.y); const pct = Math.max(0, Math.min(100, Math.round((1952 - m.top) / 18.88))); return { over: pct >= 100, score: pct, height: Math.round(1952 - g.player.y) }; })()",
+    "label": "% of the tower climbed",
+    "max": 100
+  },
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "trainSeeds": [
+    101,
+    202
+  ],
+  "tags": [
+    "platformer",
+    "timing",
+    "phaser"
+  ],
+  "credits": "Phaser examples gallery (noowxela/phaser-examples)",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya"
+  }
+}

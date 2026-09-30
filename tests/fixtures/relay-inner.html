@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+<head><title>relay inner fixture</title></head>
+<body>
+<script>
+    // The page's own origin under a frame of another: tells the page what the page stored.
+    top.postMessage({ inner: true, loads: sessionStorage.getItem("loads") }, "*");
+</script>
+</body>
+</html>

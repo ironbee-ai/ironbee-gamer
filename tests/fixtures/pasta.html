@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><title>pasta fixture</title></head>
+<body>
+<script>
+    // A game whose frame throws on and on from its 20th (a game over screen that keeps failing), in a function named
+    // past on a page named pasta: the next game's open runs these frames as it stops the clock.
+    window.frame = 0;
+    requestAnimationFrame(function past() {
+        window.frame++;
+        requestAnimationFrame(past);
+        if (window.frame > 20) {
+            null.boom;
+        }
+    });
+</script>
+</body>
+</html>

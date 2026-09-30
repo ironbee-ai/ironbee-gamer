@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><title>partitioned fixture</title></head>
+<body>
+<script>
+    // A frame of another host inside a game (cookies.html): counts its loads in a partitioned cookie (CHIPS, kept per
+    // top-level site: SameSite=None, Secure — http://localhost has it — and Partitioned) and tells the game.
+    var loads = Number((document.cookie.match(/partitioned=(\d+)/) || [0, 0])[1]) + 1;
+    document.cookie = "partitioned=" + loads + "; max-age=3600; SameSite=None; Secure; Partitioned";
+    parent.postMessage({ partitioned: loads }, "*");
+</script>
+</body>
+</html>

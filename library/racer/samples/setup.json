@@ -1,0 +1,54 @@
+{
+ "extractor": "function extract(raw, memory, info) {\n  info = info || {};\n  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.road) || typeof raw.playerX !== 'number') {\n    memory.x = null; memory.t = null; memory.cars = {}; memory.target = null;\n    return { ready: false };\n  }\n  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }\n  function r2(v) { return Math.round(v * 100) / 100; }\n  var lag = clamp((+info.lagMs || 0) / 1000, 0, 0.5);\n  var TICK = 0.096, H = 2.0, DT = 0.03, MARGIN = 0.08;\n  var seg = +raw.segmentLength || 200;\n  var MAXV = seg * 60;\n  var cf = typeof raw.centrifugal === 'number' ? raw.centrifugal : 0.3;\n  var pw = +raw.playerW || 0.3;\n  var s = clamp(+raw.speed || 0, 0, 1);\n  var x0 = raw.playerX;\n  var road = raw.road;\n  function cv(i) { var r = road[Math.min(i, road.length - 1)]; return r ? (+r.curve || 0) : 0; }\n  var now = typeof info.nowMs === 'number' ? info.nowMs : (typeof memory.t === 'number' ? memory.t + 96 : 0);\n  var dt = typeof memory.t === 'number' ? (now - memory.t) / 1000 : 0;\n  if (!(dt > 0.005 && dt < 0.5)) dt = 0;\n  var c0 = cv(0), cL = cv(Math.round(60 * s * lag));\n  var vx = -2 * cf * s * s * c0;\n  if (dt && typeof memory.x === 'number') {\n    var lim = 2 * s + Math.abs(vx) + 0.05;\n    vx = clamp((x0 - memory.x) / dt, -lim, lim);\n  }\n  var xL = x0 + vx * lag;\n  memory.x = x0; memory.t = now;\n  var i, k;\n  var prev = memory.cars || {}, seen = {}, cars = [];\n  var list = Array.isArray(raw.cars) ? raw.cars : [];\n  for (i = 0; i < list.length; i++) {\n    var c = list[i];\n    if (!c || typeof c !== 'object') continue;\n    var o = +c.offset || 0, w = +c.w || 0.3, cs = +c.speed || 0, dz = +c.dz || 0;\n    var key = w.toFixed(3) + '|' + cs.toFixed(3);\n    var cvx = 0;\n    if (dt && typeof prev[key] === 'number' && Math.abs(o - prev[key]) < 0.5) cvx = clamp((o - prev[key]) / dt, -1.5, 1.5);\n    seen[key] = o;\n    cars.push({ o: o, cs: cs, dz: dz, vx: cvx, half: 0.4 * (pw + w) + MARGIN });\n  }\n  memory.cars = seen;\n  var STEPS = Math.round(H / DT), spA = [], pzA = [], sp0 = s, pz0 = s * MAXV * lag;\n  for (k = 0; k < STEPS; k++) { sp0 = Math.min(1, sp0 + 0.2 * DT); pz0 += sp0 * MAXV * DT; spA.push(sp0); pzA.push(pz0); }\n  function sim(target, steer) {\n    var x = xL;\n    for (var k = 0; k < STEPS; k++) {\n      var sp = spA[k], ct = lag + (k + 1) * DT;\n      if (steer) { var d = target - x, mv = 1.7 * sp * DT; x += Math.abs(d) <= mv ? d : (d > 0 ? mv : -mv); }\n      for (var j = 0; j < cars.length; j++) {\n        var c = cars[j];\n        if (sp <= c.cs) continue;\n        var rel = c.dz + c.cs * MAXV * ct - pzA[k];\n        if (rel <= -seg || rel >= seg) continue;\n        if (Math.abs(x - (c.o + c.vx * Math.min(ct, 0.3))) < c.half) return { t: (k + 1) * DT, c: c };\n      }\n    }\n    return null;\n  }\n  var cMax = 0;\n  for (i = 0; i < road.length; i++) { var cc = cv(i); if (Math.abs(cc) > Math.abs(cMax)) cMax = cc; }\n  var hold = cf * Math.abs(cMax) * s;\n  var bias = (cMax > 0 ? 1 : (cMax < 0 ? -1 : 0)) * 0.2 * clamp((hold - 0.6) / 0.4, 0, 1);\n  var cands = [clamp(xL, -0.8, 0.8)];\n  for (i = -6; i <= 6; i++) cands.push(i * 0.125);\n  var pt = memory.target, best = null, bestSc = -1e9, leftT = 0, rightT = 0;\n  for (i = 0; i < cands.length; i++) {\n    var xc = cands[i], h = sim(xc, true), th = h ? h.t : H;\n    var sc = th - 0.08 * Math.abs(xc - xL) + bias * xc;\n    if (typeof pt === 'number' && Math.abs(xc - pt) < 0.07) sc += 0.04;\n    if (sc > bestSc + 1e-9) { bestSc = sc; best = { x: xc, t: th, c: h ? h.c : null }; }\n    if (xc < xL - 0.1 && th > leftT) leftT = th;\n    if (xc > xL + 0.1 && th > rightT) rightT = th;\n  }\n  memory.target = best.x;\n  var lh = sim(xL, false);\n  var lineHitMs = lh ? Math.round(lh.t * 1000) : 2000;\n  var slowMarginMs = 2000;\n  if (best.c) slowMarginMs = Math.round((best.t - Math.max(0, s - best.c.cs) / 2) * 1000);\n  var xNo = xL - 2 * cf * s * s * cL * TICK;\n  var openDxSteps = clamp((best.x - xNo) / (2 * Math.max(s, 0.05) * TICK), -9.9, 9.9);\n  var edgeMs = 3000;\n  if (Math.abs(xL) > 1) edgeMs = 0;\n  else if (s > 0.02) {\n    var segT = 1 / (60 * s), xs = xL, tE = -1, net = 0, dir = 0;\n    for (i = 0; i < road.length; i++) {\n      var c1 = cv(i);\n      net = 2 * cf * s * Math.abs(c1) / 60 - 1 / 30;\n      dir = c1 > 0 ? -1 : (c1 < 0 ? 1 : 0);\n      if (dir && net > 0) xs += dir * net;\n      if (Math.abs(xs) > 1) { tE = i * segT; break; }\n    }\n    if (tE < 0 && dir && net > 0) tE = road.length * segT + (dir > 0 ? 1 - xs : xs + 1) * segT / net;\n    if (tE >= 0) edgeMs = Math.min(3000, Math.round(tE * 1000));\n  }\n  var sideObjMs = 3000, side = Array.isArray(raw.side) ? raw.side : [];\n  if (Math.abs(xL) > 0.9 && s > 0.02) {\n    for (i = 0; i < side.length; i++) {\n      var so = side[i];\n      if (!so || typeof so !== 'object') continue;\n      var off = +so.offset || 0, sw = +so.w || 0.5;\n      var ctr = off + (off > 0 ? 1 : -1) * sw / 2;\n      if (Math.abs(xL - ctr) > (pw + sw) / 2) continue;\n      var ts = Math.max(0, (+so.dz || 0) - seg - s * MAXV * lag) / (s * MAXV);\n      sideObjMs = Math.min(sideObjMs, Math.round(ts * 1000));\n    }\n  }\n  return {\n    ready: true,\n    speed: r2(s),\n    x: r2(xL),\n    offRoad: Math.abs(xL) > 1,\n    curve: Math.round(cL * 10) / 10,\n    edgeMs: edgeMs,\n    openX: r2(best.x),\n    openDxSteps: Math.round(openDxSteps * 10) / 10,\n    openClearMs: Math.round(best.t * 1000),\n    slowMarginMs: slowMarginMs,\n    lineHitMs: lineHitMs,\n    leftOpenMs: Math.round(leftT * 1000),\n    rightOpenMs: Math.round(rightT * 1000),\n    sideObjMs: sideObjMs\n  };\n}",
+ "actions": [
+  {
+   "id": "gas",
+   "description": "accelerate, no steering",
+   "keys": [
+    "ArrowUp"
+   ]
+  },
+  {
+   "id": "gasLeft",
+   "description": "accelerate and steer left",
+   "keys": [
+    "ArrowUp",
+    "ArrowLeft"
+   ]
+  },
+  {
+   "id": "gasRight",
+   "description": "accelerate and steer right",
+   "keys": [
+    "ArrowUp",
+    "ArrowRight"
+   ]
+  },
+  {
+   "id": "brake",
+   "description": "brake, no steering",
+   "keys": [
+    "ArrowDown"
+   ]
+  },
+  {
+   "id": "brakeLeft",
+   "description": "brake and steer left",
+   "keys": [
+    "ArrowDown",
+    "ArrowLeft"
+   ]
+  },
+  {
+   "id": "brakeRight",
+   "description": "brake and steer right",
+   "keys": [
+    "ArrowDown",
+    "ArrowRight"
+   ]
+  }
+ ],
+ "notes": "Every time (…Ms) is counted from the moment the chosen action takes effect, and 2000 or 3000 means nothing is in the way. x is the car's position across the road (-1 is the left edge, 1 the right edge, beyond that is offRoad). openX is the line across the road that stays clear of slower cars the longest; it also leans to the inside of curves that are too sharp to hold at this speed. openDxSteps is how far openX is from where the car will be if it does not steer, measured in the distance one decision of steering covers (positive: openX is to the right). STEERING: if openDxSteps >= 0.5, use a Right action; if openDxSteps <= -0.5, use a Left action; otherwise do not steer. THROTTLE: brake (brake, brakeLeft or brakeRight) when offRoad is false and speed > 0.05 and either slowMarginMs < 150 (you would reach a slower car before you could slow to its speed) or edgeMs < 700 with speed > 0.3 (the curve would push you off the road even while steering fully into it). Otherwise use gas (gas, gasLeft or gasRight). When offRoad is true, never brake: use gas and steer by openDxSteps. The remaining fields are context only: curve (the bend under the car, positive to the right), openClearMs (the clear time along the openX line), lineHitMs (the time until you hit a car if you keep your current line), leftOpenMs and rightOpenMs (the best clear time on each side), and sideObjMs (the time until you reach a tree or billboard in your line, counted only near or beyond the edge).",
+ "tickMs": 96,
+ "teacher": "function teach(state) {\n  if (!state || !state.ready) return 'gas';\n  var side = state.openDxSteps >= 0.5 ? 'Right' : (state.openDxSteps <= -0.5 ? 'Left' : '');\n  var slow = !state.offRoad && state.speed > 0.05 && (state.slowMarginMs < 150 || (state.edgeMs < 700 && state.speed > 0.3));\n  return (slow ? 'brake' : 'gas') + side;\n}"
+}

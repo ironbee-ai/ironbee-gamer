@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "createdAt": "2026-09-25T07:44:15.000Z",
+  "origin": "setup",
+  "note": "The one-off setup's extractor and actions, with generic instructions (\"Play the game well\" and the game's own description).",
+  "extractor": "function extract(frame) {\n  var P = null, G = null, obs = [], ch = [], over = false;\n  for (var i = 0; i < frame.length; i++) {\n    var d = frame[i];\n    if (d.k === 'text') { if (/game\\s*over/i.test(d.t || '')) over = true; continue; }\n    if (d.k === 'rect') { if (d.w > 0 && d.h > 0 && d.w < 300 && d.h < 100) obs.push({ kind: 'unknown', x: d.x, y: d.y, w: d.w, h: d.h }); continue; }\n    if (d.k !== 'img') continue;\n    var m = /:([^,]*),([^,]*),([^,]*),([^,]*)$/.exec(d.s || '');\n    var sx = m ? +m[1] : NaN, sy = m ? +m[2] : NaN;\n    if (sy >= 50 || d.w >= 300) { if (d.w >= 300 && G === null) G = d.y + d.h + 1; continue; }\n    if (d.w === 10 && d.h === 13 && d.y < 40) { ch.push({ x: d.x, c: (sx >= 655 && sx <= 745) ? String((sx - 655) / 10) : sx === 755 ? 'H' : sx === 765 ? 'I' : ' ' }); continue; }\n    if (sy === 15 && sx >= 655) { over = true; continue; }\n    if (sx === 2 && sy === 2) { over = true; continue; }\n    if (sx >= 848 && sy <= 2 && d.h >= 20) {\n      var st = (sx >= 1112 || d.w > 50) ? 'duck' : sx === 1068 ? 'crashed' : (sx === 936 || sx === 980) ? 'run' : sx === 848 ? 'jump' : sx === 892 ? 'idle' : 'other';\n      if (st === 'crashed') over = true;\n      P = { x: d.x, y: d.y, w: d.w, h: d.h, state: st };\n      continue;\n    }\n    if (sy === 2 && (sx === 86 || (sx >= 484 && sx < 655))) continue;\n    var kind = sy !== 2 ? 'unknown' : (sx >= 228 && sx < 332) ? 'cactus_small' : (sx >= 332 && sx < 484) ? 'cactus_large' : (sx >= 134 && sx < 228) ? 'bird' : 'unknown';\n    obs.push({ kind: kind, x: d.x, y: d.y, w: d.w, h: d.h });\n  }\n  if (G === null) { G = P ? P.y + P.h : 0; for (var j = 0; j < obs.length; j++) G = Math.max(G, obs[j].y + obs[j].h); }\n  var pl = P ? P.x : 0, pr = P ? P.x + P.w : 0;\n  var live = obs.filter(function (o) { return o.x + o.w > pl; }).sort(function (a, b) { return a.x - b.x; });\n  var ahead = live.slice(0, 3).map(function (o) {\n    return { kind: o.kind, dx: Math.round(o.x - pr), w: Math.round(o.w), h: Math.round(o.h), bottom: Math.round(G - o.y - o.h), top: Math.round(G - o.y) };\n  });\n  ch.sort(function (a, b) { return a.x - b.x; });\n  var runs = [], cur = null, lx = -1e9;\n  for (var k = 0; k < ch.length; k++) { if (cur === null || ch[k].x - lx > 12) { cur = runs.length; runs.push(''); } runs[cur] += ch[k].c; lx = ch[k].x; }\n  var score = null, hi = null;\n  for (var r = 0; r < runs.length; r++) {\n    var digits = runs[r].replace(/\\D/g, '');\n    if (!digits) continue;\n    if (/^HI/.test(runs[r])) hi = parseInt(digits, 10); else score = parseInt(digits, 10);\n  }\n  var alt = P ? Math.round(G - P.y - P.h) : 0;\n  return {\n    over: over,\n    player: P ? { alt: alt, air: alt > 2, state: P.state, h: P.h, w: P.w } : null,\n    score: score,\n    hi: hi,\n    obstacles: ahead,\n    moreObstacles: Math.max(0, live.length - 3)\n  };\n}",
+  "instructions": "Play the game well. Chrome Dino (T-Rex runner). Press Space or ArrowUp to jump, ArrowDown to duck. Avoid the obstacles. Survive as long as possible; the score grows with the distance run.",
+  "actions": [
+    {
+      "id": "NOOP",
+      "description": "Keep running; release all keys (also ends a jump early for a shorter hop)",
+      "keys": []
+    },
+    {
+      "id": "JUMP",
+      "description": "Jump, or start/restart the game; holding it on following ticks makes the jump higher",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "DUCK",
+      "description": "Duck under low-flying birds; in the air it makes the dino drop fast",
+      "keys": [
+        "ArrowDown"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 50,
+  "maxHoldMs": 800,
+  "tests": [],
+  "results": {
+    "mean": 69.3,
+    "scores": [
+      101,
+      58,
+      49
+    ],
+    "gameSeconds": 45,
+    "measuredAt": "2026-09-25T07:44:15.000Z"
+  }
+}

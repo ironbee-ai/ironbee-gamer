@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<title>rng fixture</title>
+<script>
+    // What a game draws as it loads — from Math.random, and from crypto (an RNG library seeding itself, entity ids) —,
+    // what crypto's calls do with what they must refuse, and the input counter's id for the document.
+    function failure(call) {
+        try {
+            call();
+            return "none";
+        } catch (e) {
+            return e.name;
+        }
+    }
+    var ints = new Uint32Array(4);
+    window.drawn = {
+        math: [Math.random(), Math.random()],
+        same: crypto.getRandomValues(ints) === ints,
+        ints: Array.from(ints),
+        odd: Array.from(crypto.getRandomValues(new Uint8Array(5))),
+        uuid: crypto.randomUUID(),
+        floats: failure(function () { crypto.getRandomValues(new Float32Array(2)); }),
+        tooMany: failure(function () { crypto.getRandomValues(new Uint8Array(65537)); }),
+        doc: window.__ibgamer && window.__ibgamer.inputsDoc,
+    };
+</script>
+</head>
+<body></body>
+</html>

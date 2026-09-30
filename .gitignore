@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.idea/
+.ibgamer/
+coverage/
+__pycache__/
+.DS_Store
+research/

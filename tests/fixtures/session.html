@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><title>session fixture</title></head>
+<body>
+<script>
+    // Counts its loads in the tab's session storage, then adds frames as ads and feature tests do: an about:blank one
+    // at once, one of its own origin and (?other=<url>) one of another origin — each of the last two counts its own
+    // loads in its session storage and tells the page. What the page stored should still be there.
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    document.body.appendChild(document.createElement("iframe"));
+    window.afterBlank = sessionStorage.getItem("loads");
+    window.framed = {};
+    addEventListener("message", function (e) { window.framed[e.data.origin] = e.data.loads; });
+    var sources = ["/session-frame.html"];
+    var other = new URLSearchParams(location.search).get("other");
+    if (other) { sources.push(other + "session-frame.html"); }
+    sources.forEach(function (src) { var frame = document.createElement("iframe"); frame.src = src; document.body.appendChild(frame); });
+    window.state = function () {
+        return {
+            loads: Number(sessionStorage.getItem("loads")),
+            afterBlank: Number(window.afterBlank),
+            init: sessionStorage.getItem("init"),
+            framed: window.framed,
+        };
+    };
+</script>
+</body>
+</html>

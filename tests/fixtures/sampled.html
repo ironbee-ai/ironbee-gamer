@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+<title>sampled fixture</title>
+<script>
+    // What the page's clock says as it loads and at its first animation frames, for a game script that samples the
+    // clock beside it from the moment it starts.
+    window.loadAt = performance.now();
+    window.frameTimes = [];
+    requestAnimationFrame(function tick(t) {
+        if (window.frameTimes.length < 4) {
+            window.frameTimes.push(t);
+            requestAnimationFrame(tick);
+        }
+    });
+</script>
+</head>
+<body></body>
+</html>

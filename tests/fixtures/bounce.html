@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><title>bounce fixture</title></head>
+<body>
+<script>
+    // Counts its loads and leaves a state in the tab's session storage, then sends the tab to another origin
+    // (?other=<url>), which sends it straight back to this one (a sign-in bounce) before the load ends.
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    sessionStorage.setItem("state", "from before the bounce");
+    location.replace(new URLSearchParams(location.search).get("other") + "bounce-away.html?back=" + encodeURIComponent(location.origin + "/bounce-back.html"));
+</script>
+</body>
+</html>

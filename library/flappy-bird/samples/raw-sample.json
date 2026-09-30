@@ -1,0 +1,191 @@
+{
+ "watching": [
+  {
+   "screen": 1,
+   "bird": {
+    "x": 57,
+    "y": 142,
+    "w": 39,
+    "h": 33
+   },
+   "top": 145.9,
+   "velocity": -1.85,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": []
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 59,
+    "y": 139,
+    "w": 35,
+    "h": 26
+   },
+   "top": 140.1,
+   "velocity": -0.35,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": []
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 58,
+    "y": 140,
+    "w": 38,
+    "h": 30
+   },
+   "top": 143.2,
+   "velocity": 1.15,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": []
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 57,
+    "y": 149,
+    "w": 41,
+    "h": 36
+   },
+   "top": 155.4,
+   "velocity": 2.65,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": []
+  }
+ ],
+ "blindPlay": [
+  {
+   "screen": 1,
+   "bird": {
+    "x": 59,
+    "y": 262,
+    "w": 37,
+    "h": 28
+   },
+   "top": 263.8,
+   "velocity": -0.85,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": []
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 56,
+    "y": 275,
+    "w": 41,
+    "h": 37
+   },
+   "top": 281.1,
+   "velocity": 2.9,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": [
+    {
+     "x": 900,
+     "w": 52,
+     "gapTop": 150,
+     "gapBottom": 240
+    }
+   ]
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 59,
+    "y": 240,
+    "w": 37,
+    "h": 28
+   },
+   "top": 242.1,
+   "velocity": -0.85,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": [
+    {
+     "x": 867,
+     "w": 52,
+     "gapTop": 150,
+     "gapBottom": 240
+    }
+   ]
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 56,
+    "y": 253,
+    "w": 41,
+    "h": 37
+   },
+   "top": 259.3,
+   "velocity": 2.9,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": [
+    {
+     "x": 833,
+     "w": 52,
+     "gapTop": 150,
+     "gapBottom": 240
+    }
+   ]
+  },
+  {
+   "screen": 1,
+   "bird": {
+    "x": 58,
+    "y": 324,
+    "w": 38,
+    "h": 41
+   },
+   "top": 332.8,
+   "velocity": 6.65,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": [
+    {
+     "x": 800,
+     "w": 52,
+     "gapTop": 150,
+     "gapBottom": 240
+    }
+   ]
+  },
+  {
+   "screen": 2,
+   "bird": {
+    "x": 62,
+    "y": 388,
+    "w": 31,
+    "h": 38
+   },
+   "top": 395,
+   "velocity": 8.65,
+   "ground": 420,
+   "width": 1280,
+   "height": 420,
+   "pipes": [
+    {
+     "x": 783,
+     "w": 52,
+     "gapTop": 150,
+     "gapBottom": 240
+    }
+   ]
+  }
+ ]
+}

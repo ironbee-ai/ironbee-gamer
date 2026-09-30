@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+<head><title>bounce back fixture</title></head>
+<body>
+<script>
+    // Where the bounce sends the tab back to: what the game's first page left in the tab's session storage.
+    window.state = function () { return { state: sessionStorage.getItem("state"), loads: Number(sessionStorage.getItem("loads")) }; };
+</script>
+</body>
+</html>

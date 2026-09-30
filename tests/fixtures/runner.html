@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Fixture Runner</title></head>
+<body style="margin:0;background:#fff">
+<canvas id="game" width="600" height="150"></canvas>
+<script>
+// A tiny runner for the integration tests: a sprite sheet on an offscreen canvas,
+// drawn with drawImage from a requestAnimationFrame loop. Space jumps; obstacles
+// come at random gaps (Math.random); touching one on the ground ends the game.
+(function () {
+    var sheet = document.createElement("canvas");
+    sheet.width = 40; sheet.height = 20;
+    var s = sheet.getContext("2d");
+    s.fillStyle = "#333"; s.fillRect(0, 0, 20, 20);     // player
+    s.fillStyle = "#0a0"; s.fillRect(20, 0, 20, 20);    // obstacle
+    var ctx = document.getElementById("game").getContext("2d");
+    var game = window.game = { over: false, score: 0, t: 0, y: 0, vy: 0, obstacles: [], gaps: [] };
+    var last = performance.now();
+    game.loadedAt = last;
+    var nextAt = 400;
+    function spawn() {
+        var gap = 250 + Math.floor(Math.random() * 300);
+        game.gaps.push(gap);
+        game.obstacles.push({ x: 600 });
+        nextAt = game.t + gap * 4;
+    }
+    var space = false;
+    addEventListener("keydown", function (e) { if (e.code === "Space") { space = true; } });
+    addEventListener("keyup", function (e) { if (e.code === "Space") { space = false; } });
+    // The mouse button held down jumps too (charge-and-release games hold the pointer).
+    var pointer = false;
+    addEventListener("mousedown", function (e) { pointer = true; game.downAt = [e.clientX, e.clientY]; });
+    addEventListener("mouseup", function () { pointer = false; game.ups = (game.ups || 0) + 1; });
+    function frame(now) {
+        if (game.firstFrameAt === undefined) { game.firstFrameAt = now; }
+        var dt = Math.min(50, now - last); last = now;
+        if (!game.over) {
+            game.t += dt;
+            if ((space || pointer) && game.y === 0) { game.vy = 0.45; }
+            game.y = Math.max(0, game.y + game.vy * dt); game.vy -= 0.0015 * dt;
+            if (game.y === 0) { game.vy = 0; }
+            if (game.t >= nextAt) { spawn(); }
+            for (var i = 0; i < game.obstacles.length; i++) {
+                var o = game.obstacles[i]; o.x -= 0.25 * dt;
+                if (o.x < 40 && o.x > 0 && game.y < 20) { game.over = true; }
+            }
+            game.obstacles = game.obstacles.filter(function (o) { return o.x > -20; });
+            game.score = Math.floor(game.t / 100);
+        }
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 600, 150);
+        ctx.drawImage(sheet, 0, 0, 20, 20, 20, 120 - game.y, 20, 20);
+        for (var j = 0; j < game.obstacles.length; j++) { ctx.drawImage(sheet, 20, 0, 20, 20, game.obstacles[j].x, 120, 20, 20); }
+        ctx.fillStyle = "#000"; ctx.fillText(String(game.score), 560, 12);
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

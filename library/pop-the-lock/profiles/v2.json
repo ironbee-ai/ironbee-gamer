@@ -1,0 +1,73 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-28T02:12:08.157Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "Seeds 101 and 303 ended on a second tap one decision after a successful pop. In that frame the bar had already reversed, but the popped dot was still drawn in its old place and within 8 degrees, so tapOutcome still said 'pop'. Seed 202 ended on a tap 5.9 degrees from the dot, with the bar at 177 and the dot at -177. A tap 6.0 degrees away had worked elsewhere, so the likely cause is that the game compares raw angles and misses hits across the +/-180 line. The new extractor treats a bar reversal as a pop and marks the old dot dotPopped ('uncertain') until it moves, refuses to tap when the bar did not move, flags seamSplit, and uses a fixed 5-degree sure-pop window. The rule now taps at the decision nearest the dot centre (waitOutcome closer/farther/gameOver), and tickMs drops to 17 (one frame, about 3 degrees) so taps land within about 1.5 degrees of centre and on the dot's side of the 180 line.",
+  "extractor": "function extract(raw, memory) {\n  var TICK_MS = 17;\n  var DEFAULT_STEP = 3 * TICK_MS / 16.67;\n  var POP_TOL = 5;\n  var STILL_OVER = 20;\n  var STALE_MAX = 30;\n  function wrap180(x) { return ((x + 180) % 360 + 360) % 360 - 180; }\n  function mod360(x) { return (x % 360 + 360) % 360; }\n  function r1(x) { return Math.round(x * 10) / 10; }\n  function near(p, q) { return !!(p && q) && Math.abs(p.x - q.x) + Math.abs(p.y - q.y) <= 3; }\n  function isRed(t) {\n    if (t === undefined || t === null) return false;\n    var n = typeof t === 'number' ? t : parseInt(String(t).replace('#', '').replace('0x', ''), 16);\n    if (isNaN(n)) return false;\n    var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;\n    return r >= 176 && g < 112 && b < 112;\n  }\n  var objs = (raw && raw.objects) || [];\n  var ring = null, bar = null, dots = [], texts = [], rest = [];\n  var i, o, nm;\n  for (i = 0; i < objs.length; i++) {\n    o = objs[i];\n    if (!o) continue;\n    if (o.text !== undefined && o.text !== null) { texts.push(o); continue; }\n    nm = ((o.tex || '') + ' ' + (o.frame || '') + ' ' + (o.name || '')).toLowerCase();\n    if (!ring && nm.indexOf('ring') >= 0) ring = o;\n    else if (!bar && (nm.indexOf('bar') >= 0 || nm.indexOf('needle') >= 0 || nm.indexOf('pointer') >= 0)) bar = o;\n    else if (nm.indexOf('ball') >= 0 || nm.indexOf('dot') >= 0 || nm.indexOf('target') >= 0) dots.push(o);\n    else rest.push(o);\n  }\n  var others = [], needDot = dots.length === 0;\n  for (i = 0; i < rest.length; i++) {\n    o = rest[i];\n    var w = o.w || 0, h = o.h || 0;\n    if (!ring && w >= 200 && Math.abs(w - h) < 0.2 * w) ring = o;\n    else if (!bar && h > 0 && w >= 4 * h) bar = o;\n    else if (needDot && w > 0 && w <= 120 && Math.abs(w - h) < 0.3 * w) dots.push(o);\n    else others.push(o);\n  }\n  var cx = ring ? ring.x : (bar ? bar.x : 0), cy = ring ? ring.y : (bar ? bar.y : 0);\n  var barA = bar ? wrap180(bar.a || 0) : 0;\n  if (!memory.init) {\n    memory.init = true; memory.t = 0; memory.pops = 0; memory.still = 0; memory.over = false;\n    memory.prevA = null; memory.prevDot = null; memory.dir = 1; memory.dirKnown = false; memory.step = DEFAULT_STEP;\n    memory.lastRevT = -99; memory.lastJumpT = -99; memory.stale = null; memory.staleT = -99;\n  }\n  memory.t++;\n  var t = memory.t;\n  var delta = (memory.prevA === null || !bar) ? 0 : wrap180(barA - memory.prevA);\n  var moved = Math.abs(delta) > 0.3;\n  memory.still = (moved || memory.prevA === null) ? 0 : memory.still + 1;\n  var over = !bar || isRed(bar.tint) || memory.still >= STILL_OVER;\n  if (memory.over && !over) {\n    memory.pops = 0; memory.dir = 1; memory.dirKnown = false; memory.step = DEFAULT_STEP; memory.prevDot = null;\n    memory.lastRevT = -99; memory.lastJumpT = -99; memory.stale = null;\n  }\n  var cands = [];\n  for (i = 0; i < dots.length; i++) if (!near(dots[i], memory.stale)) cands.push(dots[i]);\n  if (!cands.length) cands = dots;\n  var dot = null, best = 1e9;\n  for (i = 0; i < cands.length; i++) {\n    var da = Math.atan2(cands[i].y - cy, cands[i].x - cx) * 180 / Math.PI;\n    var gg = mod360((da - barA) * memory.dir);\n    if (gg > 330) gg -= 360;\n    if (gg < best) { best = gg; dot = cands[i]; }\n  }\n  var jumped = !!(dot && memory.prevDot && !near(dot, memory.prevDot));\n  var clear = Math.abs(delta) >= 1.5 && Math.abs(delta) < 60;\n  var sgn = delta > 0 ? 1 : -1;\n  var reversed = false;\n  if (!over && clear) {\n    if (!memory.dirKnown) { memory.dir = sgn; memory.dirKnown = true; }\n    else if (sgn !== memory.dir) {\n      reversed = true;\n      memory.dir = sgn;\n      if (t - memory.lastRevT > 3) {\n        memory.pops++;\n        memory.lastRevT = t;\n        if (dot && !jumped && t - memory.lastJumpT > 3) { memory.stale = { x: dot.x, y: dot.y }; memory.staleT = t; }\n      }\n    } else memory.step = 0.6 * memory.step + 0.4 * Math.abs(delta);\n  }\n  if (!over && jumped) {\n    memory.lastJumpT = t;\n    if (t - memory.lastRevT > 3) {\n      memory.pops++;\n      memory.lastRevT = t;\n      if (!clear && memory.dirKnown) memory.dir = -memory.dir;\n    }\n  }\n  if (memory.stale && ((dot && !near(dot, memory.stale)) || t - memory.staleT > STALE_MAX)) memory.stale = null;\n  var stale = !!(memory.stale && dot && near(dot, memory.stale));\n  var dir = memory.dir;\n  var step = Math.max(1, Math.min(20, memory.step));\n  var dotA = 0, dotDist = 0, gap = 0, edgeTol = 8;\n  if (dot) {\n    dotA = Math.atan2(dot.y - cy, dot.x - cx) * 180 / Math.PI;\n    if (dotA >= 180) dotA -= 360;\n    dotDist = Math.sqrt((dot.x - cx) * (dot.x - cx) + (dot.y - cy) * (dot.y - cy));\n    gap = mod360((dotA - barA) * dir);\n    if (gap > 330) gap -= 360;\n    if (dotDist > 1) edgeTol = Math.atan2((dot.w || 50) / 2, dotDist) * 180 / Math.PI;\n    edgeTol = Math.max(POP_TOL + 1, Math.min(12, edgeTol));\n  }\n  var absGap = Math.abs(gap), gapNext = gap - step;\n  var seamSplit = !!dot && Math.abs(barA - dotA) > 180;\n  var splitNext = !!dot && Math.abs(wrap180(barA + dir * step) - dotA) > 180;\n  var nextPop = !!dot && Math.abs(gapNext) <= POP_TOL && !splitNext;\n  var ready = !over && !!dot && memory.dirKnown && clear && !reversed && !jumped && !stale;\n  var tapOutcome = over ? 'none' : (!dot ? 'miss' : (!ready ? 'uncertain' : ((seamSplit || absGap > edgeTol) ? 'miss' : (absGap <= POP_TOL ? 'pop' : 'edge'))));\n  var waitOutcome = over ? 'none' : ((!dot || stale || !memory.dirKnown) ? 'safe' : (nextPop ? (Math.abs(gapNext) < absGap ? 'closer' : 'farther') : (gapNext > 0 ? 'safe' : 'gameOver')));\n  var score = null, hud = [];\n  for (i = 0; i < texts.length; i++) {\n    var s = String(texts[i].text).trim();\n    if (hud.length < 3) hud.push(s.slice(0, 24));\n    if (score === null && /^[0-9]+$/.test(s)) score = parseInt(s, 10);\n  }\n  var unknown = [];\n  for (i = 0; i < others.length && unknown.length < 4; i++) {\n    o = others[i];\n    unknown.push({ tex: String(o.tex || o.type || '?'), x: Math.round(o.x || 0), y: Math.round(o.y || 0), w: o.w || 0, h: o.h || 0,\n      distFromCentre: Math.round(Math.sqrt((o.x - cx) * (o.x - cx) + (o.y - cy) * (o.y - cy))),\n      angleDeg: Math.round(Math.atan2(o.y - cy, o.x - cx) * 180 / Math.PI) });\n  }\n  if (bar) memory.prevA = barA;\n  memory.prevDot = dot ? { x: dot.x, y: dot.y } : null;\n  memory.over = over;\n  var state = {\n    gameOver: over,\n    pops: memory.pops,\n    barMoving: moved,\n    barReversed: reversed,\n    dir: memory.dirKnown ? (dir > 0 ? 'clockwise' : 'counterclockwise') : 'unknown',\n    barAngleDeg: r1(barA),\n    dotAngleDeg: dot ? r1(dotA) : null,\n    dotVisible: !!dot,\n    dotMoving: jumped,\n    dotPopped: stale,\n    stepDeg: r1(step),\n    gapDeg: r1(gap),\n    gapNextDeg: r1(gapNext),\n    popTolDeg: POP_TOL,\n    edgeTolDeg: r1(edgeTol),\n    seamSplit: seamSplit,\n    ticksToDot: r1(gap / step),\n    tapOutcome: tapOutcome,\n    waitOutcome: waitOutcome\n  };\n  if (dots.length > 1) state.dotCount = dots.length;\n  if (score !== null) state.score = score;\n  if (hud.length) state.hudText = hud;\n  if (unknown.length) state.unknown = unknown;\n  return state;\n}",
+  "instructions": "Pop the Lock. A bar spins around the centre of a ring and a dot sits on the ring. Tap while the bar is on the dot to pop it: the bar then turns the other way and the dot jumps elsewhere on the ring. Tapping while the bar is off the dot, or letting the bar pass the dot, ends the game. Pop as many dots as you can.\nOne decision is 17 game-ms, usually one animation frame: the bar turns about stepDeg degrees (about 3) in direction dir; occasionally zero or two frames pass.\nFIELDS. gapDeg: degrees the bar still has to turn to be centred on the dot (negative = it has just passed the centre). gapNextDeg: gapDeg at the next decision if you wait. barMoving: the bar moved since the last decision. barReversed: the bar just changed direction, which means a dot was just popped. dotMoving: the dot just jumped to a new place. dotPopped: the dot shown is the one that was just popped; the new dot has not appeared yet. seamSplit: the bar and the dot are on opposite sides of the 180-degree line (the leftmost point of the ring); the game does not count a hit across that line, so a tap then ends the game. popTolDeg (5) is the sure-pop window around the dot centre; edgeTolDeg (about 8) is where the bar only touches the dot's edge.\ntapOutcome = what a tap now does: 'pop' = sure pop (|gapDeg| <= popTolDeg, no seamSplit, the bar moved normally since the last decision, the dot is settled); 'edge' = the bar only touches the dot's edge, a tap may pop or may end the game; 'miss' = a tap ends the game; 'uncertain' = do not tap: the bar did not move or just reversed, or the dot just jumped or was just popped, so the effect of the previous tap is not visible yet (an extra tap right after a pop ends the game); 'none' = the game is over.\nwaitOutcome = what waiting one decision leads to: 'safe' = the bar will still be short of the dot's sure-pop window (or there is no live dot yet); 'closer' = the bar will be nearer the dot centre and still inside the window, so tapping later is better; 'farther' = the bar will be farther from the dot centre (it is passing it) but still inside the window, so now is the best moment; 'gameOver' = the bar will have left the window (past the dot, or across the 180-degree line), so now is the last chance.\nRULES, in order: 1) gameOver is true -> wait. 2) tapOutcome is 'pop' and waitOutcome is 'farther' or 'gameOver' -> tap. 3) tapOutcome is 'edge' and waitOutcome is 'gameOver' -> tap (last chance: waiting surely ends the game). 4) Otherwise -> wait. Never tap when tapOutcome is 'miss', 'uncertain' or 'none'. pops counts the dots popped so far; unknown lists unrecognised objects, which are not threats.",
+  "actions": [
+    {
+      "id": "tap",
+      "description": "Click the game once. If the bar is on the dot, this pops it (the bar reverses and the dot jumps). If not, the game ends.",
+      "click": true
+    },
+    {
+      "id": "wait",
+      "description": "Do nothing for this decision and let the bar keep turning.",
+      "keys": []
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 17,
+  "maxHoldMs": 100,
+  "askWhen": "state.tapOutcome === 'pop' || state.tapOutcome === 'edge'",
+  "teacher": "function teach(state) {\n  if (!state || state.gameOver) return 'wait';\n  var w = state.waitOutcome;\n  if (state.tapOutcome === 'pop' && (w === 'farther' || w === 'gameOver')) return 'tap';\n  if (state.tapOutcome === 'edge' && w === 'gameOver') return 'tap';\n  return 'wait';\n}",
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "!(state.barAngleDeg === -168 && state.dotAngleDeg === -176.1) || state.gameOver || (state.dotPopped === true && state.tapOutcome !== 'pop' && state.tapOutcome !== 'edge')",
+      "why": "One frame after a pop, the bar had reversed but the popped dot was still drawn at -176.1. v1 said 'pop', tapped again and lost. That dot must now be marked as popped and not tappable."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "expect": "!(state.barAngleDeg === -15 && state.dotAngleDeg === -8.9) || state.gameOver || (state.dotPopped === true && state.tapOutcome !== 'pop' && state.tapOutcome !== 'edge')",
+      "why": "Same double-tap failure: the bar reversed from -12 to -15 while the popped dot stayed at -8.9."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "expect": "!(state.barAngleDeg === 177 && state.dotAngleDeg === -177.1) || state.gameOver || (state.seamSplit === true && state.tapOutcome !== 'pop' && state.tapOutcome !== 'edge' && state.waitOutcome === 'closer')",
+      "why": "A tap with the bar at 177 and the dot at -177.1, on opposite sides of the +/-180 line, ended the game. The bar must wait until it crosses to the dot's side, which is also nearer the dot centre."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "!(state.barAngleDeg === -114 && state.dotAngleDeg === -112.9) || (state.tapOutcome === 'pop' && (state.waitOutcome === 'farther' || state.waitOutcome === 'gameOver'))",
+      "why": "Keeps a known good pop: the bar 1.1 degrees from a settled dot and about to pass it must still be 'pop' at its best moment."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "expect": "!(state.barAngleDeg === -12 && state.dotAngleDeg === -8.9) || state.tapOutcome === 'pop'",
+      "why": "Keeps a known good pop: the bar 3.1 degrees before a settled dot, on the same side of the 180 line, must be recognised as poppable."
+    }
+  ],
+  "results": {
+    "mean": 44.67,
+    "scores": [
+      56,
+      20,
+      58
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 60,
+    "measuredAt": "2026-09-28T02:12:25.597Z"
+  }
+}

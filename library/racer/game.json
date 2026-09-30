@@ -1,0 +1,66 @@
+{
+  "id": "racer",
+  "name": "Racer",
+  "description": "An OutRun-style pseudo-3D racer: a red convertible on a long road of curves and hills, with traffic, palm trees and billboards. Drawn on a 2D canvas.",
+  "url": "https://jakesgordon.com/games/racer/",
+  "goal": "Racer. Up accelerates, Down brakes, Left and Right steer. Drive as far as you can in the time: stay on the road (off it the car slows down, and it stops dead against a tree or a billboard), steer into the curves (they push the car outward), and pass the slower cars without touching them (running into one from behind drops you to its speed).",
+  "perception": {
+    "adapter": "custom",
+    "read": "(() => { if (typeof segments === 'undefined' || !segments.length || typeof findSegment !== 'function' || !playerZ) return null; const N = segments.length, L = segmentLength, z = position + playerZ; const seg = findSegment(z); const r = (v, d) => Math.round(v * d) / d; const road = []; for (let i = 0; i < 30; i++) { const s = segments[(seg.index + i) % N]; road.push({ curve: r(s.curve, 100), y: Math.round(s.p2.world.y - seg.p1.world.y) }); } const cars = []; for (let i = -2; i < 60; i++) { const s = segments[(seg.index + i + N) % N]; for (const c of s.cars) { let dz = c.z - z; if (dz < -trackLength / 2) dz += trackLength; if (dz > trackLength / 2) dz -= trackLength; cars.push({ offset: r(c.offset, 1000), dz: Math.round(dz), speed: r(c.speed / maxSpeed, 1000), w: r(c.sprite.w * SPRITES.SCALE, 1000) }); } } const side = []; for (let i = 0; i < 12; i++) { const s = segments[(seg.index + i) % N]; for (const sp of s.sprites) side.push({ offset: r(sp.offset, 100), dz: Math.round(s.p1.world.z - z), w: r(sp.source.w * SPRITES.SCALE, 1000) }); } return { playerX: r(playerX, 1000), speed: r(speed / maxSpeed, 1000), playerW: r(SPRITES.PLAYER_STRAIGHT.w * SPRITES.SCALE, 1000), segmentLength: L, centrifugal, lapTime: r(currentLapTime, 100), road, cars: cars.sort((a, b) => a.dz - b.dz), side }; })()",
+    "format": "{ playerX: the car's x on the road (-1 is the left edge, 1 the right edge; beyond is off the road), speed: 0–1 of the top speed, playerW: the car's width in playerX units, segmentLength: 200 (the z length of a road segment), centrifugal: how hard a curve pushes the car outward, lapTime: seconds, road: the next 30 segments from the car's [{ curve: how much the road bends there (negative left, positive right), y: its height relative to the car's segment }], cars: the traffic from 2 segments behind to 60 ahead, nearest first [{ offset: its x on the road (-1…1), dz: z distance ahead of the car (negative: behind), speed: 0–1 of the top speed, w: its width in playerX units }], side: what stands by the road in the next 12 segments [{ offset (beyond ±1: off the road), dz, w }] } — null before the road is built"
+  },
+  "viewport": {
+    "width": 960,
+    "height": 720
+  },
+  "bootMs": 3000,
+  "score": {
+    "expression": "(() => { if (typeof position !== 'number' || !trackLength || !segmentLength) { return { over: false, score: 0 }; } const m = window.__ibgamerRacer || (window.__ibgamerRacer = { last: position, laps: 0 }); if (position < m.last - trackLength / 2) { m.laps++; } m.last = position; return { over: false, score: Math.floor((m.laps * trackLength + position) / segmentLength), speed: Math.round(speed / maxSpeed * 100) }; })()",
+    "label": "road segments driven"
+  },
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "racing",
+    "driving",
+    "canvas2d"
+  ],
+  "credits": "Javascript Racer by Jake Gordon (MIT), played where its author hosts it: jakesgordon.com/games/racer",
+  "preferredEngine": "laya",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "version": 4,
+      "lagMs": 50
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya",
+    "live": true
+  },
+  "pageStyle": "body { margin: 0; background: #000; overflow: hidden; } #controls, #instructions, #mute, #stats, #fps { display: none !important; } #racer { margin: 0 !important; border: 0 !important; width: 960px !important; height: 720px !important; } #canvas { width: 960px !important; height: 720px !important; } #hud { width: 960px !important; font-size: 1em !important; }"
+}

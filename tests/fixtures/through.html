@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head><title>through fixture</title></head>
+<body>
+<script>
+    // A game that goes through another host (?other=<url>) that remembers its visits there: ?via=bounce sends the tab to
+    // visited.html as it loads, which sends it back with its counts (a consent or sign-in page); ?via=hop through a
+    // redirect of that host that sets a cookie and sends it back with its count (/hop: no document is ever there);
+    // ?via=frame has visited.html in a frame, removed once it has told the page (an ad, a save widget). The page is on
+    // none of them when the next game opens.
+    var params = new URLSearchParams(location.search);
+    var via = params.get("via");
+    var back = location.origin + location.pathname + "?via=" + via;
+    window.visit = null;
+    if (params.has("cookie")) {
+        window.visit = { cookie: Number(params.get("cookie")) };
+        if (params.has("local")) {
+            window.visit.local = Number(params.get("local"));
+        }
+    } else if (via === "bounce") {
+        location.replace(params.get("other") + "visited.html?back=" + encodeURIComponent(back));
+    } else if (via === "hop") {
+        location.replace(params.get("other") + "hop?back=" + encodeURIComponent(back));
+    } else if (via === "frame") {
+        var frame = document.createElement("iframe");
+        frame.src = params.get("other") + "visited.html";
+        addEventListener("message", function (e) {
+            window.visit = e.data;
+            frame.remove();
+        });
+        document.body.appendChild(frame);
+    }
+    window.state = function () { return window.visit; };
+</script>
+</body>
+</html>

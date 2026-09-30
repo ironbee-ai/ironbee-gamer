@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+<head><title>bounce away fixture</title></head>
+<body>
+<script>
+    // Another origin a game's load passes through: sends the tab straight back (?back=<url>).
+    location.replace(new URLSearchParams(location.search).get("back"));
+</script>
+</body>
+</html>

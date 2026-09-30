@@ -1,0 +1,60 @@
+{
+ "labels": {
+  "i1:2,54,600,12": "background_ground_left",
+  "i1:602,54,600,12": "background_ground_right",
+  "i1:86,2,46,14": "background_cloud",
+  "i1:848,2,44,47": "player_jump",
+  "i1:892,2,44,47": "player_idle_blink",
+  "i1:936,2,44,47": "player_run_a",
+  "i1:980,2,44,47": "player_run_b",
+  "i1:1068,2,44,47": "player_crashed",
+  "i1:1112,2,59,47": "player_duck_a",
+  "i1:1171,2,59,47": "player_duck_b",
+  "i1:228,2,17,35": "cactus_small_1",
+  "i1:245,2,34,35": "cactus_small_2",
+  "i1:279,2,51,35": "cactus_small_3",
+  "i1:332,2,25,50": "cactus_large_1",
+  "i1:357,2,50,50": "cactus_large_2",
+  "i1:407,2,75,50": "cactus_large_3",
+  "i1:134,2,46,40": "bird_a",
+  "i1:180,2,46,40": "bird_b",
+  "i1:655,15,191,11": "game_over_text",
+  "i1:2,2,36,32": "restart_button",
+  "i1:655,2,10,13": "digit_0",
+  "i1:665,2,10,13": "digit_1",
+  "i1:675,2,10,13": "digit_2",
+  "i1:685,2,10,13": "digit_3",
+  "i1:695,2,10,13": "digit_4",
+  "i1:705,2,10,13": "digit_5",
+  "i1:715,2,10,13": "digit_6",
+  "i1:725,2,10,13": "digit_7",
+  "i1:735,2,10,13": "digit_8",
+  "i1:745,2,10,13": "digit_9",
+  "i1:755,2,10,13": "letter_H",
+  "i1:765,2,10,13": "letter_I",
+  "i1:NaN,2,10,13": "text_space"
+ },
+ "extractor": "function extract(frame) {\n  var P = null, G = null, obs = [], ch = [], over = false;\n  for (var i = 0; i < frame.length; i++) {\n    var d = frame[i];\n    if (d.k === 'text') { if (/game\\s*over/i.test(d.t || '')) over = true; continue; }\n    if (d.k === 'rect') { if (d.w > 0 && d.h > 0 && d.w < 300 && d.h < 100) obs.push({ kind: 'unknown', x: d.x, y: d.y, w: d.w, h: d.h }); continue; }\n    if (d.k !== 'img') continue;\n    var m = /:([^,]*),([^,]*),([^,]*),([^,]*)$/.exec(d.s || '');\n    var sx = m ? +m[1] : NaN, sy = m ? +m[2] : NaN;\n    if (sy >= 50 || d.w >= 300) { if (d.w >= 300 && G === null) G = d.y + d.h + 1; continue; }\n    if (d.w === 10 && d.h === 13 && d.y < 40) { ch.push({ x: d.x, c: (sx >= 655 && sx <= 745) ? String((sx - 655) / 10) : sx === 755 ? 'H' : sx === 765 ? 'I' : ' ' }); continue; }\n    if (sy === 15 && sx >= 655) { over = true; continue; }\n    if (sx === 2 && sy === 2) { over = true; continue; }\n    if (sx >= 848 && sy <= 2 && d.h >= 20) {\n      var st = (sx >= 1112 || d.w > 50) ? 'duck' : sx === 1068 ? 'crashed' : (sx === 936 || sx === 980) ? 'run' : sx === 848 ? 'jump' : sx === 892 ? 'idle' : 'other';\n      if (st === 'crashed') over = true;\n      P = { x: d.x, y: d.y, w: d.w, h: d.h, state: st };\n      continue;\n    }\n    if (sy === 2 && (sx === 86 || (sx >= 484 && sx < 655))) continue;\n    var kind = sy !== 2 ? 'unknown' : (sx >= 228 && sx < 332) ? 'cactus_small' : (sx >= 332 && sx < 484) ? 'cactus_large' : (sx >= 134 && sx < 228) ? 'bird' : 'unknown';\n    obs.push({ kind: kind, x: d.x, y: d.y, w: d.w, h: d.h });\n  }\n  if (G === null) { G = P ? P.y + P.h : 0; for (var j = 0; j < obs.length; j++) G = Math.max(G, obs[j].y + obs[j].h); }\n  var pl = P ? P.x : 0, pr = P ? P.x + P.w : 0;\n  var live = obs.filter(function (o) { return o.x + o.w > pl; }).sort(function (a, b) { return a.x - b.x; });\n  var ahead = live.slice(0, 3).map(function (o) {\n    return { kind: o.kind, dx: Math.round(o.x - pr), w: Math.round(o.w), h: Math.round(o.h), bottom: Math.round(G - o.y - o.h), top: Math.round(G - o.y) };\n  });\n  ch.sort(function (a, b) { return a.x - b.x; });\n  var runs = [], cur = null, lx = -1e9;\n  for (var k = 0; k < ch.length; k++) { if (cur === null || ch[k].x - lx > 12) { cur = runs.length; runs.push(''); } runs[cur] += ch[k].c; lx = ch[k].x; }\n  var score = null, hi = null;\n  for (var r = 0; r < runs.length; r++) {\n    var digits = runs[r].replace(/\\D/g, '');\n    if (!digits) continue;\n    if (/^HI/.test(runs[r])) hi = parseInt(digits, 10); else score = parseInt(digits, 10);\n  }\n  var alt = P ? Math.round(G - P.y - P.h) : 0;\n  return {\n    over: over,\n    player: P ? { alt: alt, air: alt > 2, state: P.state, h: P.h, w: P.w } : null,\n    score: score,\n    hi: hi,\n    obstacles: ahead,\n    moreObstacles: Math.max(0, live.length - 3)\n  };\n}",
+ "actions": [
+  {
+   "id": "NOOP",
+   "description": "Keep running; release all keys (also ends a jump early for a shorter hop)",
+   "keys": []
+  },
+  {
+   "id": "JUMP",
+   "description": "Jump, or start/restart the game; holding it on following ticks makes the jump higher",
+   "keys": [
+    "ArrowUp"
+   ]
+  },
+  {
+   "id": "DUCK",
+   "description": "Duck under low-flying birds; in the air it makes the dino drop fast",
+   "keys": [
+    "ArrowDown"
+   ]
+  }
+ ],
+ "notes": "Heights are measured up from the ground line, which comes from the ground sprite (y+h+1 \u2248 140). An obstacle's 'bottom' > 0 means it floats: duck if bottom is about 20\u201330 and it is at head height, run under it if it is high, otherwise jump when dx is small (around 60\u2013120, more as the game speeds up). Speed can't be read from a single frame, so derive it outside the extractor from how much dx changes between ticks. Unseen sprites (including rects) are reported as 'unknown' obstacles. Bird, ducking and 2/3-cactus labels are inferred from the standard Chrome sprite sheet and were not in the sample."
+}

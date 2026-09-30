@@ -1,0 +1,89 @@
+{
+  "version": 3,
+  "createdAt": "2026-09-25T11:30:00.000Z",
+  "parent": 2,
+  "origin": "tuner",
+  "note": "At about 49.6 s the game switches to night mode and draws stars (sprite i1:645,2 and i1:645,11, 9x9). The i1:645,11 star gets through the extractor's moon/decoration filter because that filter only covers sy===2. It is then classified as an 'unknown' obstacle that becomes `threat` with jumpTiming 'late'. So Jev jumps the moment it lands, at the wrong time: seed 101 lands on a large cactus, seed 202 jumps into an overhead bird, seed 303 lands on a small cactus. The star, being the nearest obstacle, also becomes the speed-tracking reference, so the speed estimate is wrong too. The fix makes the extractor drop star sprites (sx 645-654, any sy) and ignore any non-bird object whose bottom is 60 px or more above the ground, since sky decoration can never hit the dino. The rules are unchanged.",
+  "extractor": "function extract(frame, memory) {\n  memory = memory || {};\n  var TICK = 30;\n  var PROF = [[0,0],[50,29],[100,53],[150,71],[200,82],[250,88],[300,89],[350,84],[400,73],[450,57],[500,37],[550,12],[600,0]];\n  function win(h) {\n    var lo = null, hi = null;\n    for (var i = 1; i < PROF.length; i++) {\n      var a = PROF[i-1], b = PROF[i];\n      if (lo === null && a[1] < h && b[1] >= h) lo = a[0] + (h - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);\n      if (a[1] >= h && b[1] < h) hi = a[0] + (a[1] - h) / (a[1] - b[1]) * (b[0] - a[0]);\n    }\n    if (h <= 0) { lo = 0; hi = 600; }\n    if (lo === null || hi === null) return null;\n    return [lo, hi];\n  }\n  var P = null, G = null, obs = [], ch = [], over = false;\n  for (var i = 0; i < frame.length; i++) {\n    var d = frame[i];\n    if (d.k === 'text') { if (/game\\s*over/i.test(d.t || '')) over = true; continue; }\n    if (d.k === 'rect') { if (d.w > 0 && d.h > 0 && d.w < 300 && d.h < 100) obs.push({ kind: 'unknown', x: d.x, y: d.y, w: d.w, h: d.h }); continue; }\n    if (d.k !== 'img') continue;\n    var m = /:([^,]*),([^,]*),([^,]*),([^,]*)$/.exec(d.s || '');\n    var sx = m ? +m[1] : NaN, sy = m ? +m[2] : NaN;\n    if (sy >= 50 || d.w >= 300) { if (d.w >= 300 && G === null) G = d.y + d.h + 1; continue; }\n    if (d.w === 10 && d.h === 13 && d.y < 40) { ch.push({ x: d.x, c: (sx >= 655 && sx <= 745) ? String((sx - 655) / 10) : sx === 755 ? 'H' : sx === 765 ? 'I' : ' ' }); continue; }\n    if (sx >= 645 && sx < 655 && d.w <= 10) continue; // night-mode stars (sky decoration)\n    if (sy === 15 && sx >= 655) { over = true; continue; }\n    if (sx === 2 && sy === 2) { over = true; continue; }\n    if (sx >= 848 && sy <= 2 && d.h >= 20) {\n      var st = (sx >= 1112 || d.w > 50) ? 'duck' : sx === 1068 ? 'crashed' : (sx === 936 || sx === 980) ? 'run' : sx === 848 ? 'jump' : sx === 892 ? 'idle' : 'other';\n      if (st === 'crashed') over = true;\n      P = { x: d.x, y: d.y, w: d.w, h: d.h, state: st };\n      continue;\n    }\n    if (sy === 2 && (sx === 86 || (sx >= 484 && sx < 655))) continue;\n    var kind = sy !== 2 ? 'unknown' : (sx >= 228 && sx < 332) ? 'cactus_small' : (sx >= 332 && sx < 484) ? 'cactus_large' : (sx >= 134 && sx < 228) ? 'bird' : 'unknown';\n    obs.push({ kind: kind, x: d.x, y: d.y, w: d.w, h: d.h });\n  }\n  if (G === null) { G = P ? P.y + P.h : 0; for (var j = 0; j < obs.length; j++) G = Math.max(G, obs[j].y + obs[j].h); }\n  var pl = P ? P.x : 0, pw = 44, pr = pl + pw;\n  var live = obs.filter(function (o) { return o.x + o.w > pl && (o.kind === 'bird' || G - o.y - o.h < 60); }).sort(function (a, b) { return a.x - b.x; });\n  // speed tracking (px per ms)\n  if (over) { memory.lastX = null; memory.lastKey = null; }\n  if (typeof memory.v !== 'number') memory.v = 0.36;\n  if (live.length) {\n    var f = live[0], key = f.kind + ':' + Math.round(f.w);\n    if (memory.lastKey === key && memory.lastX != null) {\n      var dl = memory.lastX - f.x;\n      if (dl > 2 && dl < 80) { var s = dl / TICK; memory.v = Math.max(0.3, Math.min(1.2, memory.v * 0.6 + s * 0.4)); }\n    }\n    memory.lastKey = key; memory.lastX = f.x;\n  } else { memory.lastKey = null; memory.lastX = null; }\n  var v = memory.v;\n  var MARGIN = 20;\n  var ahead = live.slice(0, 3).map(function (o) {\n    var bottom = Math.round(G - o.y - o.h), top = Math.round(G - o.y);\n    var dx = Math.round(o.x - pr);\n    var entry = (dx + 6) / v, exit = (dx + 6 + o.w + pw - 12) / v;\n    var overhead = o.kind === 'bird' && bottom >= 45;\n    var duckable = o.kind === 'bird' && !overhead && bottom >= 25;\n    var timing = 'late';\n    var w = win(Math.max(0, top - 6));\n    if (w) {\n      var slackLate = entry - (w[0] + MARGIN);\n      var slackEarly = (w[1] - MARGIN) - exit;\n      timing = slackEarly < slackLate ? 'early' : (slackLate >= 0 && slackEarly >= 0 ? 'ok' : 'late');\n    }\n    return { kind: o.kind, dx: dx, w: Math.round(o.w), top: top, bottom: bottom, impactMs: Math.round(entry), passMs: Math.round(exit), overhead: overhead, duckable: duckable, jumpTiming: timing };\n  });\n  var threat = null;\n  for (var q = 0; q < ahead.length; q++) { if (!ahead[q].overhead) { threat = ahead[q]; break; } }\n  ch.sort(function (a, b) { return a.x - b.x; });\n  var runs = [], cur = null, lx = -1e9;\n  for (var k = 0; k < ch.length; k++) { if (cur === null || ch[k].x - lx > 12) { cur = runs.length; runs.push(''); } runs[cur] += ch[k].c; lx = ch[k].x; }\n  var score = null, hi = null;\n  for (var r = 0; r < runs.length; r++) {\n    var digits = runs[r].replace(/\\D/g, '');\n    if (!digits) continue;\n    if (/^HI/.test(runs[r])) hi = parseInt(digits, 10); else score = parseInt(digits, 10);\n  }\n  var alt = P ? Math.round(G - P.y - P.h) : 0;\n  return {\n    over: over,\n    player: P ? { alt: alt, air: alt > 1 || P.state === 'jump', state: P.state } : null,\n    speedPxPerMs: Math.round(v * 1000) / 1000,\n    score: score,\n    hi: hi,\n    threat: threat,\n    obstacles: ahead\n  };\n}",
+  "instructions": "Apply these rules in order and pick the first that matches.\n1. If over is true: choose JUMP (restarts the game).\n2. If player.air is true: choose NOOP. Never hold JUMP in the air (the key must be released so the next jump is a fresh press).\n3. If threat is null: choose NOOP.\n4. If threat.duckable is true and threat.impactMs <= 250: choose DUCK (keep choosing DUCK while this holds, until the bird has passed).\n5. If threat.jumpTiming is \"ok\" or \"late\": choose JUMP.\n6. Otherwise (threat.jumpTiming is \"early\"): choose NOOP and wait.\nNotes: threat is the nearest obstacle that can hit the dino (birds flying above the dino and sky decorations such as stars and the moon are already excluded). jumpTiming \"early\" means a jump started now would come down on the obstacle; \"ok\" means a jump now clears it; \"late\" means the best moment has passed, so jump immediately anyway.",
+  "actions": [
+    {
+      "id": "NOOP",
+      "description": "Keep running; release all keys",
+      "keys": []
+    },
+    {
+      "id": "JUMP",
+      "description": "Jump (only works from the ground with a fresh press), or restart the game",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "DUCK",
+      "description": "Duck under birds (hold while the bird passes)",
+      "keys": [
+        "ArrowDown"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 30,
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "needsChoice": false,
+      "expect": "state.obstacles.every(function (o) { return o.kind === 'bird' || o.bottom < 60; })",
+      "why": "Night-mode stars (9x9 sprites high in the sky) must never show up as obstacles."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "needsChoice": false,
+      "expect": "state.threat === null || state.threat.bottom < 60",
+      "why": "A sky decoration must never become the threat that triggers a jump."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "needsChoice": false,
+      "expect": "state.threat === null || state.threat.kind !== 'unknown' || state.threat.bottom < 60",
+      "why": "The star that caused the mistimed jump before the small cactus must be filtered out."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": [
+        49,
+        68
+      ],
+      "needsChoice": true,
+      "expect": "choice === 'NOOP'",
+      "why": "With only a star and an overhead bird ahead, the dino must stay on the ground instead of jumping into the bird."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": [
+        51
+      ],
+      "needsChoice": false,
+      "expect": "state.threat !== null && state.threat.kind === 'cactus_large'",
+      "why": "When the dino lands before the large cactus, the threat must be the cactus rather than a star, so the jump is timed to the cactus."
+    }
+  ],
+  "results": {
+    "mean": 1485,
+    "scores": [
+      1485,
+      1485,
+      1485
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-09-25T11:30:00.000Z"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "id": "flappy-bird",
+  "name": "Flappy Bird",
+  "description": "Flappy Bird as nebez's floppybird remakes it, with the original's look: flap through the gaps between the pipes. Built from HTML and CSS; its pipes move by CSS animation.",
+  "url": "https://nebez.github.io/floppybird/",
+  "goal": "Flappy Bird. Press Space (or click) to flap: the bird jumps up, then gravity pulls it down. Fly through the gaps between the pipes without touching a pipe or the ground. One point for every pipe passed.",
+  "perception": {
+    "adapter": "custom",
+    "read": "(() => { const fly = document.getElementById('flyarea'); if (!fly) return null; const f = fly.getBoundingClientRect(); const box = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left - f.left), y: Math.round(r.top - f.top), w: Math.round(r.width), h: Math.round(r.height) }; }; const p = document.getElementById('player'); const land = document.getElementById('land'); const pipes = [...fly.querySelectorAll('.pipe')].map((el) => { const up = el.querySelector('.pipe_upper').getBoundingClientRect(); const low = el.querySelector('.pipe_lower').getBoundingClientRect(); return { x: Math.round(up.left - f.left), w: Math.round(up.width), gapTop: Math.round(up.bottom - f.top), gapBottom: Math.round(low.top - f.top) }; }).filter((q) => q.x + q.w > -20); return { screen: typeof currentstate === 'number' ? currentstate : null, bird: p ? box(p) : null, top: typeof position === 'number' ? Math.round(position * 10) / 10 : null, velocity: typeof velocity === 'number' ? Math.round(velocity * 100) / 100 : null, ground: land ? Math.round(land.getBoundingClientRect().top - f.top) : null, width: Math.round(f.width), height: Math.round(f.height), pipes }; })()",
+    "format": "{ screen: 0 splash | 1 playing | 2 over, bird: {x, y, w, h} in px of the fly area (y down; the box grows as the bird tilts), top: the bird's own y (px), velocity (px a 60 Hz frame; negative is up; a flap sets -4.6, gravity adds 0.25 a frame), ground: y of the ground, width, height, pipes: [{x, w, gapTop, gapBottom}] left to right, px of the fly area }"
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "bootMs": 1500,
+  "start": [
+    {
+      "press": [
+        "Space"
+      ],
+      "advanceMs": 100
+    }
+  ],
+  "score": {
+    "expression": "(() => ({ over: typeof currentstate === 'number' && currentstate === 2, score: typeof score === 'number' ? score : 0 }))()",
+    "label": "pipes"
+  },
+  "clickTarget": "#flyarea",
+  "animationClock": true,
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "arcade",
+    "reflex"
+  ],
+  "credits": "floppybird by nebez (Apache-2.0), a remake of Flappy Bird, played where its author hosts it: nebez.github.io/floppybird",
+  "preferredEngine": "laya",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "version": 5,
+      "lagMs": 50
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "version": 5,
+      "lagMs": 50
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya",
+    "live": true
+  }
+}

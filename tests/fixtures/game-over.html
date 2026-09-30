@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><title>game over fixture</title></head>
+<body>
+<script>
+    // A game that opens a window as it ends (a leaderboard at game over: 1 s of game time) whose server is slow to answer
+    // (/leaderboard.html?ms=<n>, passed on from ?ms). The leaderboard counts its loads in this origin's local storage and
+    // ticks there every 100 ms of its clock: one an earlier game left running writes into this game's origin.
+    window.atLoad = { board: localStorage.getItem("board"), ticks: localStorage.getItem("ticks") };
+    setTimeout(function () {
+        window.open("leaderboard.html?ms=" + (new URLSearchParams(location.search).get("ms") || "0"), "_blank");
+    }, 1000);
+    window.state = function () {
+        return { atLoad: window.atLoad, board: localStorage.getItem("board"), ticks: localStorage.getItem("ticks") };
+    };
+</script>
+</body>
+</html>

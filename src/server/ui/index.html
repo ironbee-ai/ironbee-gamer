@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IronBee Gamer</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="brand"><img class="logo" src="/favicon.svg" alt=""><span>IronBee <strong>Gamer</strong></span></div>
+    <div id="status" class="pills"></div>
+</header>
+
+<main class="layout">
+    <aside class="panel library">
+        <div class="panel-head">
+            <h2>Library</h2>
+            <button type="button" class="ghost" id="add-game">+ Add game</button>
+        </div>
+        <div id="games" class="games"></div>
+    </aside>
+
+    <section class="stage-col">
+        <div class="panel game-head" id="game-head">
+            <div class="game-title">
+                <h1 id="game-name">Pick a game</h1>
+                <a id="game-url" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+            <p id="game-goal" class="muted"></p>
+            <ol id="setup" class="setup" hidden></ol>
+            <form id="play-form" class="controls" autocomplete="off">
+                <label>Profile <select id="version"></select></label>
+                <label>Engine <select id="engine"></select></label>
+                <label>Episodes <input id="episodes" type="number" min="1" max="50"></label>
+                <label>Game seconds <input id="seconds" type="number" min="1" max="3600"></label>
+                <label>Seed <input id="seed" type="number" min="0" placeholder="random"></label>
+                <label title="Whether the game waits for each decision. Real time: the game never pauses, so a slow engine decides on a state that is already old.">Game clock
+                    <select id="pace">
+                        <option value="watch">Pauses for each decision · plays at real speed</option>
+                        <option value="turn">Pauses for each decision · as fast as possible</option>
+                        <option value="realtime">Never pauses · real time</option>
+                    </select>
+                </label>
+                <label>Train iterations <input id="iterations" type="number" min="1" max="20" value="3"></label>
+                <div class="buttons">
+                    <button type="submit" id="play">▶ Play</button>
+                    <button type="button" id="train" class="secondary" title="The trainer rewrites the profile from the games it plays; a version is kept only when it scores higher. Trained for the engine the game was added for, else the one wanted here: picked in the Engine list, not one the list shows while the one wanted cannot play (named first here then). For Jev, Jev plays them; for Laya or Rules (code), the profile's rules as code play them (fast), and Distill teaches Laya afterwards.">✦ Train</button>
+                    <button type="button" id="distill" class="secondary" title="The profile's rules as code teach, Laya learns (the trainer writes them first when the version has none): a local checkpoint that plays this game in tens of milliseconds">⚡ Distill to Laya</button>
+                    <button type="button" id="stop" class="danger" hidden>■ Stop</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="panel stage">
+            <div class="screen-wrap">
+                <canvas id="screen"></canvas>
+                <div id="screen-empty" class="screen-empty">The game shows here while it is played.</div>
+                <div id="screen-loading" class="screen-loading" role="status" aria-live="polite" hidden>
+                    <div class="spinner" aria-hidden="true"></div>
+                    <div id="screen-loading-title" class="loading-title">Loading…</div>
+                    <div id="screen-loading-step" class="loading-step"></div>
+                </div>
+                <div id="hud" class="hud" hidden>
+                    <div><span class="hud-label">Score</span><b id="hud-score">0</b></div>
+                    <div><span class="hud-label">Game time</span><b id="hud-time">0.0 s</b></div>
+                    <div><span class="hud-label">Episode</span><b id="hud-episode">–</b></div>
+                    <div><span class="hud-label">Decisions</span><b id="hud-decisions">0</b></div>
+                    <div><span class="hud-label">Engine</span><b id="hud-ms">–</b></div>
+                    <div><span class="hud-label">Speed</span><b id="hud-speed">–</b></div>
+                </div>
+            </div>
+            <div class="phase-line"><span id="phase-dot" class="dot"></span><span id="phase">idle</span></div>
+        </div>
+
+        <div class="panel tabs-panel">
+            <nav class="tabs">
+                <button type="button" data-tab="episodes" class="active">Episodes</button>
+                <button type="button" data-tab="profile">Profile</button>
+                <button type="button" data-tab="training">Training log</button>
+                <button type="button" data-tab="runs">Runs</button>
+            </nav>
+            <div class="tab" id="tab-episodes">
+                <table class="table" id="episodes-table">
+                    <thead><tr><th>#</th><th>Profile</th><th>Seed</th><th>Score</th><th>Ended</th><th>Game s</th><th>Speed</th><th>Decisions</th><th>Engine ms</th><th>Actions</th><th></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <div id="run-summary" class="muted"></div>
+                <video id="run-video" controls hidden></video>
+            </div>
+            <div class="tab" id="tab-profile" hidden>
+                <div id="versions" class="versions"></div>
+                <div id="profile-detail"></div>
+            </div>
+            <div class="tab" id="tab-training" hidden>
+                <div id="train-progress" class="progress-view" hidden></div>
+                <pre id="train-log" class="log">No training yet.</pre>
+            </div>
+            <div class="tab" id="tab-runs" hidden>
+                <table class="table" id="runs-table">
+                    <thead><tr><th>When</th><th>Game</th><th>Kind</th><th>Profile</th><th>Engine</th><th>Result</th><th>Status</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <aside class="panel decision">
+        <h2>Decision</h2>
+        <div id="choice" class="choice">–</div>
+        <div id="choice-meta" class="muted"></div>
+        <div id="probabilities" class="probs"></div>
+        <h3>State <small class="muted">what the engine sees</small></h3>
+        <pre id="state" class="state">{}</pre>
+        <h3>Rules <small class="muted">the profile's instructions</small></h3>
+        <pre id="rules" class="rules"></pre>
+    </aside>
+</main>
+
+<dialog id="add-dialog" class="wizard">
+    <form id="add-form" method="dialog" autocomplete="off" novalidate>
+        <h2>Add a game</h2>
+        <ol class="steps" id="add-steps">
+            <li data-step="1" class="current">Page</li>
+            <li data-step="2">Start</li>
+            <li data-step="3">Game</li>
+            <li data-step="4">Engine</li>
+        </ol>
+
+        <section class="step" data-step="1">
+            <p class="muted">The page the game runs on. It is opened and looked at: what draws the game decides whether this app can read it.</p>
+            <label class="field"><span>Game URL</span>
+                <span class="row"><input id="add-url" type="url" placeholder="https://…"><button type="button" id="add-probe" class="secondary">Open and look</button></span>
+            </label>
+            <div id="add-verdict" class="verdict" hidden></div>
+            <div id="add-reader" class="reader" hidden>
+                <p class="muted">Or let the trainer read the page's code and write a reader for the game's own state (where things are, the score, whether it is over): the way in for a game drawn with WebGL, and often sharper than what is drawn for any game. It takes a few minutes.</p>
+                <button type="button" id="add-read" class="secondary">Let the trainer read the game's code</button>
+                <span id="add-reader-status" class="muted"></span>
+                <pre id="add-reader-sample" class="state" hidden></pre>
+            </div>
+            <div id="add-shot-wrap" class="shot-wrap" hidden><img id="add-shot" alt="the page"><div id="add-canvas-box" class="canvas-box"></div><div id="add-click-mark" class="click-mark" hidden></div></div>
+        </section>
+
+        <section class="step" data-step="2" hidden>
+            <p class="muted">What a player does to begin a game.</p>
+            <div class="choices">
+                <label><input type="radio" name="add-start" value="none" checked> It starts by itself</label>
+                <label><input type="radio" name="add-start" value="key"> Press a key
+                    <select id="add-start-key"><option>Space</option><option>Enter</option><option>ArrowUp</option><option>ArrowRight</option><option>ArrowDown</option><option>ArrowLeft</option></select></label>
+                <label><input type="radio" name="add-start" value="click"> Click on the game — <span class="muted">click the picture where the start button is</span></label>
+            </div>
+            <p id="add-start-note" class="muted" hidden></p>
+            <div id="add-start-shot" class="shot-wrap small"></div>
+            <label class="field"><span>Loading time <small class="muted">seconds the page may need before it can start (images, sounds)</small></span>
+                <input id="add-load" type="number" min="0" max="20" step="0.5" value="2"></label>
+        </section>
+
+        <section class="step" data-step="3" hidden>
+            <div class="row">
+                <label class="field"><span>Name</span><input id="add-name"></label>
+                <label class="field"><span>Id</span><input id="add-id" pattern="[a-z0-9][a-z0-9\-]*" placeholder="my-game"></label>
+            </div>
+            <label class="field"><span>How to play <small class="muted">the game's own instructions, as a player would read them: the trainer starts from these</small></span>
+                <textarea id="add-goal" rows="3" placeholder="Press Space to jump. Avoid the obstacles. Survive as long as possible."></textarea></label>
+            <div class="choices">
+                <label><input type="radio" name="add-score" value="state" checked> Let the trainer read the score and the end of a game from what it perceives</label>
+                <label><input type="radio" name="add-score" value="expression"> I know a page expression for it
+                    <input id="add-score" placeholder="({ over: game.over, score: game.score })"></label>
+            </div>
+            <div class="row">
+                <label class="field"><span>The score counts</span><input id="add-score-label" value="points"></label>
+                <label class="field"><span>Seconds per game</span><input id="add-seconds" type="number" min="5" max="600" value="60"></label>
+            </div>
+        </section>
+
+        <section class="step" data-step="4" hidden>
+            <p class="muted">Who makes the decisions while the game is played. Either way the trainer (the Claude Code CLI) first writes and tunes the game's profile.</p>
+            <div class="choices engines" id="add-engines">
+                <label><input type="radio" name="add-engine" value="laya"> <b>Laya</b> — local, a decision in ~20–30 ms. The trainer writes the rules as code, then a local model learns them (distillation, ~1 hour on this machine). <span id="add-laya-status" class="muted"></span></label>
+                <label><input type="radio" name="add-engine" value="jev"> <b>Jev</b> — hosted, ~250–300 ms a decision; reads the rules as text. Nothing to distill. <span id="add-jev-status" class="muted"></span></label>
+                <label><input type="radio" name="add-engine" value="rules"> <b>Rules (code)</b> — the trainer writes the rules as code and they play directly: instant, on this machine, nothing to distill. Laya can still learn them later.</label>
+            </div>
+            <label class="check"><input type="checkbox" id="add-train-now" checked> Start training now, <input id="add-iterations" type="number" min="1" max="20" value="3" class="tiny"> iterations</label>
+        </section>
+
+        <p id="add-reader-note" class="muted" hidden></p>
+        <div id="add-invalid" class="error" role="alert" hidden></div>
+        <div id="add-error" class="error"></div>
+        <div class="buttons">
+            <button type="button" class="ghost" id="add-cancel">Cancel</button>
+            <button type="button" class="secondary" id="add-back" hidden>Back</button>
+            <button type="button" id="add-next" disabled>Next</button>
+            <button type="submit" id="add-save" hidden>Add the game</button>
+        </div>
+    </form>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

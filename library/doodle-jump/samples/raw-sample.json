@@ -1,0 +1,1709 @@
+{
+ "objectKinds": {
+  "5/clouds#assets/clouds.png": 24,
+  "0/trees#assets/trees.png": 24,
+  "0/ice-platform#assets/ice-platform.png": 240,
+  "0/platform#assets/platform.png": 216,
+  "0/dude#": 24
+ },
+ "dumpsOverTime": [
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 368,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 576,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 93,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 307,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 550,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 135,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 265,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 539,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -59,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 374,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -94,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 18,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 496,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 555,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -87,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 339,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -65,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -113,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 418,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 505,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -84,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -21,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 421,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -120,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 37,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 363,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -137,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 68,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 512,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 597,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -123,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 383,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -115,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 30,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 465,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 638,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -6,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 275,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -155,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 60,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -139,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 539,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 14,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -65,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 465,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -6,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 199,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -146,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 485,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 532,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 266,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 21,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 151,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 595,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 537,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 105,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 128,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -19,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 200,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 547,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -148,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 144,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 637,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 563,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 119,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 326,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -7,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 375,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 390,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 153,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 153,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 268,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -81,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 438,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 212,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -15,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 123,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 344,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 429,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": -30,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 278,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 535,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -137,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 250,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 457,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 136,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 263,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 244,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 36,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 289,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 389,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 49,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 337,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 323,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -162,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "version": "2.4.4",
+   "objects": [
+    {
+     "type": "5",
+     "tex": "clouds",
+     "x": 0,
+     "y": 1520,
+     "frame": "assets/clouds.png",
+     "w": 640,
+     "h": 480
+    },
+    {
+     "type": "0",
+     "tex": "trees",
+     "x": 0,
+     "y": 1906,
+     "frame": "assets/trees.png",
+     "w": 640,
+     "h": 94
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 259,
+     "y": 64,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      139,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 484,
+     "y": 168,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      142,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 315,
+     "y": 272,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 84,
+     "y": 376,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      116,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 408,
+     "y": 480,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      132,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 437,
+     "y": 584,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -38,
+     "y": 688,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 375,
+     "y": 792,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 584,
+     "y": 896,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      129,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 275,
+     "y": 1000,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      141,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 153,
+     "y": 1104,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -111,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 102,
+     "y": 1208,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      -144,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": -77,
+     "y": 1312,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -115,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 421,
+     "y": 1416,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      134,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 506,
+     "y": 1520,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      119,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 175,
+     "y": 1624,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      128,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 238,
+     "y": 1728,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -100,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "platform",
+     "x": 430,
+     "y": 1832,
+     "frame": "assets/platform.png",
+     "w": 142,
+     "h": 32,
+     "v": [
+      109,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "ice-platform",
+     "x": 497,
+     "y": 1936,
+     "frame": "assets/ice-platform.png",
+     "w": 128,
+     "h": 32,
+     "v": [
+      -145,
+      0
+     ]
+    },
+    {
+     "type": "0",
+     "tex": "dude",
+     "x": 320,
+     "y": 1952,
+     "frame": "",
+     "w": 32,
+     "h": 48,
+     "v": [
+      0,
+      0
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head><title>visited fixture</title></head>
+<body>
+<script>
+    // Another host a game goes through (a consent or sign-in page it bounces through, a widget in a frame): counts its
+    // visits in its local storage and a cookie of its host, and passes the counts on — to the page it sends the tab
+    // back to (?back=<url>), or to the page it is a frame of.
+    var local = Number(localStorage.getItem("visits") || "0") + 1;
+    localStorage.setItem("visits", String(local));
+    var cookie = Number((document.cookie.match(/visits=(\d+)/) || [0, 0])[1]) + 1;
+    // In a frame it is a third-party cookie, kept only with SameSite=None, which needs Secure (http://localhost has it).
+    document.cookie = "visits=" + cookie + "; max-age=3600" + (window.top === window ? "" : "; SameSite=None; Secure");
+    var back = new URLSearchParams(location.search).get("back");
+    if (back) {
+        var to = new URL(back);
+        to.searchParams.set("local", String(local));
+        to.searchParams.set("cookie", String(cookie));
+        location.replace(to.href);
+    } else {
+        parent.postMessage({ local: local, cookie: cookie }, "*");
+    }
+</script>
+</body>
+</html>

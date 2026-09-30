@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><title>relay frame fixture</title></head>
+<body>
+<script>
+    // A frame of another origin that adds a frame of the page's own (?back=<url>).
+    var frame = document.createElement("iframe");
+    frame.src = new URLSearchParams(location.search).get("back");
+    document.body.appendChild(frame);
+</script>
+</body>
+</html>

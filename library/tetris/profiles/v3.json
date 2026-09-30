@@ -1,0 +1,126 @@
+{
+  "version": 3,
+  "createdAt": "2026-09-28T11:19:08.778Z",
+  "parent": 2,
+  "origin": "tuner",
+  "note": "Neither game ended, and the two earlier timing versions scored exactly 54 and 55 on the same seeds, even though v3 steered twice as fast as v2. The reason is timing: a new piece does not fall for about 18-20 frames after it appears, whatever is pressed, so steering already fits inside that pause. After the pause it soft-drops one row every 2 frames, so each piece costs about 20 + 2×(rows fallen) frames, and with a 2-5 row stack every piece fell about 17 rows (about 55 frames per piece). The only real lever is fall distance, so the planner now builds and keeps a permanent 8-row base: below row 8 the rightmost column is reserved (never filled unless the stack passes 15 rows) and is scored as if filled, so those rows never clear. Every later piece should fall about 8 rows less (about 39 frames instead of 55); after the 72 base cells, which never count as rows, I estimate roughly +10 rows cleared. A quadratic penalty above height 14 keeps the stack away from the spawn rows. Steering rules, actions and timing are the best version's, unchanged apart from clearer action descriptions. No failure windows were saved, so no regression tests could be written.",
+  "extractor": "function extract(raw, memory) {\n  var NAMES = ['?', 'O', 'T', 'Z', 'S', 'J', 'L', 'I'];\n  var SH = {1: [[0,0],[1,0],[0,1],[1,1]], 2: [[0,1],[1,1],[2,1],[1,0]], 3: [[1,0],[2,0],[0,1],[1,1]], 4: [[0,0],[1,0],[1,1],[2,1]], 5: [[2,0],[0,1],[1,1],[2,1]], 6: [[0,0],[0,1],[1,1],[2,1]], 7: [[0,0],[1,0],[2,0],[3,0]]};\n  var WT = [-4.500158825082766, 3.4181268101392694, -3.2178882868487753, -9.348695305445199, -7.899265427351652, -3.3855972247263626];\n  var FLOOR = 8, SAFE = 14, VALVE = 15;\n  function nm(t) { return t >= 1 && t <= 7 ? NAMES[t] : '?' + t; }\n  function pc(v) { var n = 0; while (v) { v &= v - 1; n++; } return n; }\n  if (!raw || !raw.playing || !raw.board || !raw.board.length) {\n    if (memory.on) memory.ended = true;\n    memory.on = false; memory.prev = null; memory.cache = null;\n    return {playing: false, gameOver: !!memory.ended, lines: memory.lines || 0};\n  }\n  memory.on = true; memory.ended = false; memory.lines = raw.lines || 0;\n  var rb = raw.board, H = rb.length, W = (rb[0] && rb[0].length) || 10, FULL = (1 << W) - 1, VB = 1 << (W - 1), i, k, r, c;\n  function rm(row) { var m = 0; if (row) for (var j = 0; j < W; j++) if (row[j]) m |= 1 << j; return m; }\n  var lo = rm(rb[0]), hi = rm(rb[H - 1]);\n  if (lo && !hi) memory.flip = false; else if (hi && !lo) memory.flip = true;\n  var B = [];\n  for (i = 0; i < H; i++) B.push(rm(rb[memory.flip ? H - 1 - i : i]));\n  var sig = B.join(',');\n  function topOf(b) { var t = b.length; while (t > 0 && !b[t - 1]) t--; return t; }\n  var tB = topOf(B), valve = tB > VALVE;\n  function keyOf(cs) { var mc = 99, mr = 99, j, s = []; for (j = 0; j < cs.length; j++) { if (cs[j][0] < mc) mc = cs[j][0]; if (cs[j][1] < mr) mr = cs[j][1]; } for (j = 0; j < cs.length; j++) s.push((cs[j][1] - mr) * 16 + cs[j][0] - mc); s.sort(function (a, b) { return a - b; }); return s.join('.'); }\n  function shp(cs) { var mc = 99, mr = 99, w = 0, rows = [], j, x, y; for (j = 0; j < cs.length; j++) { if (cs[j][0] < mc) mc = cs[j][0]; if (cs[j][1] < mr) mr = cs[j][1]; } for (j = 0; j < cs.length; j++) { x = cs[j][0] - mc; y = cs[j][1] - mr; if (x + 1 > w) w = x + 1; while (rows.length <= y) rows.push(0); rows[y] |= 1 << x; } return {key: keyOf(cs), rows: rows, w: w, h: rows.length}; }\n  function rcw(cs, n) { var o = []; for (var j = 0; j < cs.length; j++) o.push([cs[j][1], n - 1 - cs[j][0]]); return o; }\n  function rccw(cs, n) { var o = []; for (var j = 0; j < cs.length; j++) o.push([n - 1 - cs[j][1], cs[j][0]]); return o; }\n  function hits(b, s, L, y) { if (L < 0 || y < 0 || L + s.w > W) return true; for (var d = 0; d < s.h; d++) if (y + d < b.length && (b[y + d] & (s.rows[d] << L))) return true; return false; }\n  function land(b, s, L, top) { var y = top; while (y > 0 && !hits(b, s, L, y - 1)) y--; return y; }\n  function place(b, s, L, y) { var nb = b.slice(), out = [], lines = 0, er = 0, over = 0, fb = 0, d, j, m; for (d = 0; d < s.h; d++) { m = s.rows[d] << L; if (y + d < FLOOR && (m & VB)) fb++; if (y + d < nb.length) nb[y + d] |= m; else over++; } for (j = 0; j < nb.length; j++) { if (nb[j] === FULL) { lines++; d = j - y; if (d >= 0 && d < s.h) er += pc(s.rows[d]); } else out.push(nb[j]); } while (out.length < nb.length) out.push(0); return {b: out, lines: lines, er: er, over: over, fb: fb}; }\n  function feats(b0) {\n    var b = b0.slice(), j;\n    for (j = 0; j < FLOOR && j < b.length; j++) b[j] |= VB;\n    var top = topOf(b), rt = 2 * (b.length - top), ct = 0, holes = 0, wells = 0, prev = FULL, cov = 0, act = 0, run = [], WALL = 1 | (1 << (W + 1)), TM = (1 << (W + 1)) - 1, e, m, lb, q, row, wm;\n    for (j = 0; j < W; j++) run.push(0);\n    for (j = 0; j < top; j++) { e = WALL | (b[j] << 1); rt += pc((e ^ (e >> 1)) & TM); ct += pc(b[j] ^ prev); prev = b[j]; }\n    ct += pc(prev);\n    for (j = top - 1; j >= 0; j--) {\n      row = b[j]; holes += pc(cov & ~row & FULL); cov |= row;\n      wm = ~row & FULL & ((row << 1) | 1) & ((row >> 1) | (1 << (W - 1)));\n      m = act & ~wm; while (m) { lb = m & -m; run[31 - Math.clz32(lb)] = 0; m ^= lb; }\n      m = wm; while (m) { lb = m & -m; q = 31 - Math.clz32(lb); run[q]++; wells += run[q]; m ^= lb; }\n      act = wm;\n    }\n    return {top: top, rt: rt, ct: ct, holes: holes, wells: wells};\n  }\n  function score(p, y, s, f) { var ex = f.top > SAFE ? 10 * (f.top - SAFE) * (f.top - SAFE) : 0; return WT[0] * (y + (s.h - 1) / 2) + WT[1] * p.lines * p.er + WT[2] * f.rt + WT[3] * f.ct + WT[4] * f.holes + WT[5] * f.wells - ex - (p.fb && !valve ? 1e4 : 0) - ((p.over || f.top > H - 2) ? 1e5 : 0); }\n  function variants(cs) { var out = [], seen = {}, cur2 = cs, s; for (var j = 0; j < 4; j++) { s = shp(cur2); if (!seen[s.key]) { seen[s.key] = 1; out.push(s); } cur2 = rcw(cur2, 4); } return out; }\n  function rank(cv, nv) {\n    var top = topOf(B), list = [], j, m, L, s, p, f, y, q, best, b1, t1, sc, K;\n    for (j = 0; j < cv.length; j++) { s = cv[j]; for (L = 0; L + s.w <= W; L++) { y = land(B, s, L, top); p = place(B, s, L, y); f = feats(p.b); list.push({key: s.key, L: L, rows: s.rows, w: s.w, h: s.h, lines: p.lines, holes: f.holes, top: f.top, v: score(p, y, s, f), v1: WT[0] * (y + (s.h - 1) / 2) + WT[1] * p.lines * p.er - (p.fb && !valve ? 1e4 : 0) - ((p.over || f.top > H - 2) ? 1e5 : 0), b: p.b}); } }\n    list.sort(function (a, b) { return b.v - a.v; });\n    if (nv && nv.length) {\n      K = Math.min(list.length, 10);\n      for (j = 0; j < list.length; j++) {\n        q = list[j];\n        if (j >= K) { q.v2 = q.v - 1e9; continue; }\n        best = -1e9; b1 = q.b; t1 = topOf(b1);\n        for (m = 0; m < nv.length; m++) { s = nv[m]; for (L = 0; L + s.w <= W; L++) { y = land(b1, s, L, t1); p = place(b1, s, L, y); sc = score(p, y, s, feats(p.b)); if (sc > best) best = sc; } }\n        q.v2 = q.v1 + best;\n      }\n      list.sort(function (a, b) { return b.v2 - a.v2; });\n    }\n    var out = [];\n    for (j = 0; j < list.length; j++) { q = list[j]; out.push({key: q.key, L: q.L, rows: q.rows, w: q.w, h: q.h, lines: q.lines, holes: q.holes, top: q.top}); }\n    return out;\n  }\n  var P = raw.piece, fr = P && P.frame, cells = [], n = 0, bf = feats(B);\n  if (fr && fr.length) { n = fr.length; for (r = 0; r < fr.length; r++) { var fw = fr[r] || []; if (fw.length > n) n = fw.length; for (c = 0; c < fw.length; c++) if (fw[c]) cells.push([c, r]); } }\n  var nx = raw.next != null ? nm(raw.next) : null;\n  if (!cells.length) { memory.prev = null; return {playing: true, piece: null, next: nx, height: tB, holes: bf.holes, lines: raw.lines || 0, level: raw.level || 0}; }\n  var type = P.type, px = P.x | 0, py = P.y | 0, F = [cells], KS = [keyOf(cells)];\n  for (k = 1; k < 4; k++) { F.push(rcw(F[k - 1], n)); KS.push(keyOf(F[k])); }\n  var cur = shp(cells), mc0 = 99, mr0 = 99;\n  for (i = 0; i < cells.length; i++) { if (cells[i][0] < mc0) mc0 = cells[i][0]; if (cells[i][1] < mr0) mr0 = cells[i][1]; }\n  var curL = px + mc0, curB = py + mr0, v = 0;\n  function ov(y) { if (y < 0) return true; for (var d = 0; d < cur.h; d++) if (y + d < H && (B[y + d] & ((cur.rows[d] << Math.max(curL, 0)) & FULL))) return true; return false; }\n  while (v < 4 && ov(curB + v)) v++;\n  curB += v;\n  var pv = memory.prev, same = !!(pv && pv.type === type && pv.sig === sig);\n  var movedX = same ? (px < pv.x ? -1 : px > pv.x ? 1 : 0) : 0;\n  var turned = same && (pv.rot !== P.rotation || pv.key !== KS[0]);\n  if (memory.votes == null) memory.votes = 1;\n  if (turned && pv.exp && pv.cells) {\n    var isCw = keyOf(rcw(pv.cells, pv.n)) === KS[0], isCcw = keyOf(rccw(pv.cells, pv.n)) === KS[0];\n    if (isCw !== isCcw) { var d0 = isCw ? 1 : -1; if (pv.exp === 'Z') d0 = -d0; memory.votes = Math.max(-3, Math.min(3, memory.votes + d0)); }\n  }\n  var sgn = memory.votes >= 0 ? 1 : -1;\n  var cv = [], seenK = {};\n  for (k = 0; k < 4; k++) if (!seenK[KS[k]]) { seenK[KS[k]] = 1; cv.push(shp(F[k])); }\n  var ck = KS.slice().sort().join('/') + '|' + raw.next + '|' + sig;\n  if (!memory.cache || memory.cache.k !== ck) memory.cache = {k: ck, list: rank(cv, SH[raw.next] ? variants(SH[raw.next]) : null)};\n  var list = memory.cache.list, tgt = null;\n  for (i = 0; i < list.length && !tgt; i++) {\n    var p0 = list[i], a0 = Math.max(0, Math.min(curL, p0.L)), z0 = Math.min(W - p0.w, Math.max(curL, p0.L)), ok = true;\n    for (var L0 = a0; L0 <= z0 && ok; L0++) if (hits(B, p0, L0, curB)) ok = false;\n    if (ok) tgt = p0;\n  }\n  if (!tgt) tgt = list[0] || {key: KS[0], L: curL, lines: 0, holes: bf.holes, top: bf.top};\n  var xs = 9, zs = 9, kT = 0, bt = 9;\n  for (k = 0; k < 4; k++) if (KS[k] === tgt.key) { var xk = sgn > 0 ? k : (4 - k) % 4, zk = (4 - xk) % 4; if (xk < xs) xs = xk; if (zk < zs) zs = zk; if (Math.min(xk, zk) < bt) { bt = Math.min(xk, zk); kT = k; } }\n  if (xs === 9) { xs = 0; zs = 0; kT = 0; }\n  var mcT = 99;\n  for (i = 0; i < F[kT].length; i++) if (F[kT][i][0] < mcT) mcT = F[kT][i][0];\n  var shift = tgt.L - (px + mcT);\n  var fits = true;\n  if (xs > 0) { var nf = ((xs <= zs) === (sgn > 0)) ? F[1] : F[3]; for (i = 0; i < nf.length; i++) { var fc = px + nf[i][0], fy = py + v + nf[i][1]; if (fc < 0 || fc >= W || fy < 0 || (fy < H && ((B[fy] >> fc) & 1))) { fits = false; break; } } }\n  memory.stuck = (same && xs > 0 && !turned && movedX === 0) ? (memory.stuck || 0) + 1 : 0;\n  if (memory.stuck >= 4) fits = false;\n  var fl = 0, fr2 = 0, dr = 0;\n  while (fl < W && !hits(B, cur, curL - fl - 1, curB)) fl++;\n  while (fr2 < W && !hits(B, cur, curL + fr2 + 1, curB)) fr2++;\n  while (dr < H + 4 && !hits(B, cur, curL, curB - dr - 1)) dr++;\n  var aligned = xs === 0 && shift === 0, prog = movedX !== 0 || turned;\n  memory.idle = !same ? 1 : prog ? 0 : (memory.idle || 0) + 1;\n  var ready = memory.idle % 2 === 1;\n  if (prog) memory.miss = 0; else if (same && pv.cexp) memory.miss = (memory.miss || 0) + 1;\n  if (memory.miss >= 3) memory.noCombo = true;\n  var tp = topOf(B), pathTop = 0, tw = tgt.w || cur.w, a1 = Math.min(curL, tgt.L), z1 = Math.max(curL + cur.w, tgt.L + tw) - 1;\n  if (xs > 0) { a1 = Math.min(a1, px); z1 = Math.max(z1, px + n - 1); }\n  a1 = Math.max(0, a1); z1 = Math.min(W - 1, z1);\n  for (c = a1; c <= z1; c++) for (r = tp - 1; r >= pathTop; r--) if ((B[r] >> c) & 1) { pathTop = r + 1; break; }\n  var steps = Math.min(xs, zs) + Math.abs(shift) + (xs > 0 && !fits ? 1 : 0);\n  var roomy = !memory.noCombo && curB - pathTop >= 2 * steps + 2;\n  var fell = same ? pv.y - py : 0;\n  memory.stall = (same && pv.al && aligned && pv.dr > 0 && fell <= 0) ? (memory.stall || 0) + 1 : 0;\n  var stalled = memory.stall >= 2 && memory.stall % 2 === 0;\n  var canPress = (xs > 0 && fits) || (shift < 0 && fl > 0) || (shift > 0 && fr2 > 0) || (shift === 0 && xs > 0 && (fl > 0 || fr2 > 0));\n  memory.prev = {type: type, sig: sig, x: px, y: py, rot: P.rotation, key: KS[0], cells: cells, n: n, al: aligned, dr: dr, cexp: roomy && ready && !aligned && canPress, exp: (ready && xs > 0 && fits) ? (zs < xs ? 'Z' : 'X') : null};\n  return {playing: true, piece: nm(type), next: nx, turnsCW: xs, turnsCCW: zs, shift: shift, aligned: aligned, turned: turned, movedX: movedX, keyReady: ready, turnFits: fits, freeLeft: fl, freeRight: fr2, pieceCol: curL, rowsToLand: dr, slack: roomy ? 'ok' : 'tight', fallStalled: stalled, planLines: tgt.lines, planHoles: tgt.holes, height: tB, holes: bf.holes, lines: raw.lines || 0, level: raw.level || 0};\n}",
+  "instructions": "Tetris: every piece is steered to a landing spot the state has already chosen (scored on landing height, rows cleared, holes, wells and transitions, with a look at the next piece). A new piece hangs at the top for about 300 ms whatever is pressed, then falls one row per 32 ms while Down is held alone, so a piece costs time in proportion to the rows it falls. The chosen spots therefore build and keep a permanent base: the bottom 8 rows get filled except the rightmost column, which is never filled below row 8, so those rows never clear and every later piece lands about 8 rows higher (only when the stack passes 15 rows may a piece drop into that column). Keep Down held whenever there is room. Fields: turnsCW / turnsCCW = X / Z presses still needed for the target orientation; shift = columns still to move (negative = left); aligned = true when turnsCW and shift are both 0. A steering key acts once per press and must be let go for one decision before it acts again: keyReady is false when the last key must be let go now. slack is 'ok' when the free rows under the piece along its whole path are enough to keep holding Down while finishing the remaining turns and shifts, 'tight' otherwise. fallStalled is true when an aligned piece has stopped falling although Down should be held (Down must be let go once so it can be pressed again). turnFits tells whether the next turn fits where the piece is; freeLeft / freeRight are the free columns on each side; pieceCol is the piece's leftmost column. Rules, in order: 1) playing false -> start. 2) piece null -> none. 3) aligned -> none if fallStalled, else drop. 4) keyReady false -> drop if slack is 'ok', else none. 5) turnsCW > 0 and turnFits: if turnsCCW < turnsCW turn with Z (drop_ccw if slack is 'ok', else rotate_ccw), otherwise turn with X (drop_cw if slack is 'ok', else rotate_cw). 6) Otherwise choose a side: left if shift < 0, right if shift > 0; if shift is 0 (a turn is needed but does not fit here) right when pieceCol < 4, else left. If the chosen side is blocked (freeLeft is 0 going left, freeRight is 0 going right), take the other side only while a turn is still needed and that side is free; if no side remains -> drop. 7) Going left: drop_left if slack is 'ok', else left. Going right: drop_right if slack is 'ok', else right. planLines and planHoles describe the chosen landing; rowsToLand is how far the piece can still fall; height is the stack height (8 or more once the base is built) and holes counts covered empty cells outside the base's reserved column.",
+  "actions": [
+    {
+      "id": "none",
+      "description": "release all keys; the piece falls at normal speed",
+      "keys": []
+    },
+    {
+      "id": "left",
+      "description": "press Left arrow only (Down released): shift the piece one column left",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "right",
+      "description": "press Right arrow only (Down released): shift the piece one column right",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "rotate_cw",
+      "description": "press X only (Down released): rotate the piece clockwise once",
+      "keys": [
+        "x"
+      ]
+    },
+    {
+      "id": "rotate_ccw",
+      "description": "press Z only (Down released): rotate the piece counter-clockwise once",
+      "keys": [
+        "z"
+      ]
+    },
+    {
+      "id": "drop",
+      "description": "hold Down only (steering keys released): the piece falls one row every 32 ms",
+      "keys": [
+        "ArrowDown"
+      ]
+    },
+    {
+      "id": "drop_left",
+      "description": "keep Down held and press Left: shift one column left; the fast fall resumes once Left is let go",
+      "keys": [
+        "ArrowDown",
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "drop_right",
+      "description": "keep Down held and press Right: shift one column right; the fast fall resumes once Right is let go",
+      "keys": [
+        "ArrowDown",
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "drop_cw",
+      "description": "keep Down held and press X: rotate clockwise once; the fast fall resumes once X is let go",
+      "keys": [
+        "ArrowDown",
+        "x"
+      ]
+    },
+    {
+      "id": "drop_ccw",
+      "description": "keep Down held and press Z: rotate counter-clockwise once; the fast fall resumes once Z is let go",
+      "keys": [
+        "ArrowDown",
+        "z"
+      ]
+    },
+    {
+      "id": "start",
+      "description": "click the game centre to start or restart when no game is on",
+      "click": true
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 32,
+  "maxHoldMs": 200,
+  "teacher": "function teach(s) {\n  if (!s.playing) return 'start';\n  if (!s.piece) return 'none';\n  var fast = s.slack === 'ok';\n  if (s.aligned) return s.fallStalled ? 'none' : 'drop';\n  if (!s.keyReady) return fast ? 'drop' : 'none';\n  var turn = s.turnsCW > 0;\n  if (turn && s.turnFits) {\n    if (s.turnsCCW < s.turnsCW) return fast ? 'drop_ccw' : 'rotate_ccw';\n    return fast ? 'drop_cw' : 'rotate_cw';\n  }\n  var dir = s.shift < 0 ? -1 : s.shift > 0 ? 1 : (s.pieceCol < 4 ? 1 : -1);\n  if (dir < 0 && s.freeLeft === 0) dir = turn && s.freeRight > 0 ? 1 : 0;\n  else if (dir > 0 && s.freeRight === 0) dir = turn && s.freeLeft > 0 ? -1 : 0;\n  if (dir === 0) return 'drop';\n  if (dir < 0) return fast ? 'drop_left' : 'left';\n  return fast ? 'drop_right' : 'right';\n}",
+  "tests": [],
+  "results": {
+    "mean": 69.5,
+    "scores": [
+      69,
+      70
+    ],
+    "seeds": [
+      101,
+      202
+    ],
+    "gameSeconds": 120,
+    "measuredAt": "2026-09-30T08:50:04.643Z",
+    "test": {
+      "mean": 69,
+      "scores": [
+        69,
+        69,
+        69
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 0,
+      "scores": [
+        0,
+        0
+      ]
+    }
+  }
+}

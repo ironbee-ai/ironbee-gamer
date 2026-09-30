@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head><title>late fixture</title></head>
+<body>
+<script>
+    // Counts its loads in the tab's session storage, and has a frame of another origin (?other=<url>) that starts after
+    // the load: added by a timer set as it loads (?frame=timer: it runs in the boot), or a lazy frame far down the page,
+    // scrolled to on "l" (?frame=lazy: in play). The frame counts its own loads in its session storage and tells the
+    // page, which then removes it, as a rotating ad goes: the next game's origin clearing empties that storage in Chrome
+    // only, not in Playwright's headless shell.
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    window.framed = null;
+    var params = new URLSearchParams(location.search);
+    var frame = document.createElement("iframe");
+    frame.src = params.get("other") + "session-frame.html";
+    addEventListener("message", function (e) {
+        window.framed = e.data.loads;
+        frame.remove();
+    });
+    if (params.get("frame") === "lazy") {
+        frame.loading = "lazy";
+        frame.style.marginTop = "20000px";
+        document.body.appendChild(frame);
+        addEventListener("keydown", function (e) {
+            if (e.key === "l") {
+                frame.scrollIntoView();
+            }
+        });
+    } else {
+        setTimeout(function () { document.body.appendChild(frame); }, 0);
+    }
+    window.state = function () { return { loads: Number(sessionStorage.getItem("loads")), framed: window.framed }; };
+</script>
+</body>
+</html>

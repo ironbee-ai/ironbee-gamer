@@ -1,0 +1,75 @@
+{
+  "id": "dino",
+  "name": "Chrome Dino",
+  "description": "The T-Rex runner from Chrome's offline page: jump the cacti, duck the birds, and keep going as the game speeds up and night falls. Drawn on a 2D canvas.",
+  "url": "https://wayou.github.io/t-rex-runner/",
+  "goal": "Chrome Dino (T-Rex runner). Press Space or ArrowUp to jump, ArrowDown to duck. Avoid the obstacles. Survive as long as possible; the score grows with the distance run.",
+  "perception": {
+    "adapter": "canvas2d"
+  },
+  "viewport": {
+    "width": 800,
+    "height": 400
+  },
+  "bootMs": 2500,
+  "start": [
+    {
+      "press": [
+        "Space"
+      ],
+      "advanceMs": 700
+    },
+    {
+      "waitMs": 1000
+    },
+    {
+      "advanceMs": 800
+    }
+  ],
+  "score": {
+    "expression": "(() => { const r = Runner.instance_; return { over: r.crashed, score: r.distanceMeter.getActualDistance(r.distanceRan) }; })()",
+    "label": "distance"
+  },
+  "budgets": {
+    "gameSeconds": 90,
+    "episodes": 1,
+    "trainSeconds": 90
+  },
+  "trainSeeds": [
+    101,
+    202,
+    303
+  ],
+  "tags": [
+    "runner",
+    "reflex",
+    "canvas2d"
+  ],
+  "credits": "wayou/t-rex-runner, a copy of Chrome's offline game (BSD-3-Clause, The Chromium Authors)",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true,
+      "version": 10,
+      "lagMs": 50
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true,
+      "version": 10,
+      "lagMs": 50
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya"
+  }
+}

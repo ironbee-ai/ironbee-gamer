@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><title>stray fixture</title></head>
+<body>
+<script>
+    // Starts its game in a timeout set as it loads, while an image the server holds back (?ms=…) holds the load
+    // back: the frame and the document's state it started in.
+    window.frame = 0;
+    requestAnimationFrame(function tick() { window.frame++; requestAnimationFrame(tick); });
+    setTimeout(function () { window.started = { frame: window.frame, state: document.readyState }; }, 0);
+    var img = document.createElement("img");
+    img.src = "/held" + location.search;
+    document.body.appendChild(img);
+</script>
+</body>
+</html>

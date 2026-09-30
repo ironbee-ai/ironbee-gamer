@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><title>keys fixture</title></head>
+<body>
+<script>
+    // Keeps every key that went down and what is down now, as a menu or a map reads its keys; `way` is where
+    // the page says to go next.
+    window.downs = [];
+    window.held = {};
+    window.way = "ArrowRight";
+    addEventListener("keydown", function (e) { if (!e.repeat) { window.downs.push(e.key); } window.held[e.key] = true; });
+    addEventListener("keyup", function (e) { delete window.held[e.key]; });
+    window.state = function () { return { downs: window.downs.slice(), held: Object.keys(window.held).sort() }; };
+</script>
+</body>
+</html>

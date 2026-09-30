@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><title>opener fixture</title></head>
+<body>
+<script>
+    // A game that opens windows as it loads (a sponsor's, a leaderboard's): one of its own origin, which opens another
+    // itself, and one of another host (?other=<url>). The windows of its origin write this game's token into the
+    // origin's local storage on their own timers (game time, the context's clock); the other host's counts its visits in
+    // its local storage and tells the game. A window an earlier game left open writes its game's token here too.
+    var token = String(Math.random()).slice(2);
+    var other = new URLSearchParams(location.search).get("other");
+    window.atLoad = localStorage.getItem("writers");
+    window.visits = null;
+    addEventListener("message", function (e) {
+        if (e.data && typeof e.data.visits === "number") {
+            window.visits = e.data.visits;
+        }
+    });
+    window.open("opened.html?game=" + token + "&depth=1", "_blank");
+    if (other) {
+        window.open(other + "opened.html?visit", "_blank");
+    }
+    window.state = function () {
+        return { token: token, atLoad: window.atLoad, writers: JSON.parse(localStorage.getItem("writers") || "[]").sort(), visits: window.visits };
+    };
+</script>
+</body>
+</html>

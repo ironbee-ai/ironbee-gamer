@@ -1,0 +1,283 @@
+{
+ "objectKinds": {},
+ "watching": [
+  {
+   "playing": true,
+   "head": [
+    0,
+    1
+   ],
+   "body": [
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    1
+   ],
+   "body": [
+    [
+     0,
+     2
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    0
+   ],
+   "body": [
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    0
+   ],
+   "body": [
+    [
+     0,
+     1
+    ],
+    [
+     0,
+     2
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    -1
+   ],
+   "body": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     1
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    -1
+   ],
+   "body": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     1
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    -2
+   ],
+   "body": [
+    [
+     0,
+     -1
+    ],
+    [
+     0,
+     0
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": true,
+   "head": [
+    0,
+    -2
+   ],
+   "body": [
+    [
+     0,
+     -1
+    ],
+    [
+     0,
+     0
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  }
+ ],
+ "blindPlay": [
+  {
+   "playing": true,
+   "head": [
+    0,
+    -4
+   ],
+   "body": [
+    [
+     0,
+     -3
+    ],
+    [
+     0,
+     -2
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": false,
+   "head": [
+    0,
+    -9
+   ],
+   "body": [
+    [
+     0,
+     -8
+    ],
+    [
+     0,
+     -7
+    ]
+   ],
+   "coin": [
+    5,
+    5
+   ],
+   "heading": "up",
+   "turn": "up",
+   "edge": 8,
+   "score": 0,
+   "headOnScreen": true
+  },
+  {
+   "playing": false,
+   "screen": "End"
+  },
+  {
+   "playing": false,
+   "screen": "End"
+  },
+  {
+   "playing": false,
+   "screen": "End"
+  },
+  {
+   "playing": false,
+   "screen": "End"
+  }
+ ]
+}

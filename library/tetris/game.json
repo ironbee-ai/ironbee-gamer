@@ -1,0 +1,72 @@
+{
+  "id": "tetris",
+  "name": "Tetris",
+  "description": "Classic Tetris with NES-style speed levels: place the falling pieces to complete and clear rows. A Phaser 3 game from the Phaser examples gallery.",
+  "url": "https://noowxela.github.io/phaser-examples/games/ready/jtetris/",
+  "goal": "Tetris. Pieces fall into a 10-column well. Left and Right arrows move the falling piece, X rotates it clockwise and Z counter-clockwise, holding Down drops it faster. A completely filled row clears. The game ends when the pieces stack up to the top. Clear as many rows as you can.",
+  "perception": {
+    "adapter": "phaser",
+    "read": "(() => { const g = window.__ibgamer && window.__ibgamer.phaser && window.__ibgamer.phaser.game(); const s = g && g.scene && g.scene.getScene('inGame'); if (!s || !g.scene.isActive('inGame') || !s.table || !s.piece) { return { playing: false }; } const p = s.piece; const board = s.table.colorsArray.map((r) => r.map((v) => (v ? 1 : 0))); p.frame.forEach((row, ry) => row.forEach((v, rx) => { if (!v) { return; } const q = p.localToTable(rx, ry); if (board[q.y] && board[q.y][q.x] !== undefined) { board[q.y][q.x] = 0; } })); return { playing: !s.isGameOver, board, piece: { type: p.type, rotation: p.rotation, x: p.x, y: p.y, frame: p.frame }, next: s.pieceQueue.next, level: s.table.level, lines: s.table.lines }; })()",
+    "format": "{ playing, board: rows of 10 cells (1 = settled block, 0 = empty; the falling piece is not in it), piece: { type (1 O, 2 T, 3 Z, 4 S, 5 J, 6 L, 7 I), rotation, x, y, frame: the piece's cells as rows of 0/1 in its current rotation }, next: the next piece's type, level, lines } — { playing: false } until a game is on."
+  },
+  "viewport": {
+    "width": 600,
+    "height": 1000
+  },
+  "bootMs": 4000,
+  "start": [
+    {
+      "waitMs": 2000,
+      "advanceMs": 3000
+    },
+    {
+      "click": {
+        "x": 0.5,
+        "y": 0.458
+      },
+      "advanceMs": 500
+    }
+  ],
+  "score": {
+    "expression": "(() => { const g = window.__ibgamer && window.__ibgamer.phaser && window.__ibgamer.phaser.game(); const s = g && g.scene && g.scene.getScene('inGame'); if (!s || !g.scene.isActive('inGame') || !s.table) { return { over: false, score: 0 }; } return { over: !!s.isGameOver, score: s.table.lines, points: s.score, level: s.table.level }; })()",
+    "label": "rows cleared"
+  },
+  "budgets": {
+    "gameSeconds": 120,
+    "episodes": 1,
+    "trainSeconds": 120
+  },
+  "trainSeeds": [
+    101,
+    202
+  ],
+  "tags": [
+    "puzzle",
+    "planning",
+    "phaser"
+  ],
+  "credits": "Phaser examples gallery (noowxela/phaser-examples, jtetris)",
+  "preferredEngine": "laya",
+  "configs": [
+    {
+      "engine": "laya"
+    },
+    {
+      "engine": "laya",
+      "live": true
+    },
+    {
+      "engine": "rules"
+    },
+    {
+      "engine": "rules",
+      "live": true
+    },
+    {
+      "engine": "jev"
+    }
+  ],
+  "preferredConfig": {
+    "engine": "laya"
+  }
+}

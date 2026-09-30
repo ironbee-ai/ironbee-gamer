@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><title>session frame fixture</title></head>
+<body>
+<script>
+    // A frame that counts its loads in its session storage (its parent's, when it is of its parent's origin) and tells
+    // the page it is in.
+    var loads = Number(sessionStorage.getItem("frameLoads") || "0") + 1;
+    sessionStorage.setItem("frameLoads", String(loads));
+    parent.postMessage({ origin: location.origin, loads: loads }, "*");
+</script>
+</body>
+</html>

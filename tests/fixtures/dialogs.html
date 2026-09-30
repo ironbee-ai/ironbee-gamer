@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head><title>dialogs fixture</title></head>
+<body>
+<script>
+    // A game that shows native dialogs from its loop (an alert at game over, a confirm to play again): a timer set in
+    // its 10th frame opens one, and so does one set every 20th frame after (alert, confirm, prompt in turn). ?quiet: none.
+    // Counts its frames and dialogs, and reads its clock.
+    var frame = 0;
+    var dialogs = 0;
+    var quiet = new URLSearchParams(location.search).has("quiet");
+    requestAnimationFrame(function tick() {
+        frame++;
+        if (!quiet && frame % 20 === 10) {
+            setTimeout(function () {
+                window[["alert", "confirm", "prompt"][dialogs % 3]]("game over");
+                dialogs++;
+            }, 0);
+        }
+        requestAnimationFrame(tick);
+    });
+    window.state = function () { return { frame: frame, dialogs: dialogs, now: performance.now() }; };
+</script>
+</body>
+</html>

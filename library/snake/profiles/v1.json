@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "createdAt": "2026-09-28T10:49:02.194Z",
+  "origin": "setup",
+  "note": "The setup's first extractor and actions (269 s).",
+  "extractor": "function extract(raw, memory) {\n  var KNOWN = { playing: 1, head: 1, body: 1, coin: 1, heading: 1, turn: 1, edge: 1, score: 1, headOnScreen: 1, screen: 1 };\n  var GOOD = /coin|food|apple|fruit|pellet|pickup|bonus|gem|reward/i;\n  var DECOR = /cloud|star|decor|particle|score|text|label|background|hud|camera|offset|scale|angle|rotation|velocity|speed|direction|heading|turn|screen|best|time/i;\n  function isCell(v) { return Array.isArray(v) && v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number'; }\n  function cellsOf(v, depth, out) {\n    if (isCell(v)) out.push([Math.round(v[0]), Math.round(v[1])]);\n    else if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.x === 'number' && typeof v.y === 'number') out.push([Math.round(v.x), Math.round(v.y)]);\n    else if (Array.isArray(v) && depth < 2) { for (var j = 0; j < v.length; j++) cellsOf(v[j], depth + 1, out); }\n    return out;\n  }\n  if (!raw || !raw.playing || !isCell(raw.head)) {\n    memory.wait = (memory.wait || 0) + 1;\n    return { playing: false, screen: String((raw && raw.screen) || 'End'), waitTicks: memory.wait - 1, score: raw && typeof raw.score === 'number' ? raw.score : (memory.score || 0) };\n  }\n  memory.wait = 0;\n  var score = typeof raw.score === 'number' ? raw.score : 0;\n  memory.score = score;\n  var E = typeof raw.edge === 'number' && raw.edge > 0 ? Math.round(raw.edge) : 8;\n  var N = 2 * E + 1, NN = N * N, i;\n  function inB(x, y) { return x >= -E && x <= E && y >= -E && y <= E; }\n  function idx(x, y) { return (x + E) + (y + E) * N; }\n  var hx = Math.round(raw.head[0]), hy = Math.round(raw.head[1]);\n  var body = cellsOf(raw.body, 0, []);\n  var coins = cellsOf(raw.coin, 0, []);\n  var base = [];\n  for (i = 0; i < NN; i++) base.push(0);\n  var unkCount = 0, unkKind = '', unkDx = 0, unkDy = 0, unkBest = 1e9;\n  for (var key in raw) {\n    if (KNOWN[key] || DECOR.test(key)) continue;\n    var cs = cellsOf(raw[key], 0, []);\n    if (!cs.length) continue;\n    if (GOOD.test(key)) { coins = coins.concat(cs); continue; }\n    for (i = 0; i < cs.length; i++) {\n      var ux = cs[i][0], uy = cs[i][1];\n      if (inB(ux, uy)) base[idx(ux, uy)] = 1e9;\n      unkCount++;\n      var ud = Math.abs(ux - hx) + Math.abs(uy - hy);\n      if (ud < unkBest) { unkBest = ud; unkKind = key; unkDx = ux - hx; unkDy = uy - hy; }\n    }\n  }\n  var coinAt = {}, cdx = 0, cdy = 0, cbest = 1e9;\n  for (i = 0; i < coins.length; i++) {\n    var c = coins[i];\n    if (inB(c[0], c[1])) coinAt[idx(c[0], c[1])] = 1;\n    var cd = Math.abs(c[0] - hx) + Math.abs(c[1] - hy);\n    if (cd < cbest) { cbest = cd; cdx = c[0] - hx; cdy = c[1] - hy; }\n  }\n  var occ = {};\n  for (i = 0; i < body.length; i++) if (inB(body[i][0], body[i][1])) occ[idx(body[i][0], body[i][1])] = 1;\n  var OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };\n  var heading = OPP[raw.heading] ? raw.heading : null;\n  if (!heading && body.length) {\n    var hdx = hx - body[0][0], hdy = hy - body[0][1];\n    heading = hdx > 0 ? 'right' : hdx < 0 ? 'left' : hdy > 0 ? 'down' : 'up';\n  }\n  if (!heading) heading = 'up';\n  var len = body.length + 1;\n  var state = { playing: true, score: score, length: len, heading: heading, coinDx: cdx, coinDy: cdy };\n  var DIRS = [['up', 0, -1], ['down', 0, 1], ['left', -1, 0], ['right', 1, 0]];\n  for (var d = 0; d < 4; d++) {\n    var name = DIRS[d][0], nx = hx + DIRS[d][1], ny = hy + DIRS[d][2];\n    var ok = inB(nx, ny) && name !== OPP[heading] && !occ[idx(nx, ny)] && base[idx(nx, ny)] < 1e9;\n    var room = 0, tail = false, coinSteps = -1;\n    if (ok) {\n      var start = idx(nx, ny), eats = !!coinAt[start];\n      var segs = [[hx, hy]].concat(eats ? body : body.slice(0, body.length - 1));\n      var k = segs.length, vac = base.slice();\n      for (i = 0; i < k; i++) {\n        if (!inB(segs[i][0], segs[i][1])) continue;\n        var si = idx(segs[i][0], segs[i][1]);\n        if (vac[si] < k - i) vac[si] = k - i;\n      }\n      var dist = [];\n      for (i = 0; i < NN; i++) dist.push(-1);\n      dist[start] = 0;\n      if (eats) coinSteps = 0;\n      var q = [start], qh = 0;\n      while (qh < q.length) {\n        var cur = q[qh++], t = dist[cur];\n        var cx = (cur % N) - E, cy = (cur - (cur % N)) / N - E;\n        for (var nb = 0; nb < 4; nb++) {\n          var ax = cx + DIRS[nb][1], ay = cy + DIRS[nb][2];\n          if (!inB(ax, ay)) continue;\n          var ni = idx(ax, ay);\n          if (dist[ni] >= 0 || vac[ni] > t) continue;\n          dist[ni] = t + 1; q.push(ni); room++;\n          if (vac[ni] > 0) tail = true;\n          if (coinSteps < 0 && coinAt[ni]) coinSteps = t + 1;\n        }\n      }\n    }\n    state[name + 'Ok'] = ok;\n    state[name + 'Safe'] = ok && (tail || room >= 2 * len);\n    state[name + 'Coin'] = coinSteps < 0 ? 99 : Math.min(coinSteps, 98);\n    state[name + 'Room'] = room;\n  }\n  if (unkCount) { state.unknownKind = unkKind; state.unknownCount = unkCount; state.unknownDx = unkDx; state.unknownDy = unkDy; }\n  return state;\n}",
+  "instructions": "Play the game well. Snake. The snake moves one cell every 200 ms in the direction it is heading. The arrow keys turn it (it cannot turn straight back). Eat the coin to grow and score; a new coin appears elsewhere. Hitting a wall (beyond 8 cells from the centre in any direction) or the snake's own body ends the game. Every five coins the board spins, shrinks or moves on screen; the rules stay the same. Eat as many coins as you can.\nIf playing is false (menu or end screen), use waitTicks % 4: 1 -> key_up (restart), 3 -> start, 0 or 2 -> wait. While playing, each direction X in up, down, left, right has four fields. XOk means moving there does not hit the wall or the body right away. XSafe means that after the move the snake can still reach its own tail or has at least 2 x length cells of room. XCoin is the number of steps from there to the coin (0 means it eats the coin now, 99 means unreachable). XRoom is the number of cells reachable after the move. If any XSafe is true, choose among the safe directions: smallest XCoin first, then larger XRoom, then the direction equal to heading, otherwise the first in the order up, down, left, right. If no direction is safe, choose among the XOk directions: largest XRoom first, then smaller XCoin, then heading. If none is Ok, keep heading. The action is key_X for the chosen X. unknown* fields (if present) describe an unrecognised object that is already treated as a blocked cell.",
+  "actions": [
+    {
+      "id": "key_up",
+      "description": "hold Up arrow: next move goes up (y - 1); also restarts on the end screen",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "key_down",
+      "description": "hold Down arrow: next move goes down (y + 1)",
+      "keys": [
+        "ArrowDown"
+      ]
+    },
+    {
+      "id": "key_left",
+      "description": "hold Left arrow: next move goes left (x - 1)",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "key_right",
+      "description": "hold Right arrow: next move goes right (x + 1)",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "wait",
+      "description": "release all keys",
+      "keys": []
+    },
+    {
+      "id": "start",
+      "description": "click the centre of the game (menu start)",
+      "click": true
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 96,
+  "teacher": "function teach(state) {\n  var s = state;\n  if (!s.playing) {\n    var w = (s.waitTicks || 0) % 4;\n    return w === 1 ? 'key_up' : (w === 3 ? 'start' : 'wait');\n  }\n  var dirs = ['up', 'down', 'left', 'right'];\n  var anySafe = false, i;\n  for (i = 0; i < 4; i++) if (s[dirs[i] + 'Safe']) anySafe = true;\n  function better(a, b) {\n    var ca = s[a + 'Coin'], cb = s[b + 'Coin'], ra = s[a + 'Room'], rb = s[b + 'Room'];\n    if (anySafe) { if (ca !== cb) return ca < cb; if (ra !== rb) return ra > rb; }\n    else { if (ra !== rb) return ra > rb; if (ca !== cb) return ca < cb; }\n    return a === s.heading;\n  }\n  var best = null;\n  for (i = 0; i < 4; i++) {\n    var d = dirs[i];\n    if (anySafe ? !s[d + 'Safe'] : !s[d + 'Ok']) continue;\n    if (best === null || better(d, best)) best = d;\n  }\n  if (best === null) best = s.heading || 'up';\n  return 'key_' + best;\n}",
+  "tests": [],
+  "results": {
+    "mean": 34.5,
+    "scores": [
+      34,
+      35
+    ],
+    "seeds": [
+      101,
+      202
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-09-30T08:49:10.289Z",
+    "test": {
+      "mean": 36.33,
+      "scores": [
+        32,
+        41,
+        36
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 0,
+      "scores": [
+        0,
+        0
+      ]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head><title>wasm fixture</title></head>
+<body>
+<script>
+    // A loader that compiles WebAssembly as it boots, by each of the ways a page can (each job started when the last one
+    // is done, from its first frame): the page's frame each one finished in.
+    window.frame = 0;
+    window.compiled = [];
+
+    // A module of 100 functions, each a run of 200 adds (120 KB: one function compiles too soon to take a frame);
+    // `salt` makes its bytes its own (the browser shares the work of compiling the same bytes twice).
+    function module(salt) {
+        var FUNCS = 100;
+        function leb(n) { var out = []; do { var b = n & 0x7f; n >>>= 7; if (n) { b |= 0x80; } out.push(b); } while (n); return out; }
+        function section(id, bytes) { return [id].concat(leb(bytes.length), bytes); }
+        var body = [0];
+        for (var i = 0; i < 200; i++) { body.push(0x41, (i + salt) & 0x3f, 0x41, 2, 0x6a, 0x1a); }
+        body.push(0x41, salt & 0x3f, 0x0b);
+        var code = leb(FUNCS), types = leb(FUNCS);
+        for (var f = 0; f < FUNCS; f++) { Array.prototype.push.apply(code, leb(body.length)); Array.prototype.push.apply(code, body); types.push(0); }
+        return new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0].concat(section(1, [1, 0x60, 0, 1, 0x7f]), section(3, types), section(10, code)));
+    }
+    function response(bytes) { return new Response(bytes, { headers: { "content-type": "application/wasm" } }); }
+    function done(next) { return function () { window.compiled.push(window.frame); next(); }; }
+    var jobs = [
+        function (next) { WebAssembly.compile(module(1)).then(done(next), done(next)); },
+        function (next) { WebAssembly.instantiate(module(2)).then(done(next), done(next)); },
+        function (next) { WebAssembly.compileStreaming(response(module(3))).then(done(next), done(next)); },
+        function (next) { WebAssembly.instantiateStreaming(response(module(4))).then(done(next), done(next)); },
+        // A module compiled, then made an instance of.
+        function (next) { WebAssembly.compile(module(5)).then(function (m) { return WebAssembly.instantiate(m); }).then(done(next), done(next)); },
+    ];
+    function run(i) { if (i < jobs.length) { jobs[i](function () { run(i + 1); }); } }
+    requestAnimationFrame(function tick() {
+        window.frame++;
+        if (window.frame === 1) { run(0); }
+        requestAnimationFrame(tick);
+    });
+</script>
+</body>
+</html>

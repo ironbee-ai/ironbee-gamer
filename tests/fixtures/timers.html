@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><title>timers fixture</title></head>
+<body>
+<script>
+    // A tick at 60 Hz on setInterval, as many canvas games run their physics: the ticks counted, the game time
+    // between the first two (the clock's time inside each), and the game time since the interval was set.
+    window.ticks = 0;
+    window.at = [];
+    window.t0 = performance.now();
+    setInterval(function () {
+        window.ticks++;
+        if (window.at.length < 2) { window.at.push(performance.now()); }
+    }, 1000 / 60);
+    window.state = function () {
+        return { ticks: window.ticks, interval: window.at.length === 2 ? window.at[1] - window.at[0] : null, since: performance.now() - window.t0 };
+    };
+</script>
+</body>
+</html>

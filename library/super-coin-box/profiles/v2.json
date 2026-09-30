@@ -1,0 +1,118 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-28T03:00:36.491Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "v1 lost most of its score by standing still. In seed 303 and for about 15 s of seed 101, the coin sat on the top platform at (250,30). The only way up is a jump that slides along the ceiling, which v1's simulator could not reproduce, so every action showed the same 'no route' eta and idle won the tie. The previous attempt added that slide (a small step-up) but also scored the route distance on every grounded 1/60 s frame. Every action then looked within 0.02 s of standing still, so idle won 534-562 of 600 decisions. This version goes back to v1's rule: route distance counts only at 0.1 s tick boundaries or after a real landing, so waiting always costs 0.1 s. It keeps the useful parts of the last attempt: the step-up, the 1/60 s simulation with 2 frames of input lag, the fixed player hitbox and the fallback that pulls toward the coin when no route is known. It drops the roomy and kills rules, adds jump-then-release follow-ups, builds the route map within a few frames, and adds coinOverdue, which takes idle out of the candidates when a coin has stayed uncollected well past its prediction.",
+  "extractor": "function extract(raw, memory) {\nvar st = { playing: false };\nvar M = memory || {};\nvar DT = 1 / 60, TICK = 6, LAGS = 2, NS = 84, STEPUP = 3.5, EM = 1.5, BIG = 999;\nvar G = null, TW = 20, TH = 20, ROWS = 0, COLS = 0, haveMap = false, WW = 500, WH = 340, P = null, HW = 10, HH = 10, GR = null, player = null, enemies = [], coin = null, dist = null, pGround = false, D0 = 0, NE = 0, EX = [], EY = [], EA = [], MAC = [[0]], CONT = [[[0, 0]], [[0, 1]], [[0, 1], [0, 0]]];\nfunction solid(cc, rr) { if (cc < 0 || cc >= COLS) return true; if (rr < 0 || rr >= ROWS) return false; var t = G[rr][cc]; return t != null && t >= 0; }\nfunction r2(x) { return Math.round(x * 100) / 100; }\nfunction now() { return (typeof Date !== 'undefined' && Date.now) ? Date.now() : 0; }\nfunction onGroundAt(x, y, hw, hh) { var feet = y + hh, rr = Math.round(feet / TH), cc; if (Math.abs(feet - rr * TH) > 1.5) return false; for (cc = Math.floor((x - hw + 0.01) / TW); cc <= Math.floor((x + hw - 0.01) / TW); cc++) { if (solid(cc, rr)) return true; } return false; }\nfunction cellIndex(cc, rr) { if (!GR || cc < 0 || cc >= COLS || rr < 0 || rr >= ROWS) return -1; var v = GR.idx[rr * COLS + cc]; return v == null ? -1 : v; }\nfunction cellAtBody(b) { var feet = b.y + HH, rr = Math.round(feet / TH), ci; if (Math.abs(feet - rr * TH) > 2) return -1; ci = cellIndex(Math.floor(b.x / TW), rr); if (ci < 0) ci = cellIndex(Math.floor((b.x - HW + 1) / TW), rr); if (ci < 0) ci = cellIndex(Math.floor((b.x + HW - 1) / TW), rr); return ci; }\nfunction stepBody(b, hw, hh, grav, canStep) {\n  var nx, ny, rr, cc, ra, rb, cn, co, c0, c1, blk, hit = false;\n  b.vy += grav * DT; if (b.vy > 900) b.vy = 900;\n  b.wall = false; nx = b.x + b.vx * DT;\n  if (b.vx !== 0) {\n    ra = Math.floor((b.y - hh + 0.01) / TH); rb = Math.floor((b.y + hh - 0.01) / TH);\n    if (b.vx > 0) { cn = Math.floor((nx + hw - 0.01) / TW); co = Math.floor((b.x + hw - 0.01) / TW); } else { cn = Math.floor((nx - hw + 0.01) / TW); co = Math.floor((b.x - hw + 0.01) / TW); }\n    if (cn !== co) {\n      blk = -1; for (rr = ra; rr <= rb; rr++) { if (solid(cn, rr)) { blk = rr; break; } }\n      if (blk >= 0) {\n        if (canStep && blk === rb && b.vy >= 0 && b.y + hh - blk * TH <= STEPUP) { b.y = blk * TH - hh; b.vy = 0; }\n        else { nx = b.vx > 0 ? cn * TW - hw : (cn + 1) * TW + hw; b.wall = true; }\n      }\n    }\n  }\n  b.x = nx; ny = b.y + b.vy * DT;\n  c0 = Math.floor((b.x - hw + 0.01) / TW); c1 = Math.floor((b.x + hw - 0.01) / TW); b.gr = false;\n  if (b.vy > 0) { for (rr = Math.floor((b.y + hh - 0.01) / TH) + 1; !hit && rr <= Math.floor((ny + hh - 0.01) / TH); rr++) { for (cc = c0; cc <= c1; cc++) { if (solid(cc, rr)) { ny = rr * TH - hh; b.vy = 0; b.gr = true; hit = true; break; } } } }\n  else if (b.vy < 0) { for (rr = Math.floor((b.y - hh + 0.01) / TH) - 1; !hit && rr >= Math.floor((ny - hh + 0.01) / TH); rr--) { for (cc = c0; cc <= c1; cc++) { if (solid(cc, rr)) { ny = (rr + 1) * TH + hh; b.vy = 0; hit = true; break; } } } }\n  b.y = ny;\n}\nfunction applyKeys(b, d, u) { b.vx = d * P.run; if (u && b.gr) b.vy = -P.jv; }\nfunction simMacro(x, y, sched, jump) { var b = { x: x, y: y, vx: 0, vy: 0, gr: true }, air = false, n = sched.length, s, tk, d; for (s = 0; s < 150; s++) { tk = (s / TICK) | 0; d = sched[tk < n ? tk : n - 1]; applyKeys(b, d, jump && s < TICK); stepBody(b, HW, HH, P.g, true); if (b.y - HH > WH || b.y + HH < 0) return null; if (!b.gr) { air = true; } else if (air || (d === 0 && tk >= 1)) { return [cellAtBody(b), (s + 1) * DT]; } } return null; }\nfunction buildCell(ci) { var c0 = GR.cc[ci], r0 = GR.cr[ci], x0 = c0 * TW + TW / 2, y0 = r0 * TH - HH, best = {}, out = [], d, m, nj, key; var add = function (res) { if (res && res[0] >= 0 && res[0] !== ci && (best[res[0]] == null || res[1] < best[res[0]])) best[res[0]] = res[1]; }; for (d = -1; d <= 1; d += 2) { if (solid(c0 + d, r0 - 1)) continue; nj = cellIndex(c0 + d, r0); if (nj >= 0) { add([nj, TW / P.run]); } else { add(simMacro(x0, y0, [d, 0], false)); add(simMacro(x0, y0, [d, d, 0], false)); add(simMacro(x0, y0, [d], false)); } } for (m = 0; m < MAC.length; m++) add(simMacro(x0, y0, MAC[m], true)); for (key in best) out.push(+key, Math.round(best[key] * 1000) / 1000); GR.edges[ci] = out; }\nfunction relax(D) { var N = D.length, it, ch, a, ed, qq, nd; for (it = 0; it < 120; it++) { ch = false; for (a = 0; a < N; a++) { ed = GR.edges[a]; if (!ed) continue; for (qq = 0; qq < ed.length; qq += 2) { nd = D[ed[qq]] + ed[qq + 1]; if (nd < D[a] - 0.000001) { D[a] = nd; ch = true; } } } if (!ch) break; } }\nfunction computeDist() {\n  var N = GR.cc.length, D = [], apex = P.jv * P.jv / (2 * P.g), a, cx, cy, gc, limx, limy, adx, need, clear, rTop, rr;\n  for (a = 0; a < N; a++) {\n    cx = GR.cc[a] * TW + TW / 2; cy = GR.cr[a] * TH - HH; gc = BIG;\n    if (coin) {\n      limx = HW + coin.w / 2; limy = HH + coin.h / 2; adx = Math.abs(cx - coin.x);\n      if (adx < limx && Math.abs(cy - coin.y) < limy) { gc = 0; }\n      else if (adx < limx && coin.y < cy) {\n        need = cy - coin.y - limy + 1;\n        if (need < apex) { clear = true; rTop = Math.max(0, Math.floor((coin.y - HH) / TH)); for (rr = GR.cr[a] - 1; rr >= rTop; rr--) { if (solid(GR.cc[a], rr)) { clear = false; break; } } if (clear) gc = (P.jv - Math.sqrt(Math.max(0, P.jv * P.jv - 2 * P.g * Math.max(0, need)))) / P.g; }\n      }\n    }\n    D.push(gc);\n  }\n  relax(D);\n  if (coin) { for (a = 0; a < N; a++) { if (D[a] >= BIG) D[a] = 50 + (Math.abs(GR.cc[a] * TW + TW / 2 - coin.x) + 1.5 * Math.abs(GR.cr[a] * TH - HH - coin.y)) / 40; } relax(D); }\n  for (a = 0; a < N; a++) D[a] = Math.round(D[a] * 1000) / 1000;\n  return D;\n}\nfunction rollout(ad, au, cont) {\n  var b = { x: player.x, y: player.y, vx: player.vx, vy: player.vy, gr: pGround }, kl = [], best = BIG + 10, hitT = -1, stp = false, got = false, nc = cont.length, na = 0, s, qq, tk, d, u, cs, pb, vy0, t, ix, en2, ptop, ci, gx, gy, j, landed;\n  for (s = 0; s < NS; s++) {\n    if (s < LAGS) { d = D0; u = 0; } else { tk = ((s - LAGS) / TICK) | 0; if (tk === 0) { d = ad; u = au; } else { cs = cont[tk - 1 < nc ? tk - 1 : nc - 1]; d = cs[0]; u = cs[1]; } }\n    pb = b.y + HH;\n    applyKeys(b, d, u); vy0 = b.vy;\n    stepBody(b, HW, HH, P.g, true);\n    t = (s + 1) * DT;\n    if (b.y - HH > WH || b.y + HH < 0) { hitT = t; break; }\n    for (qq = 0; qq < NE; qq++) {\n      if (kl[qq]) continue;\n      ix = qq * NS + s;\n      if (!EA[ix]) continue;\n      en2 = enemies[qq];\n      gx = Math.abs(b.x - EX[ix]) - HW - en2.hw; gy = Math.abs(b.y - EY[ix]) - HH - en2.hh;\n      if (gx < EM && gy < EM) {\n        ptop = (s > 0 ? EY[ix - 1] : en2.y) - en2.hh;\n        if (en2.grav && vy0 > 0 && pb <= ptop + 5) { kl[qq] = 1; stp = true; b.vy = -P.jv * 0.5; b.gr = false; }\n        else { hitT = t; break; }\n      }\n    }\n    if (hitT >= 0) break;\n    if (coin && !got && Math.abs(b.x - coin.x) < HW + coin.w / 2 && Math.abs(b.y - coin.y) < HH + coin.h / 2) { got = true; if (t < best) best = t; }\n    landed = false; if (!b.gr) { na++; } else { landed = na >= 3; na = 0; }\n    j = s + 1 - LAGS;\n    if (!got && dist && b.gr && (landed || (j > 0 && j % TICK === 0))) { ci = cellAtBody(b); if (ci >= 0 && t + dist[ci] < best) best = t + dist[ci]; }\n  }\n  return [hitT, best, stp];\n}\ntry {\n  [-1, 1].forEach(function (d) { MAC.push([d], [d, 0], [d, d, 0], [d, d, d, 0], [d, d, d, d, d, 0], [0, d], [0, 0, d], [0, 0, 0, d], [0, 0, 0, 0, d]); CONT.push([[d, 0]], [[d, 1]], [[d, 1], [d, 0]], [[d, 0], [0, 0]], [[d, 0], [d, 0], [0, 0]], [[d, 0], [d, 0], [d, 0], [d, 0], [0, 0]], [[0, 0], [d, 0]], [[0, 0], [0, 0], [d, 0]], [[0, 0], [0, 0], [0, 0], [d, 0]]); });\n  var tStart = now(), objs = (raw && raw.objects) || [], maps = (raw && raw.maps) || [], i, k, e, o, r, c, q, mp, sig;\n  for (i = 0; i < maps.length; i++) { mp = maps[i]; if (mp && mp.grid && mp.grid.length && mp.grid[0] && mp.grid[0].length) { sig = mp.grid.map(function (row) { return row.join(','); }).join(';'); if (sig !== M.gridSig) { M.gridSig = sig; M.grid = mp.grid; M.tw = mp.tileW || 20; M.th = mp.tileH || 20; M.graph = null; } break; } }\n  G = M.grid || null; TW = M.tw || 20; TH = M.th || 20; ROWS = G ? G.length : 0; COLS = ROWS ? G[0].length : 0; haveMap = ROWS > 0 && COLS > 0; if (haveMap) { WW = COLS * TW; WH = ROWS * TH; }\n  var lives = 0, score = null, texts = [], unknown = [], nm, w, h, vv, vx, vy, ox, oy, tx, sm, mov;\n  for (i = 0; i < objs.length; i++) {\n    o = objs[i]; if (!o || typeof o !== 'object') continue;\n    nm = ((o.frame || '') + ' ' + (o.tex || '') + ' ' + (o.name || '')).toLowerCase();\n    w = +o.w || 0; h = +o.h || 0; vv = o.v || [0, 0]; vx = +vv[0] || 0; vy = +vv[1] || 0; ox = +o.x || 0; oy = +o.y || 0;\n    if (o.text != null) { tx = String(o.text).trim(); sm = tx.toLowerCase().match(/score[^0-9]*([0-9]+)/); if (sm) { score = +sm[1]; } else if (tx) { texts.push(tx.slice(0, 40)); } continue; }\n    if (w >= WW * 0.8 && h >= WH * 0.8) continue;\n    if (/cloud|sky|backg|mountain|hill|tree|bush|particle|pixel|dust|smoke|spark|shadow|decor/.test(nm)) continue;\n    if (/live|life|heart/.test(nm)) { lives++; continue; }\n    if (/player|hero/.test(nm)) { if (!player) player = { x: ox, y: oy, w: w || 20, h: h || 20, vx: vx, vy: vy }; continue; }\n    if (/enemy|monster|foe/.test(nm)) { enemies.push({ x: ox, y: oy - (h || 20) / 2, hw: (w || 20) / 2, hh: (h || 20) / 2, vx: vx, vy: vy, grav: 1 }); continue; }\n    if (/coin|gem|gold/.test(nm)) { if (!coin) coin = { x: ox, y: oy, w: w || 18, h: h || 18 }; continue; }\n    mov = Math.abs(vx) + Math.abs(vy) > 1;\n    unknown.push({ name: nm.trim().slice(0, 30), x: ox, y: oy, w: w, h: h, moving: mov });\n    if (mov && w > 0 && w < 80 && h > 0 && h < 80) enemies.push({ x: ox, y: oy, hw: w / 2, hh: h / 2, vx: vx, vy: vy, grav: 0 });\n  }\n  if (player) {\n    if (player.w >= 12 && player.w <= 40 && (!M.pw || player.w < M.pw)) M.pw = player.w;\n    if (player.h >= 12 && player.h <= 40 && (!M.ph || player.h < M.ph)) M.ph = player.h;\n    M.seen = true; D0 = player.vx > 30 ? 1 : (player.vx < -30 ? -1 : 0);\n  }\n  if (M.pw) HW = M.pw / 2; if (M.ph) HH = M.ph / 2;\n  var gameOver = /game ?over|try again|restart|you lose|you died/.test(texts.join(' ').toLowerCase()) || (!player && !!M.seen && lives === 0);\n  st.playing = !!player && !gameOver; st.gameOver = gameOver; st.lives = lives; st.score = score; st.coinVisible = !!coin; st.enemyCount = enemies.length;\n  if (texts.length) st.message = texts[0];\n  P = M.phys || (M.phys = { g: 500, jv: 320, run: 200 });\n  if (player && haveMap) {\n    pGround = Math.abs(player.vy) < 1 && onGroundAt(player.x, player.y, HW, HH);\n    var rebuild = false, ax = Math.abs(player.vx), pp = M.prevP, ddy, ge, gs, sg, med, jvE;\n    if (ax > 40 && ax < 900) { if (M.runCand && Math.abs(ax - M.runCand) < ax * 0.02 && Math.abs(ax - P.run) > P.run * 0.05) { P.run = ax; rebuild = true; } M.runCand = ax; }\n    if (pp) {\n      ddy = player.y - pp.y;\n      if (pp.vy !== 0 && player.vy !== 0 && !pGround && Math.abs(ddy) > 8 && player.vy > pp.vy) {\n        ge = (player.vy * player.vy - pp.vy * pp.vy) / (2 * ddy);\n        if (ge > 100 && ge < 4000) { gs = M.gs || (M.gs = []); gs.push(ge); if (gs.length > 7) gs.shift(); if (gs.length >= 3) { sg = gs.slice().sort(function (a, b) { return a - b; }); med = sg[sg.length >> 1]; if (Math.abs(med - P.g) > P.g * 0.12) { P.g = med; rebuild = true; } } }\n      }\n      if (pp.gr && player.vy < -30) { jvE = Math.sqrt(player.vy * player.vy + 2 * P.g * Math.max(0, pp.y - player.y)); if (jvE > 120 && jvE < 1500 && Math.abs(jvE - P.jv) > P.jv * 0.06) { P.jv = jvE; rebuild = true; } }\n    }\n    M.prevP = { y: player.y, vy: player.vy, gr: pGround };\n    if (rebuild) { M.graph = null; M.gs = []; }\n  } else { M.prevP = null; }\n  if (haveMap) {\n    GR = M.graph || null;\n    if (GR && (GR.hw !== HW || GR.hh !== HH)) { GR = null; M.graph = null; }\n    if (!GR) {\n      var gcc = [], gcr = [], gidx = [], id;\n      for (r = 0; r < ROWS; r++) { for (c = 0; c < COLS; c++) { id = -1; if (r >= 1 && solid(c, r) && !solid(c, r - 1)) { id = gcc.length; gcc.push(c); gcr.push(r); } gidx.push(id); } }\n      GR = M.graph = { cc: gcc, cr: gcr, idx: gidx, edges: [], next: 0, done: gcc.length === 0, hw: HW, hh: HH };\n      M.gver = (M.gver || 0) + 1;\n    }\n    if (!GR.done) { k = 0; while (GR.next < GR.cc.length) { buildCell(GR.next); GR.next++; k++; if (k >= 20 || now() - tStart > 60) break; } if (GR.next >= GR.cc.length) GR.done = true; }\n    if (GR.cc.length) { var dk = (coin ? Math.round(coin.x) + ',' + Math.round(coin.y) : 'none') + '|' + GR.next + '|' + M.gver + '|' + Math.round(P.jv) + '|' + Math.round(P.g) + '|' + Math.round(P.run) + '|' + HW + '|' + HH; if (M.distKey === dk && M.dist && M.dist.length === GR.cc.length) { dist = M.dist; } else { dist = computeDist(); M.dist = dist; M.distKey = dk; } }\n  }\n  if (player) {\n    st.px = Math.round(player.x); st.py = Math.round(player.y); st.onGround = pGround;\n    if (coin) { st.coinDx = Math.round(coin.x - player.x); st.coinDy = Math.round(coin.y - player.y); }\n    if (haveMap) { var pit = true, pc0 = Math.floor((player.x - HW + 0.01) / TW), pc1 = Math.floor((player.x + HW - 0.01) / TW); for (r = Math.max(0, Math.floor((player.y + HH - 0.01) / TH)); pit && r < ROWS; r++) { for (c = pc0; c <= pc1; c++) { if (solid(c, r)) { pit = false; break; } } } st.pitBelow = pit; }\n    var near = [];\n    for (e = 0; e < enemies.length; e++) { q = enemies[e]; near.push({ dx: Math.round(q.x - player.x), dy: Math.round(q.y - player.y), vx: Math.round(q.vx), vy: Math.round(q.vy) }); }\n    near.sort(function (a, b) { return a.dx * a.dx + a.dy * a.dy - b.dx * b.dx - b.dy * b.dy; });\n    st.enemies = near.slice(0, 3);\n  }\n  if (player && haveMap && GR) {\n    NE = enemies.length;\n    var en, eb, alive;\n    for (e = 0; e < NE; e++) {\n      en = enemies[e]; eb = { x: en.x, y: en.y, vx: en.vx, vy: en.vy, gr: false }; alive = 1;\n      for (k = 0; k < NS; k++) {\n        if (alive) { if (en.grav) { stepBody(eb, en.hw, en.hh, P.g, false); if (eb.wall) eb.vx = -eb.vx; } else { eb.x += eb.vx * DT; eb.y += eb.vy * DT; } if (eb.y - en.hh > WH + 4) alive = 0; }\n        EX.push(eb.x); EY.push(eb.y); EA.push(alive);\n      }\n    }\n    var ACT = [[0, 0, 'ifIdle'], [-1, 0, 'ifLeft'], [1, 0, 'ifRight'], [0, 1, 'ifJump'], [-1, 1, 'ifJumpLeft'], [1, 1, 'ifJumpRight']], bestEta = BIG, ai, cj, A, R, safe, bh, es, ea, eta;\n    for (ai = 0; ai < ACT.length; ai++) {\n      A = ACT[ai]; safe = false; bh = 0; es = BIG + 10; ea = BIG + 10;\n      for (cj = 0; cj < CONT.length; cj++) { R = rollout(A[0], A[1], CONT[cj]); if (R[0] < 0) { safe = true; if (R[1] < es) es = R[1]; } else if (R[0] > bh) { bh = R[0]; } if (R[1] < ea) ea = R[1]; }\n      eta = Math.min(99, r2(safe ? es : ea));\n      st[A[2]] = { safe: safe, hitIn: safe ? 9 : r2(bh), eta: eta };\n      if (safe && eta < bestEta) bestEta = eta;\n    }\n    st.coinEta = bestEta < BIG ? bestEta : 99; st.routeKnown = st.coinEta < 50;\n  }\n  var ck = coin ? Math.round(coin.x) + ',' + Math.round(coin.y) : 'none';\n  if (!st.playing || ck !== M.ck) { M.ck = ck; M.cn = 0; M.ce0 = -1; }\n  st.coinOverdue = false;\n  if (st.playing && typeof st.coinEta === 'number' && GR && GR.done) { if (M.ce0 == null || M.ce0 < 0) M.ce0 = st.coinEta; M.cn = (M.cn || 0) + 1; st.coinOverdue = M.cn * 0.1 > (M.ce0 < 50 ? M.ce0 + 2.5 : 2.5); }\n  if (unknown.length) st.unknown = unknown.slice(0, 3).map(function (u) { return { name: u.name, dx: Math.round(u.x - (player ? player.x : 0)), dy: Math.round(u.y - (player ? player.y : 0)), w: u.w, h: u.h, moving: u.moving }; });\n  st.graphReady = !!(GR && GR.done);\n} catch (err) { st.err = String((err && err.message) || err).slice(0, 120); }\nreturn st;\n}",
+  "instructions": "Super Coin Box: run (Left/Right) and jump (Up) to grab the coin; a new one appears elsewhere each time. Enemies fall in from the top: landing on one from above kills it, any other touch costs a life (3 lives). Collect as many coins as possible.\nForecast fields: ifIdle, ifLeft, ifRight, ifJump, ifJumpLeft, ifJumpRight each simulate choosing that action now (it takes effect after about 0.03 s of input lag and is held for 0.1 s), followed by the best of a set of simple follow-up moves, against the level map and every enemy's predicted path for 1.4 s. safe = true: some follow-up avoids every enemy, the bottom pit and the top of the world. eta = predicted seconds until the coin is touched (below 50: a known route; 50 to 75: no route known, smaller = closer to the coin; 99: no coin or nothing safe). Waiting always makes eta at least 0.1 larger. hitIn = seconds until contact for an action that is not safe (9 when safe). coinOverdue = true when the current coin has stayed uncollected more than 2.5 s longer than first predicted (the player is stalling).\nRules: 1) If playing is false (between lives, level change, game over), choose jump or click, 50/50. 2) Candidates: the actions whose safe is true; if coinOverdue is true, leave idle out of the candidates. 3) If there are candidates, go through them in the order idle, right, left, jumpRight, jumpLeft, jump: keep the first one, and switch to a later one only when its eta is more than 0.04 smaller than the eta of the one kept. 4) If there are no candidates but ifIdle.safe is true (only possible when coinOverdue is true), choose idle. 5) If no action is safe, choose the largest hitIn (on a tie the smaller eta, then the earlier in that same order). 6) If the ifX fields are missing, go right when coinDx > 10, left when coinDx < -10, otherwise idle.\nContext only: coinEta = best eta among the safe actions, routeKnown = coinEta below 50, enemies = the 3 nearest threats (dx, dy from the player, positive dy = below; vx, vy), onGround, pitBelow, lives, graphReady = the route map is complete.",
+  "actions": [
+    {
+      "id": "idle",
+      "description": "release all keys: stand still, or drop straight down when airborne",
+      "keys": []
+    },
+    {
+      "id": "left",
+      "description": "run left (Left arrow held)",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "right",
+      "description": "run right (Right arrow held)",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "jump",
+      "description": "jump straight up (Up held; jumps again on landing)",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "jumpLeft",
+      "description": "jump while running left (Up held; jumps again on landing)",
+      "keys": [
+        "ArrowUp",
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "jumpRight",
+      "description": "jump while running right (Up held; jumps again on landing)",
+      "keys": [
+        "ArrowUp",
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "click",
+      "description": "click the game centre (start or restart screens)",
+      "click": true
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 100,
+  "maxHoldMs": 100,
+  "teacher": "function teach(s) {\n  if (!s || !s.playing) return { jump: 0.5, click: 0.5 };\n  var ids = ['idle', 'right', 'left', 'jumpRight', 'jumpLeft', 'jump'];\n  var ks = ['ifIdle', 'ifRight', 'ifLeft', 'ifJumpRight', 'ifJumpLeft', 'ifJump'];\n  var noIdle = s.coinOverdue === true, best = -1, bo = null, have = false, i, o;\n  for (i = 0; i < ids.length; i++) {\n    o = s[ks[i]]; if (!o) continue; have = true;\n    if (!o.safe || (noIdle && i === 0)) continue;\n    if (!bo || o.eta < bo.eta - 0.04) { best = i; bo = o; }\n  }\n  if (!have) { var dx = s.coinDx || 0; return dx > 10 ? 'right' : (dx < -10 ? 'left' : 'idle'); }\n  if (best >= 0) return ids[best];\n  if (s.ifIdle && s.ifIdle.safe) return 'idle';\n  for (i = 0; i < ids.length; i++) {\n    o = s[ks[i]]; if (!o) continue;\n    if (!bo || o.hitIn > bo.hitIn || (o.hitIn === bo.hitIn && o.eta < bo.eta)) { best = i; bo = o; }\n  }\n  return best >= 0 ? ids[best] : 'idle';\n}",
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "!state.err",
+      "why": "The extractor must run without throwing on real frames, including coin pickups (the player hitbox briefly grows), a level-2 map, a life lost and the end screen."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "!state.playing || (!!state.ifIdle && !!state.ifRight && !!state.ifJumpLeft && typeof state.coinEta === 'number' && typeof state.coinOverdue === 'boolean')",
+      "why": "Whenever the player is in play, the per-action forecasts, coinEta and coinOverdue must be present, because the teacher's rules read them."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "!(state.playing && state.onGround && state.graphReady && state.ifIdle && state.ifIdle.safe && state.coinEta > 0.3 && state.coinEta < 50 && (state.enemies || []).every(function (e) { return Math.abs(e.dx) + Math.abs(e.dy) > 220; })) || state.ifIdle.eta > Math.min(state.ifLeft.eta, state.ifRight.eta, state.ifJump.eta, state.ifJumpLeft.eta, state.ifJumpRight.eta) + 0.04",
+      "why": "Pins the stall fix. On the ground, with a known route and no enemy nearby, waiting must cost more than the 0.04 tie margin. The previous attempt scored route distance on every grounded frame, so idle was within 0.02 of moving and the player stood still for whole games."
+    }
+  ],
+  "results": {
+    "mean": 97.67,
+    "scores": [
+      87,
+      80,
+      126
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 60,
+    "measuredAt": "2026-09-29T13:34:02.807Z",
+    "test": {
+      "mean": 85,
+      "scores": [
+        74,
+        70,
+        111
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 3,
+      "scores": [
+        4,
+        5,
+        0
+      ]
+    }
+  }
+}

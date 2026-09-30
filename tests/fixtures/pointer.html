@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><title>pointer fixture</title></head>
+<body style="margin:0">
+<canvas id="pad" width="300" height="150"></canvas>
+<script>
+    // Cancels pointerdown, as a game that handles the pointer itself does: the browser then sends no mousedown
+    // or mouseup. Counts what arrives.
+    window.seen = { pointerdown: 0, pointerup: 0, mousedown: 0, mouseup: 0, keydown: 0 };
+    Object.keys(window.seen).forEach(function (type) {
+        addEventListener(type, function () { window.seen[type]++; });
+    });
+    document.getElementById("pad").addEventListener("pointerdown", function (e) { e.preventDefault(); });
+    window.state = function () { return Object.assign({}, window.seen); };
+</script>
+</body>
+</html>

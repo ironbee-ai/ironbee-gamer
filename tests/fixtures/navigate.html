@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><title>navigate fixture</title></head>
+<body>
+<script>
+    // Counts its keys, and its loads in the tab's session storage; "n" loads the page again as another document, as a
+    // game that reloads itself.
+    window.keys = 0;
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    addEventListener("keydown", function (e) {
+        window.keys++;
+        if (e.key === "n") {
+            location.href = location.pathname + "?again";
+        }
+    });
+    window.state = function () { return { again: location.search === "?again", keys: window.keys, loads: Number(sessionStorage.getItem("loads")) }; };
+</script>
+</body>
+</html>

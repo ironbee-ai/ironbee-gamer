@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head><title>buffers fixture</title></head>
+<body style="margin:0">
+<canvas id="game" width="200" height="100"></canvas>
+<script>
+    // A game that composes every frame offscreen on fresh canvases — a stamp drawn into a fresh buffer — and puts the
+    // buffer on the picture: one source a frame is drawn onto the page, one only offscreen.
+    var picture = document.getElementById("game").getContext("2d");
+    window.drawn = 0;
+    requestAnimationFrame(function frame() {
+        var stamp = document.createElement("canvas");
+        stamp.width = 10;
+        stamp.height = 10;
+        var buffer = document.createElement("canvas");
+        buffer.width = 200;
+        buffer.height = 100;
+        buffer.getContext("2d").drawImage(stamp, window.drawn % 190, 0);
+        picture.drawImage(buffer, 0, 0);
+        window.drawn++;
+        requestAnimationFrame(frame);
+    });
+</script>
+</body>
+</html>

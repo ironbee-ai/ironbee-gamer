@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head>
+<title>slow clock fixture</title>
+<!-- A script the network holds back (the test server answers it late): the page reads the time only after it. -->
+<script src="/slow.js"></script>
+<script>
+    window.loadedAt = { date: Date.now(), perf: performance.now(), origin: performance.timeOrigin };
+</script>
+</head>
+<body></body>
+</html>

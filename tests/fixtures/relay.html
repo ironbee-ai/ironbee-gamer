@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head><title>relay fixture</title></head>
+<body>
+<script>
+    // Counts its loads in the tab's session storage, then adds a frame of another origin (?other=<url>) that adds a
+    // frame of this page's own origin (a relay, as ad and sign-in frames do): that inner frame shares this page's session
+    // storage, and tells the page what it finds there.
+    sessionStorage.setItem("loads", String(Number(sessionStorage.getItem("loads") || "0") + 1));
+    window.inner = null;
+    addEventListener("message", function (e) {
+        if (e.data && e.data.inner) {
+            window.inner = e.data.loads;
+        }
+    });
+    var frame = document.createElement("iframe");
+    frame.src = new URLSearchParams(location.search).get("other") + "relay-frame.html?back=" + encodeURIComponent(location.origin + "/relay-inner.html");
+    document.body.appendChild(frame);
+    window.state = function () { return { loads: Number(sessionStorage.getItem("loads")), inner: window.inner }; };
+</script>
+</body>
+</html>
