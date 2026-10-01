@@ -19,6 +19,7 @@
 import { GameBrowser } from "../devtools/client";
 import { StepRequest, StepResult } from "../devtools/protocol";
 import { DecisionEngine, DecisionEngineError } from "../engine";
+import { LIVE_LATENCY } from "../game/configs";
 import { openRequest, perceivedKinds } from "../game/open";
 import { DecideOn, FailureWindow, GameAction, GameDefinition, Perception, PlanConfig, Profile, ProfileResults, RegressionTest } from "../game/types";
 import { validateProfile, validateRegressionTest } from "../game/validate";
@@ -137,15 +138,17 @@ export interface TrainOptions {
     recordDir?: string;
     /**
      * Train for real-time play: every game is played with the clock never paused, and the rules
-     * decider answers late, as the engine that will play does — somewhere in `latency` (default 30 ms),
-     * different from game to game and drifting within one, since an engine's time does.
+     * decider answers late, as the engine that will play does — somewhere in `latency` (default 30 ms;
+     * simulated, LIVE_LATENCY: Laya live), different from game to game and drifting within one, since an
+     * engine's time does.
      */
     realtime?: boolean;
     latency?: { minMs: number; maxMs: number };
     /**
      * With `realtime`: real time simulated on the paused clock — each decision lands `latency` after its
      * frame in game time, the game running on meanwhile — so every run gives the same result, whatever
-     * the machine's load (real real time does not replay: a candidate is kept or not on noise).
+     * the machine's load (real real time does not replay: a candidate is kept or not on noise). Over a
+     * range, each seed is played at its low end, its middle and its high end (lagPoints).
      */
     simulated?: boolean;
     /**
@@ -208,6 +211,14 @@ function mean(values: number[]): number {
     return values.length ? values.reduce((a: number, b: number): number => a + b, 0) / values.length : 0;
 }
 
+/** Each seed's score, in the seeds' order, from games of it at several lags: the mean of its games (two decimals). */
+function scoresBySeed(games: Array<{ seed?: number; score: number }>, seeds: number[]): number[] {
+    return seeds.map((seed: number): number => {
+        const own: number[] = games.filter((g: { seed?: number }): boolean => g.seed === seed).map((g: { score: number }): number => g.score);
+        return Number(mean(own).toFixed(2));
+    });
+}
+
 /** Answers games gave that were no action, or rules that failed on a state, and the first one's error. */
 function invalidAnswersOf(games: Array<{ invalidAnswers: number; firstInvalidAnswer?: string }>): { count: number; first?: string } {
     const first: string | undefined = games.find((g: { firstInvalidAnswer?: string }): boolean => g.firstInvalidAnswer !== undefined)?.firstInvalidAnswer;
@@ -244,18 +255,47 @@ export class Trainer {
             : this.deps.engine;
     }
 
-    /** How a training game is clocked: paused, real time, or real time simulated on the paused clock. */
-    private paceOf(options: TrainOptions): Pick<PlayOptions, "pace" | "expectedLagMs" | "simulatedLag"> {
+    /**
+     * How a training game is clocked: paused, real time, or real time simulated on the paused clock — at `lag` when a
+     * seed is played at one of the range's points (lagPoints).
+     */
+    private paceOf(options: TrainOptions, lag?: number): Pick<PlayOptions, "pace" | "expectedLagMs" | "simulatedLag" | "minLagMs"> {
         if (!options.realtime) {
             return { pace: Pace.TURN };
         }
         // Before any decision was timed, the player expects the decider's latency (it adds the step itself).
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
-        return options.simulated ? { pace: Pace.TURN, simulatedLag: range } : { pace: Pace.REALTIME, expectedLagMs: (range.minMs + range.maxMs) / 2 };
+        if (options.simulated) {
+            return { pace: Pace.TURN, simulatedLag: lag !== undefined ? { minMs: lag, maxMs: lag } : range };
+        }
+        // No live floor: training plays at its own latency, the best and a candidate (no results yet, so the default
+        // floor would be another one) at the same lag.
+        return { pace: Pace.REALTIME, expectedLagMs: (range.minMs + range.maxMs) / 2, minLagMs: 0 };
     }
 
     private latencyRange(options: TrainOptions): { minMs: number; maxMs: number } {
-        return options.latency ?? { minMs: DEFAULT_REALTIME_LATENCY_MS, maxMs: DEFAULT_REALTIME_LATENCY_MS };
+        return options.latency ?? (options.simulated ? LIVE_LATENCY : { minMs: DEFAULT_REALTIME_LATENCY_MS, maxMs: DEFAULT_REALTIME_LATENCY_MS });
+    }
+
+    /**
+     * Real time simulated over a range of lags: each seed is played at the range's low end, its middle and its high end,
+     * and a version is measured over all of them. One game per seed, drifting somewhere in the range, kept a version that
+     * lost at one lag and won at another (Infinite Mario v4, 2026-09-30: seed 202 lost at 45 and 50 ms, won at 55 and 60;
+     * seed 3003 won at 45, lost at 50, 55 and 60) — live, the lag is wherever the engine's time puts it. None for one lag,
+     * or the running clock.
+     */
+    private lagPoints(options: TrainOptions): number[] | undefined {
+        if (!options.realtime || !options.simulated) {
+            return undefined;
+        }
+        const range: { minMs: number; maxMs: number } = this.latencyRange(options);
+        return range.maxMs > range.minMs ? [...new Set([range.minMs, Math.round((range.minMs + range.maxMs) / 2), range.maxMs])] : undefined;
+    }
+
+    /** The games an evaluation plays: each seed once, or at each of the lag points. */
+    private runsOf(seeds: number[], options: TrainOptions): Array<{ seed: number; lag?: number }> {
+        const points: number[] | undefined = this.lagPoints(options);
+        return points ? seeds.flatMap((seed: number): Array<{ seed: number; lag: number }> => points.map((lag: number): { seed: number; lag: number } => ({ seed, lag }))) : seeds.map((seed: number): { seed: number } => ({ seed }));
     }
 
     /**
@@ -270,7 +310,14 @@ export class Trainer {
     private realtimeTraining(options: TrainOptions): RealtimeTraining {
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
         const step: number = options.simulated ? 0 : REALTIME_STEP_MS;
-        return { minMs: range.minMs + step, maxMs: range.maxMs + step, ...(options.simulated ? { simulated: true } : {}), ...(options.plan ? { plan: options.plan } : {}) };
+        const points: number[] | undefined = this.lagPoints(options);
+        return {
+            minMs: range.minMs + step,
+            maxMs: range.maxMs + step,
+            ...(options.simulated ? { simulated: true } : {}),
+            ...(points ? { points } : {}),
+            ...(options.plan ? { plan: options.plan } : {}),
+        };
     }
 
     private ask(prompt: string, workDir: string, signal?: AbortSignal): Promise<string> {
@@ -328,6 +375,9 @@ export class Trainer {
         }
         const trainedHorizonS: number | undefined = best.results?.gameSeconds;
         const noveltyAfterMs: number | undefined = trainedHorizonS !== undefined && trainedHorizonS < gameSeconds ? trainedHorizonS * 1000 : undefined;
+        // Simulated over a range of lags: the points each seed is played at, recorded with the real-time results.
+        const points: number[] | undefined = this.lagPoints(options);
+        const lagPoints: { points?: number[] } = points ? { points } : {};
 
         options.hooks?.onPhase?.(`measuring v${best.version} on seeds ${seeds.join(", ")}`);
         this.log(options, `v${best.version}: playing ${seeds.length} games of ${gameSeconds} s (seeds ${seeds.join(", ")})`);
@@ -352,7 +402,7 @@ export class Trainer {
         const measured: boolean = !options.signal?.aborted && !bestEval.result.stopped && !pausedBar?.evaluation.result.stopped && !bestTest.stopped && !random.stopped;
         if (!best.results && measured) {
             // A version fresh from setup has no record yet: this measurement is it (the library card, the setup checklist).
-            library.saveResults(game.id, best.version, this.resultsOf(bestEval, seeds, gameSeconds, pausedBar?.evaluation, { test: { ...bestTest, seeds: testSeeds }, random }));
+            library.saveResults(game.id, best.version, this.resultsOf(bestEval, seeds, gameSeconds, pausedBar?.evaluation, { test: { ...bestTest, seeds: testSeeds }, random, ...lagPoints }));
             best = library.profile(game.id, best.version) ?? best;
         }
         const history: TrainResult["history"] = [{ version: best.version, mean: bestEval.result.mean, note: "starting point" }];
@@ -481,7 +531,7 @@ export class Trainer {
                     {
                         ...candidate,
                         tests: [...best.tests, ...newTests],
-                        results: this.resultsOf(evaluation, seeds, gameSeconds, paused, { ...(test ? { test: { ...test, seeds: testSeeds } } : {}), random: floor }),
+                        results: this.resultsOf(evaluation, seeds, gameSeconds, paused, { ...(test ? { test: { ...test, seeds: testSeeds } } : {}), random: floor, ...lagPoints }),
                     },
                     { activate }
                 );
@@ -528,7 +578,7 @@ export class Trainer {
         seeds: number[],
         gameSeconds: number,
         paused?: Evaluation,
-        extra: { test?: ProfileResults["test"]; random?: ProfileResults["random"] } = {}
+        extra: { test?: ProfileResults["test"]; random?: ProfileResults["random"]; points?: number[] } = {}
     ): ProfileResults {
         const main: Evaluation = paused ?? evaluation;
         const lags: number[] = evaluation.result.episodes.flatMap((e: EpisodeResult): number[] => (e.lagMs !== undefined ? [e.lagMs] : []));
@@ -543,8 +593,10 @@ export class Trainer {
                 ? {
                     realtime: {
                         mean: Number(evaluation.result.mean.toFixed(2)),
-                        scores: evaluation.result.episodes.map((e: EpisodeResult): number => e.score),
+                        // Played at the lag points: a seed's score is the mean of its games there.
+                        scores: extra.points ? scoresBySeed(evaluation.result.episodes, seeds) : evaluation.result.episodes.map((e: EpisodeResult): number => e.score),
                         ...(lags.length ? { lagMs: Math.round(mean(lags)) } : {}),
+                        ...(extra.points ? { lagPoints: extra.points } : {}),
                         ...(test ? { test } : {}),
                     },
                 }
@@ -572,7 +624,7 @@ export class Trainer {
         options: TrainOptions,
         engineFor?: (seed: number) => DecisionEngine
     ): Promise<Scores> {
-        const one: (seed: number) => Promise<PlayResult> = async (seed: number): Promise<PlayResult> => {
+        const one: (run: { seed: number; lag?: number }) => Promise<PlayResult> = async ({ seed, lag }: { seed: number; lag?: number }): Promise<PlayResult> => {
             const browser: GameBrowser = this.deps.openBrowser();
             try {
                 return await new Player(browser, engineFor ? engineFor(seed) : this.deciderFor(profile, options, seed)).play({
@@ -581,7 +633,7 @@ export class Trainer {
                     episodes: 1,
                     gameSeconds,
                     seeds: [seed],
-                    ...this.paceOf(options),
+                    ...this.paceOf(options, lag),
                     ...this.customScript(game),
                     ...(options.signal ? { signal: options.signal } : {}),
                 });
@@ -589,14 +641,20 @@ export class Trainer {
                 await browser.close();
             }
         };
+        const runs: Array<{ seed: number; lag?: number }> = this.runsOf(seeds, options);
         const results: PlayResult[] =
             options.parallel === false
-                ? await seeds.reduce(async (acc: Promise<PlayResult[]>, seed: number): Promise<PlayResult[]> => [...(await acc), await one(seed)], Promise.resolve([]))
-                : await Promise.all(seeds.map((seed: number): Promise<PlayResult> => one(seed)));
-        const scores: number[] = results.map((r: PlayResult): number => r.episodes[0]?.score ?? 0);
+                ? await runs.reduce(
+                    async (acc: Promise<PlayResult[]>, run: { seed: number; lag?: number }): Promise<PlayResult[]> => [...(await acc), await one(run)],
+                    Promise.resolve([])
+                )
+                : await Promise.all(runs.map((run: { seed: number; lag?: number }): Promise<PlayResult> => one(run)));
+        const played: Array<{ seed: number; score: number }> = results.map((r: PlayResult, i: number): { seed: number; score: number } => ({ seed: runs[i].seed, score: r.episodes[0]?.score ?? 0 }));
+        // A seed played at several lags scores the mean of its games (the mean over all is the same).
+        const scores: number[] = runs.length > seeds.length ? scoresBySeed(played, seeds) : played.map((p: { score: number }): number => p.score);
         const invalid: { count: number; first?: string } = invalidAnswersOf(results.flatMap((r: PlayResult): EpisodeResult[] => r.episodes));
         return {
-            mean: mean(scores),
+            mean: mean(played.map((p: { score: number }): number => p.score)),
             scores,
             stopped: results.some((r: PlayResult): boolean => r.stopped),
             invalidAnswers: invalid.count,
@@ -688,7 +746,10 @@ export class Trainer {
         return files;
     }
 
-    /** Plays one game per seed (at once, each in its own browser session); the first is recorded. */
+    /**
+     * Plays one game per seed — or per seed and lag point (lagPoints) — at once, each in its own browser session; the
+     * first is recorded.
+     */
     private async evaluate(
         game: GameDefinition,
         profile: Profile,
@@ -698,9 +759,10 @@ export class Trainer {
         noveltyAfterMs: number | undefined,
         options: TrainOptions
     ): Promise<Evaluation> {
-        const shotsDir: string = path.join(options.workDir, `shots-${label}`);
         const cropDir: string = path.join(options.workDir, "novel");
-        const one: (seed: number, index: number) => Promise<PlayResult> = async (seed: number, index: number): Promise<PlayResult> => {
+        const one: (run: { seed: number; lag?: number }, index: number) => Promise<PlayResult> = async ({ seed, lag }: { seed: number; lag?: number }, index: number): Promise<PlayResult> => {
+            // A seed's games at other lags end in folders of their own: an end screen is named for its seed.
+            const shotsDir: string = path.join(options.workDir, lag !== undefined ? `shots-${label}-lag${lag}` : `shots-${label}`);
             const browser: GameBrowser = this.deps.openBrowser();
             try {
                 const hooks: PlayHooks = {
@@ -718,7 +780,7 @@ export class Trainer {
                     episodes: 1,
                     gameSeconds,
                     seeds: [seed],
-                    ...this.paceOf(options),
+                    ...this.paceOf(options, lag),
                     ...this.customScript(game),
                     ...(index === 0 && options.recordDir ? { recordDir: options.recordDir } : {}),
                     screenshotDir: shotsDir,
@@ -747,13 +809,14 @@ export class Trainer {
                 await browser.close();
             }
         };
+        const runs: Array<{ seed: number; lag?: number }> = this.runsOf(seeds, options);
         const results: PlayResult[] =
             options.parallel === false
-                ? await seeds.reduce(
-                    async (acc: Promise<PlayResult[]>, seed: number, index: number): Promise<PlayResult[]> => [...(await acc), await one(seed, index)],
+                ? await runs.reduce(
+                    async (acc: Promise<PlayResult[]>, run: { seed: number; lag?: number }, index: number): Promise<PlayResult[]> => [...(await acc), await one(run, index)],
                     Promise.resolve([])
                 )
-                : await Promise.all(seeds.map((seed: number, index: number): Promise<PlayResult> => one(seed, index)));
+                : await Promise.all(runs.map((run: { seed: number; lag?: number }, index: number): Promise<PlayResult> => one(run, index)));
         const episodes: EpisodeResult[] = results.flatMap((r: PlayResult): EpisodeResult[] => r.episodes);
         const engineMs: number[] = results.flatMap((r: PlayResult): number[] => (r.engineMedianMs !== undefined ? [r.engineMedianMs] : []));
         const result: PlayResult = {
@@ -778,6 +841,8 @@ export class Trainer {
                 episodes: episodes.map((e: EpisodeResult): TuneEvidence["episodes"][number] => ({
                     episode: e.episode,
                     ...(e.seed !== undefined ? { seed: e.seed } : {}),
+                    // Real time: how late its decisions landed (at a lag point, that lag) — a seed may be lost at one and won at another.
+                    ...(options.realtime && e.lagMs !== undefined ? { lagMs: e.lagMs } : {}),
                     score: e.score,
                     over: e.over,
                     gameSeconds: e.gameSeconds,

@@ -12,7 +12,7 @@ import { DevtoolsClient, GameBrowser } from "../devtools/client";
 import { DaemonHandle, ensureDaemon, freePort } from "../devtools/daemon";
 import { Adapter, ProbeResult } from "../devtools/protocol";
 import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engine";
-import { offeredConfig } from "../game/configs";
+import { LIVE_LATENCY, offeredConfig, playConfigs } from "../game/configs";
 import { GameDefinition, PlanConfig, PlayConfig, Profile, ProfileResults } from "../game/types";
 import { MAX_EPISODES } from "../game/validate";
 import { defaultBuiltInDir, GameSummary, Library, ProfileSummary } from "../library/store";
@@ -186,9 +186,9 @@ program
             const lib: Library = library(config);
             const game: GameDefinition = lib.game(gameId);
             const kind: EngineKind = opts.engine ?? config.engine.kind;
-            // As the game's config for this engine and clock plays it (the CLI is not held to the configs): its
-            // version unless one is named, and in real time its lag floor.
-            const played: PlayConfig | undefined = game.configs ? offeredConfig(game, kind, opts.realtime === true) : undefined;
+            // As the game's config for this engine and clock plays it — its own, else one its versions earn (the CLI
+            // is not held to them): its version unless one is named, and in real time its lag floor.
+            const played: PlayConfig | undefined = offeredConfig(playConfigs(game, lib.profiles(gameId)), kind, opts.realtime === true);
             const version: number | undefined = opts.profileVersion ?? played?.version;
             const minLagMs: number | undefined = opts.realtime ? played?.lagMs : undefined;
             // Laya plays with the game's fine-tuned checkpoint for the version (the active one's when none is
@@ -268,10 +268,13 @@ program
     .option("--realtime", "play every training game with the clock never paused, for real-time play (with --decider rules: the rules answer --latency late)")
     .option(
         "--latency <ms>",
-        "real time with --decider rules: how late the rules answer, as the engine that will play does — ms (35) or a range (250-600: each game somewhere in it, drifting) (default 30)",
+        `real time with --decider rules: how late the rules answer, as the engine that will play does — ms (35) or a range (250-600: each game somewhere in it, drifting) (default 30; --simulated: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, as Laya plays live)`,
         latencyRange
     )
-    .option("--simulated", "with --realtime: simulate it on the paused clock — each decision lands --latency after its frame in game time — so every run gives the same result")
+    .option(
+        "--simulated",
+        "with --realtime: simulate it on the paused clock — each decision lands --latency after its frame in game time — so every run gives the same result; over a range, each seed is played at its low end, middle and high end"
+    )
     .option("--plan <n>x<ms>", "with --realtime, for a slow engine: one request decides the next n moments, ms apart (e.g. 8x50)", planConfig)
     .option("--headed", "show the browser windows")
     .action(
@@ -475,7 +478,7 @@ layaCommand
     .option("--pause <seconds>", "rest after each fine-tuning step: 0 is fastest, more keeps the machine usable", amount("pause", true), 0.25)
     .option(
         "--lag <ms>",
-        "for a lag-aware version: half the teacher's labelled states and half the student's games come from games simulating real time on the paused clock, each decision landing this late (ms, or a range 45-60) in game time; the profile's seeds are played paused, then once more with the lag",
+        `for a lag-aware version: half the teacher's labelled states and half the student's games come from games simulating real time on the paused clock, each decision landing this late (ms, or a range 45-60) in game time; the profile's seeds are played paused, then once more with the lag (default for a lag-aware version: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, and with --resume the lag its checkpoint was distilled with; 0: none)`,
         latencyRange
     )
     .option("--work <dir>", "where the student's visited states go (default: a temporary directory)")
@@ -556,7 +559,9 @@ layaCommand
                     base: opts.base,
                     ...(opts.device ? { device: opts.device } : {}),
                     pause: opts.pause,
-                    ...(opts.lag ? { lag: opts.lag } : {}),
+                    // A version trained for real time learns its live states too, unless --lag says otherwise (0: none); a
+                    // resume goes on with the lag its checkpoint was distilled with (the distiller reads its record).
+                    ...(opts.lag ? { lag: opts.lag } : !opts.resume && learnt?.lagAware ? { lag: LIVE_LATENCY } : {}),
                     workDir: opts.work ? path.resolve(opts.work) : mkdtempSync(path.join(tmpdir(), `ibgamer-distill-${gameId}-`)),
                     signal: abort.signal,
                     hooks: { onLog: (line: string): void => console.log(line), onPhase: (p: string): void => console.log(`— ${p}`) },

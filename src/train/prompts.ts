@@ -38,6 +38,8 @@ export interface RealtimeTraining {
      * whatever decideOn says (no "change", no maxHoldMs).
      */
     simulated?: boolean;
+    /** Simulated over a range: each seed is played at each of these lags (ms), and a version is measured over them all. */
+    points?: number[];
     /** Plan mode: one request decides the next moments (the engine is slower than the game). */
     plan?: PlanConfig;
 }
@@ -61,9 +63,11 @@ function realtimeRule(realtime: RealtimeTraining): string {
     const late: string = realtime.simulated ? "the engine's time" : "the engine's time plus the step that lands the input";
     return (
         `REAL TIME: these games run with the clock never paused, as a person plays them — the game does not wait for a decision. ` +
-        (realtime.maxMs > realtime.minMs
-            ? `A decision made on a frame takes effect ${realtime.minMs}–${realtime.maxMs} ms later (${late}) — a different lag in every game, drifting within one as the engine slows down and speeds up — and the game has moved on by then; `
-            : `A decision made on a frame takes effect about ${realtime.minMs} ms later (${late}), and the game has moved on by then; `) +
+        (realtime.points
+            ? `A decision made on a frame takes effect ${realtime.minMs}–${realtime.maxMs} ms later (${late}), and the game has moved on by then. Each seed is played once at each of ${realtime.points.join(", ")} ms (every game's lagMs says which), and a version is measured over all of them: live, the lag is wherever the engine's time puts it in that range, so a version must play every seed well at every one of these lags — a seed lost at one lag and won at another is a timing the state gets wrong. `
+            : realtime.maxMs > realtime.minMs
+                ? `A decision made on a frame takes effect ${realtime.minMs}–${realtime.maxMs} ms later (${late}) — a different lag in every game, drifting within one as the engine slows down and speeds up — and the game has moved on by then; `
+                : `A decision made on a frame takes effect about ${realtime.minMs} ms later (${late}), and the game has moved on by then; `) +
         `\`info.lagMs\` gives the extractor the current lag on every frame — never assume one. Compute every time-critical feature — distances, times to impact, angles, where moving things are — ` +
         `as of now + info.lagMs, from the speeds you measure (memory keeps earlier frames). With lagMs 0 the state must be exactly what the frame shows, so the same rules serve a player that pauses the game.` +
         (realtime.plan ? planRule(realtime.plan) : "")
@@ -152,7 +156,20 @@ export interface TuneEvidence {
     episodes: Array<
         Pick<
             EpisodeResult,
-            "episode" | "seed" | "score" | "over" | "gameSeconds" | "decisions" | "actionCounts" | "firstExtractError" | "invalidAnswers" | "firstInvalidAnswer" | "lastTicks" | "samples" | "novel"
+            | "episode"
+            | "seed"
+            | "lagMs"
+            | "score"
+            | "over"
+            | "gameSeconds"
+            | "decisions"
+            | "actionCounts"
+            | "firstExtractError"
+            | "invalidAnswers"
+            | "firstInvalidAnswer"
+            | "lastTicks"
+            | "samples"
+            | "novel"
         > & {
             endScreenshot?: string;
         }

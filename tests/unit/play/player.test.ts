@@ -256,7 +256,7 @@ describe("Player in real time", (): void => {
         const base: Profile = fakeProfile();
         const telling: Profile = { ...base, extractor: `function (raw, memory, info) { var s = (${base.extractor})(raw, memory); s.lag = info.lagMs; return s; }` };
         const lags = (ticks: TickEvent[]): number[] => ticks.filter((t: TickEvent): boolean => t.asked).map((t: TickEvent): number => (t.state as { lag: number }).lag);
-        const run = async (profile: Profile): Promise<{ gaps: number[]; told: number[] }> => {
+        const run = async (profile: Profile, minLagMs: number | undefined = 60): Promise<{ gaps: number[]; told: number[] }> => {
             const browser: Timed = new Timed();
             const ticks: TickEvent[] = [];
             // A fast engine: a few ms a decision.
@@ -266,7 +266,7 @@ describe("Player in real time", (): void => {
                 episodes: 1,
                 gameSeconds: 1.5,
                 pace: Pace.REALTIME,
-                minLagMs: 60,
+                ...(minLagMs !== undefined ? { minLagMs } : {}),
                 hooks: { onTick: (t: TickEvent): number => ticks.push(t) },
             });
             return { gaps: browser.gaps.slice(2), told: lags(ticks) };
@@ -274,6 +274,11 @@ describe("Player in real time", (): void => {
         const floored: { gaps: number[]; told: number[] } = await run({ ...telling, lagAware: true });
         expect(Math.min(...floored.gaps)).toBeGreaterThanOrEqual(50);
         expect(Math.min(...floored.told)).toBeGreaterThanOrEqual(60);
+        // No floor given: a lag-aware version's own, the lag training measured it at.
+        const measuredAt60: Profile["results"] = { mean: 1, scores: [1], gameSeconds: 1, measuredAt: "2026-09-30T00:00:00.000Z", realtime: { mean: 1, scores: [1], lagMs: 60 } };
+        const own: { gaps: number[]; told: number[] } = await run({ ...telling, lagAware: true, results: measuredAt60 }, undefined);
+        expect(Math.min(...own.gaps)).toBeGreaterThanOrEqual(50);
+        expect(Math.min(...own.told)).toBeGreaterThanOrEqual(60);
         // A profile that does not make up for the lag is not held: the floor is not its lag.
         const asap: { gaps: number[]; told: number[] } = await run(telling);
         expect(Math.min(...asap.gaps)).toBeLessThan(20);

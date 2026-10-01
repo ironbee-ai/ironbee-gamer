@@ -1,0 +1,114 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-30T20:17:03.986Z",
+  "parent": 1,
+  "origin": "tuner",
+  "note": "No game ended: all six ran the full 90 s with no death. Each seed scored the same at every lag (34 on seed 101, 35 on seed 202) with identical action counts, so timing is not the problem: the first decision after each move always lands before the next move. The score is limited by moves per coin (about 13.2, against an average straight-line grid distance of about 11.3). The losses come from late-game detours around the snake's own body (seed 202's last coin took 23 moves for a distance of 17), from ties settled by always keeping the heading, and from one frame where the coin sat under the head and gave bogus 37-step distances. The extractor now plans the shortest path for each first move (going straight first, or turning first), works out where the body will lie when the coin is eaten, and adds the expected distance from there to a random next coin. That sum is XTotal, with +300 if eating would leave no path to the tail, 250 if the coin is unreachable, and the distance to a random cell when no coin is visible. The teacher takes the safe move with the smallest XTotal; in a tie it keeps the move the game already has queued (turn), which keeps the key steady within a move, and otherwise splits the probability. The growing score and length fields were removed and waitTicks became waitPhase. No failure windows were saved, so no regression tests could be added.",
+  "extractor": "function extract(raw, memory, info) {\n  var KNOWN = { playing: 1, head: 1, body: 1, coin: 1, heading: 1, turn: 1, edge: 1, score: 1, headOnScreen: 1, screen: 1 };\n  var GOOD = /coin|food|apple|fruit|pellet|pickup|bonus|gem|reward/i;\n  var DECOR = /cloud|star|decor|particle|score|text|label|background|hud|camera|offset|scale|angle|rotation|velocity|speed|direction|heading|turn|screen|best|time/i;\n  function isCell(v) { return Array.isArray(v) && v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number'; }\n  function cellsOf(v, depth, out) {\n    if (isCell(v)) out.push([Math.round(v[0]), Math.round(v[1])]);\n    else if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.x === 'number' && typeof v.y === 'number') out.push([Math.round(v.x), Math.round(v.y)]);\n    else if (Array.isArray(v) && depth < 2) { for (var j = 0; j < v.length; j++) cellsOf(v[j], depth + 1, out); }\n    return out;\n  }\n  if (!raw || !raw.playing || !isCell(raw.head)) {\n    memory.wait = (memory.wait || 0) + 1;\n    return { playing: false, screen: String((raw && raw.screen) || 'End'), waitPhase: (memory.wait - 1) % 4 };\n  }\n  memory.wait = 0;\n  var E = typeof raw.edge === 'number' && raw.edge > 0 ? Math.round(raw.edge) : 8;\n  var N = 2 * E + 1, NN = N * N, i;\n  function inB(x, y) { return x >= -E && x <= E && y >= -E && y <= E; }\n  function idx(x, y) { return (x + E) + (y + E) * N; }\n  var hx = Math.round(raw.head[0]), hy = Math.round(raw.head[1]);\n  var body = cellsOf(raw.body, 0, []);\n  var coins = cellsOf(raw.coin, 0, []);\n  var blocked = [];\n  for (i = 0; i < NN; i++) blocked.push(false);\n  var unkCount = 0, unkKind = '', unkDx = 0, unkDy = 0, unkBest = 1e9;\n  for (var key in raw) {\n    if (KNOWN[key] || DECOR.test(key)) continue;\n    var cs = cellsOf(raw[key], 0, []);\n    if (!cs.length) continue;\n    if (GOOD.test(key)) { coins = coins.concat(cs); continue; }\n    for (i = 0; i < cs.length; i++) {\n      var ux = cs[i][0], uy = cs[i][1];\n      if (inB(ux, uy)) blocked[idx(ux, uy)] = true;\n      unkCount++;\n      var ud = Math.abs(ux - hx) + Math.abs(uy - hy);\n      if (ud < unkBest) { unkBest = ud; unkKind = key; unkDx = ux - hx; unkDy = uy - hy; }\n    }\n  }\n  var headIn = inB(hx, hy);\n  var snake = [headIn ? idx(hx, hy) : -1], occ = {};\n  for (i = 0; i < body.length; i++) {\n    var bc = inB(body[i][0], body[i][1]) ? idx(body[i][0], body[i][1]) : -1;\n    snake.push(bc);\n    if (bc >= 0) occ[bc] = true;\n  }\n  var L = snake.length;\n  var coinCells = [], isCoin = {};\n  for (i = 0; i < coins.length; i++) {\n    if (!inB(coins[i][0], coins[i][1])) continue;\n    var ci = idx(coins[i][0], coins[i][1]);\n    if (isCoin[ci] || occ[ci] || ci === snake[0]) continue;\n    isCoin[ci] = true;\n    coinCells.push(ci);\n  }\n  var OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };\n  var heading = OPP[raw.heading] ? raw.heading : null;\n  if (!heading && body.length) {\n    var hdx = hx - body[0][0], hdy = hy - body[0][1];\n    heading = hdx > 0 ? 'right' : hdx < 0 ? 'left' : hdy > 0 ? 'down' : 'up';\n  }\n  if (!heading) heading = 'up';\n  var turn = OPP[raw.turn] && raw.turn !== OPP[heading] ? raw.turn : heading;\n  var NAMES = ['up', 'down', 'left', 'right'], DX = [0, 0, -1, 1], DY = [-1, 1, 0, 0];\n  function reach(sn) {\n    var n = sn.length, need = [], dist = [], c;\n    for (c = 0; c < NN; c++) { need.push(0); dist.push(-1); }\n    for (c = 1; c < n; c++) if (sn[c] >= 0 && need[sn[c]] < n - c + 1) need[sn[c]] = n - c + 1;\n    var q = [sn[0]], qh = 0, tail = false;\n    dist[sn[0]] = 0;\n    while (qh < q.length) {\n      var cur = q[qh++], t = dist[cur] + 1, cx = cur % N, cy = (cur - cx) / N;\n      for (var k = 0; k < 4; k++) {\n        var ax = cx + DX[k], ay = cy + DY[k];\n        if (ax < 0 || ay < 0 || ax >= N || ay >= N) continue;\n        var ni = ax + ay * N;\n        if (dist[ni] >= 0 || blocked[ni] || need[ni] > t) continue;\n        dist[ni] = t;\n        q.push(ni);\n        if (need[ni] > 0) tail = true;\n      }\n    }\n    return { dist: dist, order: q, tail: tail };\n  }\n  function nextCost(sn) {\n    var r = reach(sn), mine = {}, sum = 0, cnt = 0, c;\n    for (c = 0; c < sn.length; c++) if (sn[c] >= 0) mine[sn[c]] = true;\n    for (c = 0; c < NN; c++) {\n      if (mine[c] || blocked[c]) continue;\n      cnt++;\n      sum += r.dist[c] >= 0 ? r.dist[c] : 60;\n    }\n    var escape = r.tail || r.order.length - 1 >= 2 * sn.length;\n    return (cnt ? sum / cnt : 0) + (escape ? 0 : 300);\n  }\n  function planPath(r, start, target, firstDir, preferTurn) {\n    var dist = r.dist, on = {}, o, k, p, px, py, ax, ay, ni;\n    on[target] = true;\n    for (o = r.order.length - 1; o >= 0; o--) {\n      p = r.order[o];\n      if (on[p] || dist[p] >= dist[target]) continue;\n      px = p % N; py = (p - px) / N;\n      for (k = 0; k < 4; k++) {\n        ax = px + DX[k]; ay = py + DY[k];\n        if (ax < 0 || ay < 0 || ax >= N || ay >= N) continue;\n        ni = ax + ay * N;\n        if (on[ni] && dist[ni] === dist[p] + 1) { on[p] = true; break; }\n      }\n    }\n    var path = [start], cur = start, hd = firstDir;\n    while (cur !== target && path.length <= NN) {\n      var cx = cur % N, cy = (cur - cx) / N, pick = -1, pickD = -1;\n      for (k = 0; k < 4; k++) {\n        ax = cx + DX[k]; ay = cy + DY[k];\n        if (ax < 0 || ay < 0 || ax >= N || ay >= N) continue;\n        ni = ax + ay * N;\n        if (!on[ni] || dist[ni] !== dist[cur] + 1) continue;\n        if (pick < 0 || (preferTurn ? (pickD === hd && k !== hd) : k === hd)) { pick = ni; pickD = k; }\n      }\n      if (pick < 0) break;\n      path.push(pick);\n      cur = pick;\n      hd = pickD;\n    }\n    return cur === target ? path : null;\n  }\n  var state = { playing: true, heading: heading, turn: turn };\n  for (var d = 0; d < 4; d++) {\n    var name = NAMES[d], nx = hx + DX[d], ny = hy + DY[d];\n    var ok = headIn && inB(nx, ny) && name !== OPP[heading] && !occ[idx(nx, ny)] && !blocked[idx(nx, ny)];\n    var room = 0, safe = false, steps = 99, total = 499;\n    if (ok) {\n      var start = idx(nx, ny), eats = !!isCoin[start];\n      var snake1 = [start].concat(eats ? snake : snake.slice(0, L - 1));\n      var r = reach(snake1);\n      room = r.order.length - 1;\n      safe = r.tail || room >= 2 * L;\n      if (eats) { steps = 0; total = nextCost(snake1); }\n      else if (!coinCells.length) total = nextCost(snake1);\n      else {\n        var target = -1;\n        for (i = 0; i < coinCells.length; i++) {\n          var cc = coinCells[i];\n          if (r.dist[cc] > 0 && (target < 0 || r.dist[cc] < r.dist[target])) target = cc;\n        }\n        total = 250;\n        if (target >= 0) {\n          steps = Math.min(r.dist[target], 98);\n          var bestNext = 1e9;\n          for (var v = 0; v < 2; v++) {\n            var path = planPath(r, start, target, d, v === 1);\n            if (!path) continue;\n            var nc = nextCost(path.slice().reverse().concat(snake).slice(0, L + 1));\n            if (nc < bestNext) bestNext = nc;\n          }\n          total = steps + (bestNext < 1e9 ? bestNext : 60);\n        }\n      }\n    }\n    state[name + 'Ok'] = ok;\n    state[name + 'Safe'] = ok && safe;\n    state[name + 'Coin'] = steps;\n    state[name + 'Total'] = Math.min(Math.round(total), 499);\n    state[name + 'Room'] = room;\n  }\n  if (unkCount) { state.unknownKind = unkKind; state.unknownCount = unkCount; state.unknownDx = unkDx; state.unknownDy = unkDy; }\n  return state;\n}",
+  "instructions": "Snake: the snake moves one cell every 200 ms; the arrow keys set the direction of its next move (never straight back). Eat the coin to grow; hitting the wall (beyond 8 cells from the centre) or the body ends the game.\nIf playing is false (menu or end screen): waitPhase 1 -> key_up (restart), waitPhase 3 -> start, waitPhase 0 or 2 -> wait.\nWhile playing: heading is the direction the snake is travelling; turn is the direction it will take on its next move (the key already registered, normally the same as heading). For each direction X in up, down, left, right:\n- XOk: moving there now hits neither the wall, the body nor an unknown object, and is not straight back.\n- XSafe: after that move the snake can still reach its own tail in time (or has at least 2 x length cells of room).\n- XCoin: steps from that cell to the coin (0 = this move eats it, 99 = unreachable or no coin).\n- XTotal: XCoin plus the expected number of steps from the coin to the next coin. This is averaged over every free cell where the next coin can appear, with the body placed where it will be when this coin is eaten along the best shortest path that starts with X. It is 250 when the coin cannot be reached from there, 300 or more when eating it that way would leave the snake trapped, and 499 when XOk is false. When no coin is on the board (it is being eaten), XTotal is the expected number of steps from that cell to a random free cell.\n- XRoom: the number of cells reachable after the move.\nRule: if any XSafe is true, the candidates are the safe directions with the smallest XTotal. If none is safe, the candidates are the XOk directions with the largest XRoom, and among those the ones with the smallest XTotal. If no direction is Ok, press key_<turn>. If there is one candidate X, press key_X. If several candidates are tied and one of them equals turn, press key_<turn> (the queued move is already right); otherwise give each tied candidate an equal share of the probability. unknown* fields (if present) describe an unrecognised object that is already treated as a blocked cell.",
+  "actions": [
+    {
+      "id": "key_up",
+      "description": "hold Up arrow: next move goes up (y - 1); also restarts on the end screen",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "key_down",
+      "description": "hold Down arrow: next move goes down (y + 1)",
+      "keys": [
+        "ArrowDown"
+      ]
+    },
+    {
+      "id": "key_left",
+      "description": "hold Left arrow: next move goes left (x - 1)",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "key_right",
+      "description": "hold Right arrow: next move goes right (x + 1)",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "wait",
+      "description": "release all keys",
+      "keys": []
+    },
+    {
+      "id": "start",
+      "description": "click the centre of the game (menu start)",
+      "click": true
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 96,
+  "maxHoldMs": 400,
+  "teacher": "function teach(state) {\n  var s = state;\n  if (!s.playing) {\n    var w = s.waitPhase || 0;\n    return w === 1 ? 'key_up' : (w === 3 ? 'start' : 'wait');\n  }\n  var dirs = ['up', 'down', 'left', 'right'], cand = [], i;\n  for (i = 0; i < 4; i++) if (s[dirs[i] + 'Safe']) cand.push(dirs[i]);\n  var safeMode = cand.length > 0;\n  if (!safeMode) for (i = 0; i < 4; i++) if (s[dirs[i] + 'Ok']) cand.push(dirs[i]);\n  var turn = s.turn || s.heading || 'up';\n  if (!cand.length) return 'key_' + turn;\n  function cmp(a, b) {\n    if (!safeMode && s[a + 'Room'] !== s[b + 'Room']) return s[b + 'Room'] - s[a + 'Room'];\n    return s[a + 'Total'] - s[b + 'Total'];\n  }\n  var best = [cand[0]];\n  for (i = 1; i < cand.length; i++) {\n    var c = cmp(cand[i], best[0]);\n    if (c < 0) best = [cand[i]];\n    else if (c === 0) best.push(cand[i]);\n  }\n  if (best.length === 1) return 'key_' + best[0];\n  for (i = 0; i < best.length; i++) if (best[i] === turn) return 'key_' + turn;\n  var out = {};\n  for (i = 0; i < best.length; i++) out['key_' + best[i]] = 1 / best.length;\n  return out;\n}",
+  "lagAware": true,
+  "tests": [],
+  "results": {
+    "mean": 35.5,
+    "scores": [
+      36,
+      35
+    ],
+    "seeds": [
+      101,
+      202
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-10-01T02:03:48.118Z",
+    "realtime": {
+      "mean": 35.5,
+      "scores": [
+        36,
+        35
+      ],
+      "lagMs": 53,
+      "lagPoints": [
+        45,
+        53,
+        60
+      ],
+      "test": {
+        "mean": 36.67,
+        "scores": [
+          34,
+          42,
+          34
+        ],
+        "seeds": [
+          1001,
+          2002,
+          3003
+        ]
+      }
+    },
+    "test": {
+      "mean": 36.33,
+      "scores": [
+        34,
+        41,
+        34
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 0,
+      "scores": [
+        0,
+        0
+      ]
+    }
+  }
+}

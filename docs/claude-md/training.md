@@ -26,9 +26,12 @@
   with `rules`, then distil.
   The UI trains with `rules` when Laya is the chosen engine, with `engine` when Jev is.
 
-**For real-time play** (`realtime`, `latency`; CLI `--realtime --latency <ms | min-max>`): every game
+**For real-time play** (`realtime`, `latency`; CLI `--realtime --latency <ms | min-max>`; the UI's **For real
+time** box beside Train, and the add-a-game wizard's — Laya or Rules (code) only, refused for Jev, whose hundreds
+of ms no game is played live with): every game
 is played with the clock never paused, the rules decider answering late as the engine that will play
-does. A range (`250-600` for a hosted engine) gives each game its own latency — from its seed — which
+does. The UI trains simulated (below) at `LIVE_LATENCY` (45–60 ms: Laya's answer and the frame's step, held to
+its floor), from the active version — nobody picks a number. A range (`250-600` for a hosted engine) gives each game its own latency — from its seed — which
 drifts across the range during the game (`latencyAt`: a ~20 s swing), because an engine's time differs
 from game to game and changes as it speeds up or slows down; the prompts say so and tell the tuner that
 a decision acts `info.lagMs` (the current lag, measured) after its frame, so the extractor computes
@@ -44,14 +47,19 @@ version kept is made active unless training started `--from` another than the ac
 version that plays paused worse than the one before it belongs in a live config (`version`, `lagMs`),
 with the active version left for the paused clock.
 
-**Real time simulated** (`simulated`; CLI `--realtime --simulated`): the same training, every game on the
-paused clock — each decision lands `latency` after its frame in GAME time (`simulatedLag`, the player
-running the game on meanwhile; the rules answer at once), the lag drifting from the seed as the real one
-does. Real real time does not replay (Flappy's Laya: 34 one run, 15 the next), so candidates were kept or
-not on noise; simulated, every run gives the same score, and faster (no waiting). Not with `--plan`
-(plans run on the wall clock). The tuner is told the lag the games are played at (`latency`, whatever
-decides) and that a decision comes every max(tickMs, lag): decideOn "change" and maxHoldMs count only
-with the clock paused.
+**Real time simulated** (`simulated`; CLI `--realtime --simulated`, `--latency` defaulting to `LIVE_LATENCY`
+there): the same training, every game on the paused clock — each decision lands `latency` after its frame in
+GAME time (`simulatedLag`, the player running the game on meanwhile; the rules answer at once). Real real time
+does not replay (Flappy's Laya: 34 one run, 15 the next), so candidates were kept or not on noise; simulated,
+every run gives the same score, and faster (no waiting). Over a range, each seed is played at its **low end,
+middle and high end** (`lagPoints`: 45, 53 and 60 ms) and a version is measured over all those games — the
+candidate's, its unseen seeds' too; one game per seed drifting somewhere in the range kept Infinite Mario v4,
+whose rules lost seed 202 at 45 and 50 ms and won it at 55 and 60, and lost 3003 at 50–60 ms: live, the lag is
+wherever the engine's time puts it. Each game's `lagMs` is in the tuner's evidence, a failure window replays at
+its own lag, `results.realtime.scores` hold a seed's mean over its points and `results.realtime.lagPoints` the
+points (ibgamer measure plays them again). Not with `--plan` (plans run on the wall clock). The tuner is told
+the lag the games are played at (`latency`, whatever decides) and that a decision comes every max(tickMs, lag):
+decideOn "change" and maxHoldMs count only with the clock paused.
 
 **In plans** (`plan`; CLI `--plan <n>x<ms>`, with `--realtime`): the versions play in plan mode
 (docs/claude-md/playing.md) and keep `plan`; the rules answer each moment from its predicted state

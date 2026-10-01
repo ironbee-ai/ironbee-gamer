@@ -54,14 +54,18 @@
     },
     {
       "engine": "laya",
-      "live": true
+      "live": true,
+      "version": 4,
+      "lagMs": 50
     },
     {
       "engine": "rules"
     },
     {
       "engine": "rules",
-      "live": true
+      "live": true,
+      "version": 4,
+      "lagMs": 50
     },
     {
       "engine": "jev"

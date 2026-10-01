@@ -268,6 +268,10 @@ describe("the UI server", (): void => {
             expect((await call(t.port, "GET", "/api/runs")).body).toMatchObject({ runs: [], current: null });
             // A game that is not there is said so first.
             expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "no-such-game", engine: "jev" })).status).toBe(404);
+            // For real time only with a fast engine: Jev's hundreds of ms play no game live — refused before Jev is looked at.
+            const live: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev", realtime: true });
+            expect(live.status).toBe(400);
+            expect(String(live.body.error)).toMatch(/^Jev answers in hundreds of ms/);
             // Trained for the rules engine (or Laya), the rules as code decide: Jev is not asked.
             expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules" })).status).toBe(202);
         } finally {

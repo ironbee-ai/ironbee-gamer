@@ -44,6 +44,7 @@
                     </select>
                 </label>
                 <label>Train iterations <input id="iterations" type="number" min="1" max="20" value="3"></label>
+                <label class="check" title="For a game that does not wait: the rules decide as Laya plays live — each decision landing 45–60 ms after its frame, simulated on the paused clock, every seed played at 45, 53 and 60 ms — and a version is kept only if it plays no worse with the clock paused. Distill then teaches Laya its live states too, and the game is offered live once a version plays there nearly as well as paused. For Laya or Rules (code)."><input id="train-live" type="checkbox"> For real time</label>
                 <div class="buttons">
                     <button type="submit" id="play">▶ Play</button>
                     <button type="button" id="train" class="secondary" title="The trainer rewrites the profile from the games it plays; a version is kept only when it scores higher. Trained for the engine the game was added for, else the one wanted here: picked in the Engine list, not one the list shows while the one wanted cannot play (named first here then). For Jev, Jev plays them; for Laya or Rules (code), the profile's rules as code play them (fast), and Distill teaches Laya afterwards.">✦ Train</button>
@@ -183,6 +184,7 @@
                 <label><input type="radio" name="add-engine" value="rules"> <b>Rules (code)</b> — the trainer writes the rules as code and they play directly: instant, on this machine, nothing to distill. Laya can still learn them later.</label>
             </div>
             <label class="check"><input type="checkbox" id="add-train-now" checked> Start training now, <input id="add-iterations" type="number" min="1" max="20" value="3" class="tiny"> iterations</label>
+            <label class="check" title="For a game that does not wait for the player: trained as Laya plays live (the rules deciding 45–60 ms late); offered live once a version plays there nearly as well as paused. Not for Jev: it answers in hundreds of ms."><input type="checkbox" id="add-train-live"> …for real time (the game does not wait; Laya or Rules (code))</label>
         </section>
 
         <p id="add-reader-note" class="muted" hidden></p>

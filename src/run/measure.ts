@@ -1,8 +1,8 @@
 /**
  * Measures a version again, as training records it: its rules as code on the training seeds with the
  * clock paused, on the seeds training never shows, random play for the floor — and, for a version
- * trained for real time, real time simulated at the lag it was measured with (a plan profile's real
- * time is kept as recorded: plans play only with the clock running). For when the player or the page
+ * trained for real time, real time simulated at the lag (or the lag points) it was measured with (a plan
+ * profile's real time is kept as recorded: plans play only with the clock running). For when the player or the page
  * changed under recorded scores (a new seed generator, another pixel read).
  */
 
@@ -70,14 +70,18 @@ export async function measureVersion(openBrowser: () => GameBrowser, game: GameD
         scores(openBrowser, game, profile, testSeeds, gameSeconds, rules, {}, options),
         scores(openBrowser, game, profile, seeds, gameSeconds, (seed: number): DecisionEngine => new RandomPlayer(seed), {}, options),
     ]);
-    // Real time, as the version was measured in it: its lag, simulated on the paused clock. Not a plan
-    // profile's: its lag is a plan's lead, and plans play only with the clock running — tick by tick that
-    // far behind is another game. A real-time score not measured again is kept as recorded, and so are the
-    // unseen seeds' as training played them in real time (`realtime.test`): `test` is theirs paused.
+    // Real time, as the version was measured in it: its lag — each of its lag points, a seed's score the
+    // mean of its games there — simulated on the paused clock. Not a plan profile's: its lag is a plan's
+    // lead, and plans play only with the clock running — tick by tick that far behind is another game. A
+    // real-time score not measured again is kept as recorded, and so are the unseen seeds' as training
+    // played them in real time (`realtime.test`): `test` is theirs paused.
     const recorded: ProfileResults["realtime"] = profile.results?.realtime;
     const lagMs: number | undefined = profile.plan ? undefined : recorded?.lagMs;
-    const realtime: number[] | undefined =
-        lagMs !== undefined ? await scores(openBrowser, game, profile, seeds, gameSeconds, rules, { simulatedLag: { minMs: lagMs, maxMs: lagMs } }, options) : undefined;
+    const points: number[] | undefined = lagMs === undefined ? undefined : (recorded?.lagPoints ?? [lagMs]);
+    const atLags: number[][] | undefined = points
+        ? await Promise.all(points.map((lag: number): Promise<number[]> => scores(openBrowser, game, profile, seeds, gameSeconds, rules, { simulatedLag: { minMs: lag, maxMs: lag } }, options)))
+        : undefined;
+    const realtime: number[] | undefined = atLags ? seeds.map((_: number, i: number): number => Number(mean(atLags.map((s: number[]): number => s[i])).toFixed(2))) : undefined;
     return {
         mean: Number(mean(paused).toFixed(2)),
         scores: paused,
@@ -85,7 +89,15 @@ export async function measureVersion(openBrowser: () => GameBrowser, game: GameD
         gameSeconds,
         measuredAt: new Date().toISOString(),
         ...(realtime && lagMs !== undefined
-            ? { realtime: { mean: Number(mean(realtime).toFixed(2)), scores: realtime, lagMs, ...(recorded?.test ? { test: recorded.test } : {}) } }
+            ? {
+                realtime: {
+                    mean: Number(mean(realtime).toFixed(2)),
+                    scores: realtime,
+                    lagMs,
+                    ...(recorded?.lagPoints ? { lagPoints: recorded.lagPoints } : {}),
+                    ...(recorded?.test ? { test: recorded.test } : {}),
+                },
+            }
             : recorded
                 ? { realtime: recorded }
                 : {}),

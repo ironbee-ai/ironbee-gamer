@@ -488,6 +488,18 @@ describe("Distiller", (): void => {
         expect(existsSync(earlier)).toBe(false);
     });
 
+    it("resumed with no lag given, goes on with the lag its checkpoint was distilled with, and the checkpoint it keeps records it", async (): Promise<void> => {
+        const earlier: string = earlierCheckpoint(3, 10);
+        const lag: { minMs: number; maxMs: number } = { minMs: 45, maxMs: 60 };
+        writeFileSync(path.join(earlier, "distill.json"), JSON.stringify({ student: { mean: 10, scores: [10, 10], seeds: [1, 2] }, lag }));
+        mistaken = ["-r3"];
+        const lines: string[] = [];
+        const result: DistillResult = await distiller([]).distill({ ...OPTIONS, resume: true, workDir: path.join(root, "work"), hooks: { onLog: (l: string): number => lines.push(l) } });
+        expect(lines).toContainEqual(expect.stringMatching(/^with the lag 45–60 ms/));
+        expect(result.lag).toEqual(lag);
+        expect(JSON.parse(readFileSync(path.join(result.checkpoint, "distill.json"), "utf-8")).lag).toEqual(lag);
+    });
+
     it("a new distillation numbers its rounds after the checkpoints there, and an earlier one that plays better stays", async (): Promise<void> => {
         const earlier: string = earlierCheckpoint(3, 99);
         const tuned: Tuned[] = [];

@@ -17,10 +17,10 @@ import { DevtoolsClient, GameBrowser } from "../devtools/client";
 import { DaemonHandle, ensureDaemon, freePort, isDaemonHealthy } from "../devtools/daemon";
 import { Adapter, ProbeResult } from "../devtools/protocol";
 import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engine";
-import { describeConfig, offeredConfig } from "../game/configs";
+import { describeConfig, LIVE_LATENCY, liveReadiness, LiveReadiness, offeredConfig, playConfigs } from "../game/configs";
 import { GameDefinition, Perception, PlayConfig, Profile } from "../game/types";
 import { InvalidDefinitionError, MAX_EPISODES } from "../game/validate";
-import { defaultBuiltInDir, GameNotFoundError, GameSummary, Library } from "../library/store";
+import { defaultBuiltInDir, GameNotFoundError, GameSummary, Library, ProfileSummary } from "../library/store";
 import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../play/player";
 import { Distiller, DistillResult, TeacherKind } from "../distill/distiller";
 import { RulesTeacher } from "../distill/teacher";
@@ -120,6 +120,8 @@ export interface TrainRequest {
     iterations: number;
     gameSeconds?: number;
     engine: EngineKind;
+    /** For real time: the rules decide as a fast engine plays live, LIVE_LATENCY late, simulated on the paused clock. */
+    realtime?: boolean;
 }
 
 /** The profile version a request names (a whole number), if it names one. */
@@ -168,10 +170,12 @@ export function parsePlayRequest(body: Record<string, unknown>, library: Library
     if (!Object.values(EngineKind).includes(engine as EngineKind)) {
         throw new Error(`engine must be one of ${Object.values(EngineKind).join(", ")}`);
     }
-    // A game that lists its configs is played only in one of them.
-    const config: PlayConfig | undefined = offeredConfig(game, engine as EngineKind, pace === Pace.REALTIME);
+    // A game is played only in one of its configs: those it lists, else those its versions earn (playConfigs).
+    const configs: PlayConfig[] = playConfigs(game, library.profiles(gameId));
+    const config: PlayConfig | undefined = offeredConfig(configs, engine as EngineKind, pace === Pace.REALTIME);
     if (!config) {
-        throw new Error(`${game.name} is not played that way; it is played: ${(game.configs ?? []).map(describeConfig).join("; ")}`);
+        const live: LiveReadiness = pace === Pace.REALTIME && !game.configs ? liveReadiness(library.profiles(gameId)) : {};
+        throw new Error(`${game.name} is not played that way${live.why ? ` (${live.why})` : ""}; it is played: ${configs.map(describeConfig).join("; ")}`);
     }
     const version: number | undefined = versionOf(body.version) ?? config.version;
     return {
@@ -562,11 +566,11 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             gameId: game.id,
             gameName: game.name,
             ...(start ? { version: start.version } : {}),
-            engine: decider === Decider.RULES ? "the profile's rules (for Laya)" : engine.label,
+            engine: decider === Decider.RULES ? `the profile's rules (for Laya)${request.realtime ? ", for real time" : ""}` : engine.label,
             status: RunStatus.RUNNING,
             phase: "starting",
             startedAt: Date.now(),
-            settings: { episodes: (game.trainSeeds ?? [101, 202, 303]).length, gameSeconds, iterations: request.iterations },
+            settings: { episodes: (game.trainSeeds ?? [101, 202, 303]).length, gameSeconds, iterations: request.iterations, ...(request.realtime ? { realtime: true } : {}) },
             episodes: [],
             log: [],
             savedVersions: [],
@@ -597,6 +601,8 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     decider,
                     iterations: request.iterations,
                     gameSeconds,
+                    // For real time: as Laya plays live, simulated on the paused clock (every run the same), from the active version.
+                    ...(request.realtime ? { realtime: true, simulated: true, latency: LIVE_LATENCY } : {}),
                     workDir: join(dir, "work"),
                     recordDir: dir,
                     signal: abort.signal,
@@ -722,6 +728,8 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     rounds: request.rounds,
                     studentGames: 2,
                     epochs: 1,
+                    // A version trained for real time learns its live states too: half its games with the lag it was trained for.
+                    ...(profile.lagAware ? { lag: LIVE_LATENCY } : {}),
                     port: config.layaRuntime.port,
                     workDir: join(dir, "work"),
                     signal: abort.signal,
@@ -807,9 +815,14 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 iterations: intIn(body.iterations, "iterations", 1, 20, 3),
                 ...(body.gameSeconds !== undefined && body.gameSeconds !== "" ? { gameSeconds: intIn(body.gameSeconds, "gameSeconds", 1, 3_600, 45) } : {}),
                 engine: engine as EngineKind,
+                ...(body.realtime === true ? { realtime: true } : {}),
             };
             // A game that is not there is a 404 before any engine is looked at.
             library.game(request.gameId);
+            // Real time is for an engine that answers in tens of ms: Jev's hundreds would train a profile for play no one offers.
+            if (request.realtime && trainDecider(request.engine) === Decider.ENGINE) {
+                throw new Error("Jev answers in hundreds of ms, and no game is played live with it: train for real time with Laya or Rules (code)");
+            }
             // Without it a training would play every measuring game, then fail each tuning and end "done".
             const trainer: EngineHealth = trainerHealth(config.claude);
             if (!trainer.ok) {
@@ -856,11 +869,15 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
     const gameDetail: (id: string) => Record<string, unknown> = (id: string): Record<string, unknown> => {
         const game: GameDefinition = library.game(id);
         const profile: Profile | undefined = library.profile(id);
+        const profiles: ProfileSummary[] = library.profiles(id);
         return {
             game,
             source: library.sourceOf(id),
-            profiles: library.profiles(id),
+            profiles,
             active: profile ?? null,
+            // The ways it is played (its own configs, else those its versions earn), and how ready it is to be played live.
+            configs: playConfigs(game, profiles),
+            live: liveReadiness(profiles),
             hasThumbnail: library.file(id, "thumbnail.png") !== undefined,
             // The checkpoints a play can take (the UI offers Laya, and locks the version, by these).
             laya: currentCheckpoints(library, id).map((c: { name: string; training?: Record<string, unknown> }): Record<string, unknown> => ({ name: c.name, training: c.training ?? null })),

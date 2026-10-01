@@ -117,7 +117,9 @@ const NOT_OFFERED = "not offered for this game";
  */
 function unplayableOn(kind, live) {
     if (!offered(kind, live)) {
-        return NOT_OFFERED;
+        // A game with no configs of its own is played live once a version is trained for it: why none is yet.
+        const why = live && kind !== "jev" && !state.detail?.game?.configs ? state.detail?.live?.why : undefined;
+        return why ? `${why} (Train for real time)` : NOT_OFFERED;
     }
     const health = kind === "laya" ? state.status?.engines?.laya?.python : state.status?.engines?.[kind];
     if (health?.ok === false) {
@@ -180,9 +182,12 @@ async function loadStatus() {
     }
 }
 
-/** The game's config for an engine and clock (live: the clock never pauses); any, when the game lists none. */
+/**
+ * The game's config for an engine and clock (live: the clock never pauses): of its own configs, else of those its
+ * versions earn — the server's `configs` (every engine paused; live, Laya and the rules on a version trained for real time).
+ */
 function offered(engine, live) {
-    const configs = state.detail?.game?.configs;
+    const configs = state.detail?.configs ?? state.detail?.game?.configs;
     if (!configs) {
         return { engine, live };
     }
@@ -579,6 +584,12 @@ function playRefusal() {
 
 const TRAIN_TITLE = $("train").title;
 const DISTILL_TITLE = $("distill").title;
+const TRAIN_LIVE_TITLE = $("train-live").closest("label").title;
+
+/** Whether Train trains for real time: asked for, and the training is not for Jev. */
+function liveTraining() {
+    return $("train-live").checked && !$("train-live").disabled;
+}
 
 function renderButtons() {
     const busy = running();
@@ -593,6 +604,10 @@ function renderButtons() {
     // Why not, else what a training does; and the engine it is for while the Engine list shows another.
     const note = trainNote();
     $("train").title = refusal ? [refusal, note].filter(Boolean).join(" ") : [note, TRAIN_TITLE].filter(Boolean).join(" ");
+    // Real time is trained for a fast engine (Laya, the rules): Jev answers in hundreds of ms, and no game is played live with it.
+    const jev = trainEngine() === "jev";
+    $("train-live").disabled = busy || !state.selected || jev;
+    $("train-live").closest("label").title = jev ? "A training for Jev: Jev answers in hundreds of ms, and no game is played live with it — pick Laya or Rules (code) to train for real time" : TRAIN_LIVE_TITLE;
     $("distill").disabled = busy || !hasProfile || Boolean(unready);
     $("distill").title = unready || DISTILL_TITLE;
     $("stop").hidden = !busy;
@@ -1055,7 +1070,7 @@ $("train").addEventListener("click", async () => {
     // As Play: the engine wanted, never a fallback shown.
     rememberWanted();
     // A game meant for Laya is trained with its rules deciding, even before it has a Laya model.
-    await startTrain(trainEngine(), Number($("iterations").value) || 3);
+    await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining());
 });
 
 // Enter in a field of the play form is Play (its submit button), but Train iterations is Train's field: Enter there
@@ -1213,8 +1228,22 @@ function showStep(step) {
         if (!chosen) {
             document.querySelector(`input[name="add-engine"][value="${python?.ok || !engines.jev?.ok ? "laya" : "jev"}"]`).checked = true;
         }
+        syncAddTrainLive();
     }
     renderNext();
+}
+
+/** The wizard's "…for real time" box: not for Jev, whose hundreds of ms no game is played live with (as beside Train). */
+function syncAddTrainLive() {
+    const jev = addEngine() === "jev";
+    $("add-train-live").disabled = jev;
+    if (jev) {
+        $("add-train-live").checked = false;
+    }
+}
+
+for (const radio of document.querySelectorAll('input[name="add-engine"]')) {
+    radio.addEventListener("change", syncAddTrainLive);
 }
 
 /**
@@ -1694,7 +1723,7 @@ $("add-form").addEventListener("submit", async (event) => {
     state.selected = game.id;
     await loadGames().catch(showError);
     if ($("add-train-now").checked) {
-        await startTrain(engine, numberField("add-iterations", "Training iterations", "", 3, true).value);
+        await startTrain(engine, numberField("add-iterations", "Training iterations", "", 3, true).value, $("add-train-live").checked);
     }
 });
 
@@ -1807,6 +1836,19 @@ function renderSetup() {
                     : "Playable when the steps above are done",
         why: ready ? "" : [down, uncoded].filter(Boolean).join("; "),
     });
+    // Live: a clock that never pauses, offered and playable (the game's configs, else a version trained for real time
+    // that kept its score there, pinned with its floor) — else why not, and the training that gets it there.
+    const liveBy = ["laya", "rules"].filter((k) => !unplayableOn(k, true));
+    if (liveBy.length) {
+        const c = offered(liveBy[0], true);
+        steps.push({
+            done: true,
+            text: `Plays live with ${liveBy.map(engineLabel).join(" or ")}${c?.version !== undefined ? ` · v${c.version}` : ""}${c?.lagMs !== undefined ? ` · inputs ≥ ${c.lagMs} ms` : ""}`,
+        });
+    } else if (trained && run?.kind !== "train") {
+        const why = (!g.configs && d.live?.why) || ["laya", "rules"].map((k) => unplayableOn(k, true)).find((w) => w && w !== NOT_OFFERED) || NOT_OFFERED;
+        steps.push({ text: "Not played live yet", action: refusal || engine === "jev" ? null : { id: "train-live", label: "Train for real time" }, why });
+    }
     list.innerHTML = steps
         .map(
             (s) =>
@@ -1827,13 +1869,19 @@ $("setup").addEventListener("click", async (event) => {
     }
     if (button.dataset.setup === "train") {
         // As the Train button: for the engine the game was added for, else the one chosen here.
-        await startTrain(trainEngine(), Number($("iterations").value) || 3);
+        await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining());
+    } else if (button.dataset.setup === "train-live") {
+        await startTrain(trainEngine(), Number($("iterations").value) || 3, true);
     } else if (button.dataset.setup === "distill") {
         $("distill").click();
     }
 });
 
-async function startTrain(engine, iterations) {
+/**
+ * A training for the game shown (`realtime`: for real time — the rules decide as Laya plays live; not for Jev, whose
+ * hundreds of ms no game is played live with).
+ */
+async function startTrain(engine, iterations, realtime = false) {
     // Not offered while the trainer, or Jev for a training it decides, is not ready; the server refuses it too.
     const refusal = trainRefusal(engine);
     if (refusal) {
@@ -1841,7 +1889,8 @@ async function startTrain(engine, iterations) {
         return;
     }
     try {
-        const { run } = await api("POST", "/api/runs", { kind: "train", gameId: state.selected, iterations, engine });
+        const live = realtime && engine !== "jev" ? { realtime: true } : {};
+        const { run } = await api("POST", "/api/runs", { kind: "train", gameId: state.selected, iterations, engine, ...live });
         renderStarted(run);
         showTab("training");
     } catch (err) {

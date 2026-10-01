@@ -71,12 +71,12 @@ profiles that play it.
 |---|---|---|---|---|---|
 | Chrome Dino ([wayou/t-rex-runner](https://wayou.github.io/t-rex-runner/)) | 2D canvas | 1485 ×3 in 90 s games (v10, trained for real time too; night mode reached in all three) | 1485 ×3 | 51 | 1485 ×3, the same as its rules |
 | Flappy Bird ([floppybird](https://nebez.github.io/floppybird/) by nebez, Apache-2.0) | the game's own state (HTML; its CSS animations run on game time) | 38, 38, 21 pipes in 60 s (v5, trained for real time too) | 38 ×3 | 3 | 38, 38, 21, the same as its rules |
-| Pac-Man with ghosts ([Pacman Canvas](https://pacman.platzh1rsch.ch/) by platzh1rsch, CC0) | pixels (a 90-wide colour grid) | 5870 ×3 in 180 s games, never died | 5870 ×3 | 647 | 6240 ×3 |
+| Pac-Man with ghosts ([Pacman Canvas](https://pacman.platzh1rsch.ch/) by platzh1rsch, CC0) | pixels (a 90-wide colour grid) | 8410 ×3 in 180 s games, never died (v4, trained for real time too) | 8410 ×3 | 940 | 7680 ×3 |
 | Doodle Climb ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/doodle-jump/)) | Phaser | 84 %, 100 % of the tower in 60 s | 100 %, 78 %, 100 % | 16 % | 100 %, 100 % |
 | Pop the Lock ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/pop-the-lock/)) | Phaser (rotation) | 63, 59, 54 pops in 60 s | 19, 64, 60 | 6 | 63, 59, 54, the same as its rules |
 | Super Coin Box ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/super-coin-box/)) | Phaser (tilemap) | 109, 113, 94 coins in 60 s (v4, trained for real time too) | 70, 128, 100 | 4 | 152, 115, 115 |
 | Tetris ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/jtetris/)) | Phaser (the game's own state) | 69, 70 rows in 120 s, never topped out | 69 ×3 | 0 | 69, 70, the same as its rules |
-| Crazy Snake ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/crazy-snake/)) | Phaser (the game's own state) | 34, 35 coins in 90 s | 32, 41, 36 | 0 | 37, 31 |
+| Crazy Snake ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/crazy-snake/)) | Phaser (the game's own state) | 36, 35 coins in 90 s (v2, trained for real time too) | 34, 41, 34 | 0 | 39, 35 |
 | Racer ([Javascript Racer](https://jakesgordon.com/games/racer/) by Jake Gordon, MIT) | the game's own state (a page reader) | 3383, 3263, 3192 road segments in 60 s (v4, trained for real time too) | 3436, 3432, 3401 | 61 | 3383, 3263, 3192, the same as its rules |
 | Infinite Mario ([mariohtml5](https://kenspiretech.github.io/mariohtml5/main.html) by Robert Kleffner, Unlicense) | the game's own state (a page reader) | 1267, 1264, 1268: each level won (tiles run, +1000 for winning the level; v4, trained for real time too) | 1270, 1272, 1262, each won | 22 | 1267, 1264, 1268, the same as its rules |
 
@@ -84,8 +84,9 @@ Measured on 2026-09-29, the clock paused (`ibgamer measure`, `ibgamer laya eval`
 are the ones versions are compared on, the others (1001, 2002, 3003) are never shown to the tuner,
 and random play (a seeded random action a decision) is the floor. The seed generator changed that day
 (splitmix32 → mulberry32; before it, 101, 202 and 303 began as nearly the same game), so these differ
-from earlier records. Laya plays as well as its rules everywhere and better in three games (Super Coin
-Box 122 % of the way from random play to them, Doodle Climb 110 %, Pac-Man 107 %). The Phaser Flappy
+from earlier records. Laya plays as well as its rules nearly everywhere and better in three games (Super Coin
+Box 122 % of the way from random play to them, Doodle Climb 110 %, Crazy Snake 104 %); Pac-Man's v4 Laya is
+90 % of the way to rules that now score 8410 (its v2 Laya was 107 % of v2's 5870). The Phaser Flappy
 Bird and its pixel copy were retired for floppybird on the same day. Every number was measured twice under
 heavy load (several games at once, up to 27 browsers): all the same but two seeds, one in Super Coin
 Box (157 for 87) and one in Flappy Bird (17 for 38); replayed again, in parallel under load, those
@@ -93,7 +94,9 @@ give the numbers above every time. On 2026-09-30 every game was measured again, 
 page's clock starts (the clock installed before the page's own scripts; a loader's chained files, and
 the sound and images a page decodes, settled before the first frame; session storage emptied for each
 game): the same numbers, rules and Laya. Chrome Dino's v10, Racer
-and Infinite Mario were trained that night and are measured with those changes.
+and Infinite Mario were trained that night and are measured with those changes; Pac-Man's v4 and Crazy
+Snake's v2 were trained for real time on 2026-09-30 (Crazy Snake's with the UI's **For real time**) and
+measured on 2026-10-01.
 
 Doodle Climb, Pop the Lock, Super Coin Box, Tetris, Crazy Snake, Pac-Man with ghosts, Flappy Bird,
 Racer and Infinite Mario were added and trained by this app itself: the trainer set them up from a sample of what the page shows, then tuned them.
@@ -174,12 +177,14 @@ take it on to the next level.
 How a game is played well is data too: `configs` lists the engine and clock pairs it is offered
 with (`{"engine": "laya", "live": true}`, a `version` when one is needed) and `preferredConfig` the
 one it opens with. The UI offers only those — an engine or a clock not listed is greyed out — and
-refuses a play request for another; a game that lists none offers every ready engine with either
-clock. A live config can also set `lagMs`: a version trained for real time has its inputs land no
+refuses a play request for another. A game that lists none (one you add) is offered what its versions
+earn: every engine with the clock paused, and live Laya and the rules on the newest version trained
+for real time that keeps at least 80 % of its paused score there — that version, its inputs held to the
+lag it was trained at; never Jev live. Nothing to write by hand. A live config can also set `lagMs`: a version trained for real time has its inputs land no
 sooner than that after their frame, however fast the engine answers (the lag it was trained at,
-where its timing holds). Pop the Lock, Flappy Bird and Racer open with Laya in real time,
-Chrome Dino, Super Coin Box and Infinite Mario with Laya and the clock paused; each plays both clocks
-on one version trained for real time (Dino: `{"engine": "laya", "live": true, "version": 10, "lagMs": 50}`).
+where its timing holds). Pop the Lock, Flappy Bird, Racer, Pac-Man with ghosts and Crazy Snake open with
+Laya in real time, Chrome Dino, Super Coin Box and Infinite Mario with Laya and the clock paused; each plays
+both clocks on one version trained for real time (Dino: `{"engine": "laya", "live": true, "version": 10, "lagMs": 50}`).
 
 The score expression reads the game's own state and is used **for measuring only**. Neither the
 engine nor the trainer ever sees it as a state field. A game without one can use
@@ -219,18 +224,20 @@ measure. That measure is self-reported, so a tuner could inflate it.
   | Game | Paused | Rules at 5 ms | Rules at 40 ms | Played live for real | Offered live |
   |---|---|---|---|---|---|
   | Pop the Lock (v5, trained for 45 ms) | 63, 59, 54 | 5, 3, 25 | 3, 1, 2 (at 45 ms: 53, 59, 54) | inputs ≥ 45 ms: rules 64, 60, 54; Laya 64, 59, 54 (without the floor the rules died at 9 s) | rules, Laya (≥ 45 ms) |
-  | Crazy Snake | 34, 35 | 34, 35 | 34, 35 | Laya 32 | rules, Laya |
-  | Pac-Man with ghosts | 5870 ×3 | 5920, 5100, 5230 | 5110, 3130, 5160 | Laya 5110 | rules, Laya |
-  | Tetris | 69, 70 | 67, 68 | 67, 68 | Laya 51, 63 | rules, Laya |
-  | Doodle Climb | 84 %, 100 % | 51 %, 100 % | 100 %, 34 % | – | rules, Laya (they lose some) |
+  | Crazy Snake (v2, trained for 45–60 ms; before it v1) | 36, 35 (v1: 34, 35) | 36, 35 (v1: 34, 35) | 36, 35 (v1: 34, 35; v2 at 45, 53 and 60 ms: 36, 35 at each) | v1: Laya 32; v2 ≥ 50 ms: rules 39, 35, Laya 31 (dead at 74 s), 35 | rules, Laya (v2, ≥ 50 ms) |
+  | Pac-Man with ghosts (v4, trained for 45–60 ms; before it v2) | 8410 ×3 (v2: 5870 ×3) | 7250, 7270, 7460 (v2: 5920, 5100, 5230) | 6630, 7820, 6140 (v2: 5110, 3130, 5160; v4 at 45, 53 and 60 ms on six seeds: 7527, 6535, 6898 on average, every game to the end) | v2: Laya 5110; v4 ≥ 50 ms: rules 7130, 5460, 5150, Laya 7400, 6350, 6540 | rules, Laya (v4, ≥ 50 ms) |
+  | Tetris (not yet trained for real time) | 69, 70 | 67, 68 | 67, 68 (at 45, 53 and 60 ms: 60, 44, 11 and 69, 17, 17) | Laya 51, 63 | rules, Laya |
+  | Doodle Climb | 84 %, 100 % | 51 %, 100 % | 100 %, 34 % (at 45, 53 and 60 ms: 84 %, 100 %, 100 % and 100 %, 100 %, 95 %) | Laya 84 %, 100 %; rules 84 %, 40 % | rules, Laya (the rules lose some) |
   | Super Coin Box (v2; v4 trained for 45–60 ms) | 87, 80, 126 | 105, 111, 84 | 116, 52, 70 (v4 at 53 ms: 106, 30, 117) | v2: Laya 55, 40, 65 (dead at 28–45 s); v4 ≥ 50 ms: rules 113, 112, 52, Laya 136, 125, 100 | rules, Laya (v4, ≥ 50 ms) |
   | Chrome Dino (v10, trained for 45–60 ms; before it v4, and v7 for 45 ms) | 1485 ×3 (v4: 1485, 1485, 825) | 1485 ×3 (v4: 855, 869, 995) | 1486, 1485, 824 (v4: 428, 444, 308) | v4: rules 561, 377; v7 ≥ 45 ms: rules 1494, 1494, 1227, 1494, 947, Laya 1287 on average over 8; v10 ≥ 50 ms: rules 1493, 1493, 1494, Laya 1492–1494 in 8 of 8, every game to the end (distilled with the lag; before it 1143 on average) | rules, Laya (v10, ≥ 50 ms) |
   | Flappy Bird (v3; v5 trained for 45–60 ms) | 38, 38, 21 | 4, 38, 38 | 5, 4, 1 (v5 at 45–60 ms: 38, 38, 21) | v3: Laya 38, 6, 8; v5 ≥ 50 ms: rules 38, 38, 22, Laya 38, 38, 38 | rules, Laya (v5, ≥ 50 ms) |
   | Racer (v4, trained for 45–60 ms) | 3383, 3263, 3192 | 3444, 3287, 3271 | 3441, 3259, 3242 | ≥ 50 ms: rules 3433, 3291, 3263, Laya 3449, 3339, 3283 | rules, Laya (v4, ≥ 50 ms) |
   | Infinite Mario (v4, trained for 45–60 ms) | 1267, 1264, 1268 (each level won) | the same | the same | ≥ 50 ms: rules 1267, 1264, 1268; Laya 2 to 4 levels won of 6 (10 of 18 over three distillations with the lag; 2 of 6 before it) | rules, Laya (v4, ≥ 50 ms) |
 
-  The live runs are single games (Crazy Snake to Tetris, 2026-09-28/29) or three to eight (the rest,
-  2026-09-29). A version trained for real time plays at the lag it was trained at and not below it:
+  The live runs are one to eight games each (2026-09-28 to 10-01; Pac-Man, Crazy Snake and Doodle Climb on
+  2026-10-01 with the machine quiet). Tetris's real-time trainings found versions playing it twice as well
+  live (61.5 against 30.5) but worse with the clock paused (49 against 69.5): not kept, since one version
+  serves both clocks. A version trained for real time plays at the lag it was trained at and not below it:
   Pop the Lock's v5 dies at once at 40 ms and plays as paused at 45 — so its live configs, like
   Dino's, hold the inputs to that lag (`lagMs`), however fast the engine answers. Dino played live on
   v7 with its own Laya (`laya distill dino --profile-version 7`; at Laya's own 23 ms it lost a game at
@@ -290,6 +297,14 @@ What plays while a profile is trained is a choice:
 
 In the UI, Train uses the engine that is chosen.
 
+**For real time** (the box beside Train, and in the add-a-game wizard; `train --decider rules --realtime
+--simulated` in the CLI) trains a game that does not wait for the player, for Laya or Rules (code): the rules decide 45–60 ms
+late, as Laya plays live, on the paused clock so every run gives the same result, and every seed is played
+at 45, 53 and 60 ms — a version must play at every lag in that range. It is kept only if it also plays no
+worse with the clock paused, so one version serves both clocks. Distill then teaches Laya its live states
+too (`laya distill` does it for such a version by itself), and the game is offered live once a version plays
+there nearly as well as paused. No lag or version to pick.
+
 Training stops after two versions in a row that do not beat the best one, or once a version reaches
 the game's top score (`score.max`). "Trained once, done" is
 wrong: a profile covers only the phases of a game it has seen. In the research, the Dino profile
@@ -318,7 +333,7 @@ The rules are learnt into its weights from labelled states:
 1. **The teacher.** The trainer writes the profile's rules twice: as the instructions (for Jev and
    people) and as `teach(state)` (the same rules as code). The teacher is checked before it teaches.
    It must agree with the engine's logged decisions per action (Dino: 100 % of 6,000). It must also
-   score like the profile when it plays by itself (Dino 1485 ×3, Flappy Bird 38, 38, 21, Pac-Man 5870 ×3).
+   score like the profile when it plays by itself (Dino 1485 ×3, Flappy Bird 38, 38, 21, Pac-Man 8410 ×3).
 2. **Labelled states.** The teacher plays many games in a few minutes, a random move now and then so
    the data leaves its own path. The state is still features only; the teacher's answer is the
    training *target*.

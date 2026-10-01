@@ -65,6 +65,8 @@ export interface ProfileSummary {
     tests: number;
     /** It carries its rules as code (`teach`): the rules engine can play it, Laya can learn it. */
     hasTeacher: boolean;
+    /** Trained for real time: its extractor makes up for the lag (`Profile.lagAware`). */
+    lagAware: boolean;
     source: GameSource;
     active: boolean;
 }
@@ -351,6 +353,7 @@ export class Library {
                     ...(p.results ? { results: p.results } : {}),
                     tests: p.tests.length,
                     hasTeacher: Boolean(p.teacher),
+                    lagAware: p.lagAware === true,
                     source: entry.source,
                     active: version === active,
                 };

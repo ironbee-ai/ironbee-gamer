@@ -199,9 +199,11 @@ export interface ProfileResults {
     measuredAt: string;
     /**
      * Trained for real-time play: the same seeds with the clock never paused (the rest is with it paused) — and
-     * the seeds training never shows the tuner, as training played them (`test`).
+     * the seeds training never shows the tuner, as training played them (`test`). Simulated over a range of lags,
+     * each seed was played at every one of `lagPoints` (its score is the mean of those games); `lagMs` is the mean
+     * lag of them all.
      */
-    realtime?: { mean: number; scores: number[]; lagMs?: number; test?: { mean: number; scores: number[]; seeds: number[] } };
+    realtime?: { mean: number; scores: number[]; lagMs?: number; lagPoints?: number[]; test?: { mean: number; scores: number[]; seeds: number[] } };
     /** Seeds training never shows the tuner, with the clock paused: what the version plays on games it was not fitted to. */
     test?: { mean: number; scores: number[]; seeds: number[] };
     /** A random action every decision, on the same seeds: the floor the version is measured from. */

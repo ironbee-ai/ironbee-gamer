@@ -56,7 +56,7 @@ export interface RunRecord {
     phase: string;
     startedAt: number;
     endedAt?: number;
-    settings: { episodes: number; gameSeconds: number; seeds?: number[]; pace?: string; iterations?: number; rounds?: number; minRows?: number };
+    settings: { episodes: number; gameSeconds: number; seeds?: number[]; pace?: string; iterations?: number; realtime?: boolean; rounds?: number; minRows?: number };
     episodes: EpisodeSummary[];
     mean?: number;
     /** File name of the video in the run's directory. */

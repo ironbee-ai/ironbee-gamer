@@ -3,7 +3,8 @@ import { OpenRequest, OpenResult, StepRequest, StepResult } from "../../../src/d
 import { RulesTeacher } from "../../../src/distill/teacher";
 import { DecisionEngine, EngineKind, Question } from "../../../src/engine";
 import { DecisionEngineError, RequestTooLargeError, SystemOneResponse } from "../../../src/engine/systemone";
-import { FailureWindow, Perception, Profile, RegressionTest } from "../../../src/game/types";
+import { LIVE_LATENCY } from "../../../src/game/configs";
+import { FailureWindow, Perception, Profile, ProfileResults, RegressionTest } from "../../../src/game/types";
 import { Library } from "../../../src/library/store";
 import { EpisodeResult, Pace, Player } from "../../../src/play/player";
 import { CALL_TIMEOUT_MS } from "../../../src/play/sandbox";
@@ -400,6 +401,53 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
+    });
+
+    it("plays each seed at the range's low end, middle and high end, shows the tuner each game's lag, and records the points", async (): Promise<void> => {
+        const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-train-lag-points-"));
+        try {
+            const library: Library = new Library(path.join(root, "built-in"), path.join(root, "user"));
+            library.saveGame(fakeGameDefinition({ budgets: { gameSeconds: 2, episodes: 1 }, trainSeeds: [1, 2] }));
+            library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
+            const prompts: string[] = [];
+            let opened: number = 0;
+            await new Trainer({
+                library,
+                engine: new FakeEngine((): string => "NOOP"),
+                openBrowser: (): GameBrowser => {
+                    opened++;
+                    return new RealtimeFakeGame();
+                },
+                trainer: { command: "claude", model: "opus" },
+                ask: async (prompt: string): Promise<string> => {
+                    prompts.push(prompt);
+                    return tunerReply({ teacher: RIGHT_RULES });
+                },
+            }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, realtime: true, simulated: true, latency: { minMs: 20, maxMs: 40 }, workDir: path.join(root, "work") });
+            expect(prompts[0]).toContain("Each seed is played once at each of 20, 30, 40 ms");
+            for (const lag of [20, 30, 40]) {
+                expect(prompts[0]).toContain(`"lagMs":${lag}`);
+            }
+            // Measured and kept over all six real-time games: a seed's score is the mean of its three.
+            const realtime: NonNullable<ProfileResults["realtime"]> | undefined = library.profile("fake-runner", 2)?.results?.realtime;
+            expect(realtime?.lagPoints).toEqual([20, 30, 40]);
+            expect(realtime?.scores).toHaveLength(2);
+            expect(realtime?.lagMs).toBe(30);
+            // Real time at three points for both versions and their unseen seeds; paused and random once a seed.
+            expect(opened).toBeGreaterThanOrEqual(2 * (6 + 9) + 2 * 2);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("defaults to the lag Laya plays at live when simulated, and plays one lag once", (): void => {
+        const trainer: Trainer = new Trainer({ library: new Library("/nonexistent-a", "/nonexistent-b"), engine: new FakeEngine((): string => "NOOP"), openBrowser: (): GameBrowser => new FakeGame(), trainer: { command: "claude", model: "opus" } });
+        const options = (more: Partial<TrainOptions>): TrainOptions => ({ gameId: "fake-runner", iterations: 1, workDir: "/nonexistent", realtime: true, decider: Decider.RULES, ...more });
+        expect((trainer as any).latencyRange(options({ simulated: true }))).toEqual(LIVE_LATENCY);
+        expect((trainer as any).lagPoints(options({ simulated: true }))).toEqual([LIVE_LATENCY.minMs, Math.round((LIVE_LATENCY.minMs + LIVE_LATENCY.maxMs) / 2), LIVE_LATENCY.maxMs]);
+        expect((trainer as any).lagPoints(options({ simulated: true, latency: { minMs: 50, maxMs: 50 } }))).toBeUndefined();
+        expect((trainer as any).lagPoints(options({}))).toBeUndefined();
+        expect((trainer as any).paceOf(options({ simulated: true }), 53)).toEqual({ pace: Pace.TURN, simulatedLag: { minMs: 53, maxMs: 53 } });
     });
 });
 
@@ -1237,12 +1285,12 @@ describe("Trainer: what fails, and where it is recorded", (): void => {
         const options = (more: Partial<TrainOptions>): TrainOptions => ({ gameId: "fake-runner", iterations: 1, workDir: root, realtime: true, ...more });
         const pace = (more: Partial<TrainOptions>): unknown => (trainer as any).paceOf(options(more));
         // The engine deciding: its own time, as the tuner is told (the step that lands the input on top of it).
-        expect(pace({})).toEqual({ pace: Pace.REALTIME, expectedLagMs: 280 });
-        expect(pace({ latency: { minMs: 20, maxMs: 40 } })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 280 });
+        expect(pace({})).toEqual({ pace: Pace.REALTIME, expectedLagMs: 280, minLagMs: 0 });
+        expect(pace({ latency: { minMs: 20, maxMs: 40 } })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 280, minLagMs: 0 });
         expect((trainer as any).realtimeTraining(options({})).minMs).toBe(285);
         // The rules deciding: as late as they answer.
-        expect(pace({ decider: Decider.RULES, latency: { minMs: 250, maxMs: 600 } })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 425 });
-        expect(pace({ decider: Decider.RULES })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 30 });
+        expect(pace({ decider: Decider.RULES, latency: { minMs: 250, maxMs: 600 } })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 425, minLagMs: 0 });
+        expect(pace({ decider: Decider.RULES })).toEqual({ pace: Pace.REALTIME, expectedLagMs: 30, minLagMs: 0 });
         // Simulated, whatever decides: the lag it is played at.
         expect(pace({ simulated: true, latency: { minMs: 20, maxMs: 40 } })).toEqual({ pace: Pace.TURN, simulatedLag: { minMs: 20, maxMs: 40 } });
         expect(pace({ realtime: false })).toEqual({ pace: Pace.TURN });

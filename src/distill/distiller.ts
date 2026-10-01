@@ -547,6 +547,13 @@ export class Distiller {
         if (options.resume && !resumed) {
             throw new Error(`${game.name} v${learned.version} has no checkpoint to go on from: distil it first`);
         }
+        // A resume with no lag given goes on with the one its checkpoint was distilled with (its record's): its rounds play
+        // lagged games as the first run's did, and the checkpoint it keeps records it — a plain `--resume` of a lag-aware
+        // version once played its rounds paused only and saved a checkpoint with no lag. A lag of 0 given is none.
+        const resumedLag: { minMs: number; maxMs: number } | undefined = resumed && options.lag === undefined ? recordOf(resumed.dir)?.lag : undefined;
+        if (resumedLag) {
+            options = { ...options, lag: resumedLag };
+        }
         // A new distillation numbers its rounds after the checkpoints already there: none is overwritten.
         const start: number = resumed ? resumed.round : previous.length ? previous[previous.length - 1].round + 1 : 0;
         if (resumed && !finetunes) {

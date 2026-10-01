@@ -17,7 +17,7 @@ src/
     types.ts                GameDefinition (reach/start/measure), Profile (extractor, rules, actions, timing, tests), FailureWindow
     validate.ts             validateGame / validateProfile / validateRegressionTest: field-named errors
     open.ts                 a game → game_open request; rawFormat (for prompts); perceivedKinds (novelty keys)
-    configs.ts              offeredConfig / describeConfig: the engine + clock pairs a game is played in
+    configs.ts              playConfigs (a game's configs, else those its versions earn) / offeredConfig / describeConfig; LIVE_LATENCY, liveFloorMs, liveReadiness
   library/store.ts          Library: built-in + user roots, versions, active, windows, files, import/export
   reader/page-reader.ts     PageReaderWriter: the trainer writes a page expression for the game's own state, checked on the page
   play/

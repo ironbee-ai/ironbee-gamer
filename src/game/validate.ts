@@ -442,6 +442,8 @@ function profileResults(value: unknown, where: string): ProfileResults {
         out.realtime = {
             ...realtime,
             ...(realtime.lagMs !== undefined ? { lagMs: finite(realtime.lagMs, `${where}.realtime.lagMs`) } : {}),
+            // Lags are whole ms, as the seeds are whole numbers: measure replays each one.
+            ...(realtime.lagPoints !== undefined ? { lagPoints: numberList(realtime.lagPoints, `${where}.realtime.lagPoints`, true) } : {}),
             ...(realtime.test !== undefined ? { test: unseenSeeds(realtime.test, `${where}.realtime.test`) } : {}),
         };
     }

@@ -27,6 +27,13 @@ describe("measureVersion", (): void => {
         expect(results.realtime?.mean).not.toBe(3);
     });
 
+    it("plays real time again at each of its lag points, a seed's score the mean of its games there", async (): Promise<void> => {
+        const { results, games } = await measure(fakeProfile({ teacher: RIGHT, results: recorded({ mean: 3, scores: [3, 3], lagMs: 30, lagPoints: [20, 30, 40] }) }));
+        // The training seeds paused, the unseen seed, random play, and real time on the training seeds at each point.
+        expect(games).toBe(2 + 1 + 2 + 2 * 3);
+        expect(results.realtime).toMatchObject({ lagMs: 30, lagPoints: [20, 30, 40], scores: [expect.any(Number), expect.any(Number)] });
+    });
+
     it("keeps the unseen seeds as training played them in real time, and measures them again with the clock paused", async (): Promise<void> => {
         const unseen: { mean: number; scores: number[]; seeds: number[] } = { mean: 7, scores: [7], seeds: [303] };
         const { results } = await measure(fakeProfile({ teacher: RIGHT, results: recorded({ mean: 3, scores: [3, 3], lagMs: 30, test: unseen }) }));

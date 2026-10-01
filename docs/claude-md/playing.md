@@ -64,7 +64,8 @@
   does not make up for the lag only delays them (Flappy: 34 → 27), so only `lagAware` ones are held.
   A live config can set a floor (`lagMs` → `minLagMs`): a lag-aware version's inputs then land no sooner
   than that, however fast the engine answers — the lag it was trained at, where its extractor's timing
-  holds. Dino v7, trained with the rules answering 40 ms late: Laya at 23 ms a decision played 1493, 290,
+  holds. With no floor given, a lag-aware version has its own (`liveFloorMs`, src/game/configs.ts): the lag
+  training measured it at (`results.realtime.lagMs`), else 50 ms. Dino v7, trained with the rules answering 40 ms late: Laya at 23 ms a decision played 1493, 290,
   1116 live; held to 45 ms, 1494, 1091, 1493 (the rules 40 ms late: 1494, 1038, 1493). Below its lag a
   lag-aware version can fail outright: Pop the Lock v5 (trained for 45 ms) dies within seconds at 40 ms
   simulated and at the rules' own 6 ms live, and plays as with the clock paused held to 45 ms (rules 64,

@@ -22,6 +22,7 @@
 import { GameBrowser } from "../devtools/client";
 import { OpenRequest, ScoreReading, StepRequest, StepResult } from "../devtools/protocol";
 import { ChoiceAnswer, DecisionEngine, InvalidAnswerError, Question, validateChoice } from "../engine";
+import { liveFloorMs } from "../game/configs";
 import { openRequest, perceivedKinds } from "../game/open";
 import { DecideOn, GameAction, GameDefinition, PlanConfig, Profile } from "../game/types";
 import { sleep } from "../util/time";
@@ -219,6 +220,7 @@ export interface PlayOptions {
     /**
      * REALTIME, a lag-aware profile: its inputs land no sooner than this after their frame, however fast
      * the engine answers — the lag it was trained at, where its extractor's timing holds (a config's `lagMs`).
+     * Default: the profile's own (liveFloorMs — the lag training measured it at).
      */
     minLagMs?: number;
     /**
@@ -381,6 +383,8 @@ export class Player {
         const realtime: boolean = options.pace === Pace.REALTIME;
         /** REALTIME and an extractor that makes up for the lag: inputs are held to land at it (a jitter buffer). */
         const holdInputs: boolean = realtime && profile.lagAware === true;
+        /** How late held inputs land at the soonest: the lag the version was trained at, where its timing holds. */
+        const floorMs: number = holdInputs ? (options.minLagMs ?? liveFloorMs(profile) ?? 0) : 0;
 
         let extractErrors: number = 0;
         let firstExtractError: string | undefined;
@@ -428,7 +432,7 @@ export class Player {
             }
             const measured: number = (percentile(allEngineMs.slice(-LAG_WINDOW), holdInputs ? LAG_PERCENTILE : 0.5) ?? options.expectedLagMs ?? DEFAULT_LAG_MS) + STEP_MS;
             // Held inputs wait for it; one played as soon as it is decided cannot land later than it is.
-            lastLag = holdInputs ? Math.max(options.minLagMs ?? 0, measured) : measured;
+            lastLag = holdInputs ? Math.max(floorMs, measured) : measured;
             lags.push(lastLag);
             return lastLag;
         };

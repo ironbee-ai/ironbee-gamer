@@ -141,7 +141,14 @@ into its weights through labelled states.
   checkpoints).
 - **Distilling with a lag** (`lag`; CLI `laya distill --lag <ms | min-max>`, parsed as `play --lag`): for a
   lag-aware version, whose extractor computes time-critical features as of `info.lagMs` after the frame and
-  whose inputs land live at the config's `lagMs` floor. A Laya distilled from paused games only (lagMs 0)
+  whose inputs land live at the config's `lagMs` floor. A lag-aware version is distilled with
+  `LIVE_LATENCY` (45–60 ms) unless told otherwise — the UI's Distill always, the CLI when neither `--lag`
+  (`0`: none) nor `--resume` is given. A resume with no `--lag` goes on with the lag its checkpoint was
+  distilled with (its record's `lag`), and the checkpoint it keeps records it — a plain `--resume` of Pac-Man's
+  v4 once played its two rounds paused and saved a checkpoint with no lag. The 2026-09-30 Mario case below
+  turned out to be the rules too: at fixed simulated lags they lost seed 202 at 45–50 ms and 3003 at
+  50–60 ms, and Laya copied them (seed 202 at 50 ms: every one of its 25 decisions the rules', dead at the
+  same frame) — which the lag points of real-time training now catch (docs/claude-md/training.md). A Laya distilled from paused games only (lagMs 0)
   meets states there it never saw (2026-09-30: Infinite Mario v4's won every level paused, as its rules, but
   2 of 6 live with inputs ≥ 50 ms, its rules 3 of 3; Dino v10's averaged 1143 live, its rules 1493). The
   teacher plays data games with real time simulated on the paused clock at that lag (`simulatedLag`) until

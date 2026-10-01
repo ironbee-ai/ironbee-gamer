@@ -1,9 +1,10 @@
 import { EngineKind } from "../../../src/engine";
+import { ProfileResults } from "../../../src/game/types";
 import { MAX_EPISODES } from "../../../src/game/validate";
 import { Library } from "../../../src/library/store";
 import { Pace } from "../../../src/play/player";
 import { parsePlayRequest, PlayRequest } from "../../../src/server/ui-server";
-import { fakeGameDefinition } from "../../helpers/fake-game";
+import { fakeGameDefinition, fakeProfile } from "../../helpers/fake-game";
 
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -22,10 +23,30 @@ describe("a play request", (): void => {
         rmSync(root, { recursive: true, force: true });
     });
 
-    it("plays any engine with either clock when the game lists no configs", (): void => {
+    it("with no configs of its own, plays every engine paused, and live only a version trained for real time that kept its score there", (): void => {
         library.saveGame(fakeGameDefinition());
-        const request: PlayRequest = parsePlayRequest({ gameId: "fake-runner", engine: "jev", pace: "realtime" }, library, EngineKind.LAYA);
-        expect(request).toMatchObject({ engine: EngineKind.JEV, pace: Pace.REALTIME });
+        const { version: _, ...draft } = fakeProfile({ teacher: "function teach(state) { return 'NOOP'; }" });
+        const results = (paused: number, realtime: number): ProfileResults => ({
+            mean: paused,
+            scores: [paused],
+            gameSeconds: 10,
+            measuredAt: "2026-09-30T00:00:00.000Z",
+            realtime: { mean: realtime, scores: [realtime], lagMs: 53 },
+        });
+        library.saveProfile("fake-runner", draft);
+        const request: PlayRequest = parsePlayRequest({ gameId: "fake-runner", engine: "jev", pace: "watch" }, library, EngineKind.LAYA);
+        expect(request).toMatchObject({ engine: EngineKind.JEV, pace: Pace.WATCH });
+        expect((): unknown => parsePlayRequest({ gameId: "fake-runner", engine: "laya", pace: "realtime" }, library, EngineKind.LAYA)).toThrow(/no version is trained for real time/);
+        // Trained for real time, but far worse there: better played paused.
+        library.saveProfile("fake-runner", { ...draft, lagAware: true, results: results(100, 50) });
+        expect((): unknown => parsePlayRequest({ gameId: "fake-runner", engine: "laya", pace: "realtime" }, library, EngineKind.LAYA)).toThrow(/v2 plays 50 in real time against 100 paused/);
+        // Nearly as good live: Laya and the rules play that version live, its inputs held to the lag it was measured at; never Jev.
+        library.saveProfile("fake-runner", { ...draft, lagAware: true, results: results(100, 90) });
+        library.setActive("fake-runner", 1);
+        expect(parsePlayRequest({ gameId: "fake-runner", engine: "laya", pace: "realtime" }, library, EngineKind.LAYA)).toMatchObject({ version: 3, minLagMs: 53 });
+        expect(parsePlayRequest({ gameId: "fake-runner", engine: "rules", pace: "realtime" }, library, EngineKind.LAYA)).toMatchObject({ version: 3, minLagMs: 53 });
+        expect(parsePlayRequest({ gameId: "fake-runner", engine: "rules", pace: "turn" }, library, EngineKind.LAYA).version).toBeUndefined();
+        expect((): unknown => parsePlayRequest({ gameId: "fake-runner", engine: "jev", pace: "realtime" }, library, EngineKind.LAYA)).toThrow(/not played that way; it is played: .*laya, live, v3, inputs ≥ 53 ms/);
     });
 
     it("holds to the game's configs, and plays a config's version when none is asked for", (): void => {
