@@ -161,6 +161,11 @@ export interface TrainOptions {
      * keeps are saved without being made active: which one plays stays a decision of its own.
      */
     fromVersion?: number;
+    /**
+     * Notes from the person training the game — what they saw it do, or want it to do — told to the trainer in its every
+     * prompt (setup and tuning). A version is still kept only on its scores.
+     */
+    note?: string;
     signal?: AbortSignal;
     hooks?: TrainHooks;
 }
@@ -341,6 +346,9 @@ export class Trainer {
         const gameSeconds: number = options.gameSeconds ?? game.budgets.trainSeconds ?? game.budgets.gameSeconds;
         mkdirSync(options.workDir, { recursive: true });
         this.copySamples(game, options.workDir);
+        if (options.note?.trim()) {
+            this.log(options, `the notes for this training, told to the trainer: ${JSON.stringify(options.note.trim().slice(0, 300))}`);
+        }
 
         const activeBefore: number | undefined = library.activeVersion(game.id);
         let best: Profile | undefined = library.profile(game.id, options.fromVersion);
@@ -448,6 +456,8 @@ export class Trainer {
             let test: Scores | undefined;
             let floor: Scores | undefined;
             let refusal: Refusal | undefined;
+            /** Better in real time, worse paused than where training began: kept for real time only (never made active). */
+            let liveOnly: string | undefined;
             // Every game the candidate plays: one that fails (a DevTools timeout, an engine outage) fails the iteration, not the training.
             try {
                 evaluation = await this.evaluate(game, candidate, seeds, gameSeconds, `it${i}`, noveltyAfterMs, options);
@@ -466,17 +476,11 @@ export class Trainer {
                     }
                     refusal = this.rulesFailed(options, paused.result.episodes, "with the clock paused");
                     if (!refusal && paused.result.mean < pausedBar.evaluation.result.mean) {
-                        this.log(
-                            options,
-                            `  => not kept: ${evaluation.result.mean.toFixed(1)} beats ${bestEval.result.mean.toFixed(1)} in real time, ` +
-                                `but with the clock paused it plays ${paused.result.mean.toFixed(1)} against v${pausedBar.version}'s ${pausedBar.evaluation.result.mean.toFixed(1)}`
-                        );
-                        refusal = {
-                            note:
-                                `NOT KEPT although better in real time: with the clock paused it played ${paused.result.mean.toFixed(1)} against v${pausedBar.version}'s ${pausedBar.evaluation.result.mean.toFixed(1)} — ` +
-                                "with info.lagMs 0 the state must be exactly what the frame shows.",
-                            why: `it beat the best (${bestEval.result.mean.toFixed(1)}) in real time, but with the clock paused it played ${paused.result.mean.toFixed(1)} against v${pausedBar.version}'s ${pausedBar.evaluation.result.mean.toFixed(1)}`,
-                        };
+                        // One version serves both clocks when it can; one that does not keep the paused clock's score is
+                        // still the better live player — some games want another game played in real time (a Tetris that
+                        // loses its time to falling pieces) — so it is kept for the live clock only, and the active version
+                        // stays the paused clock's. A later one that plays both well is kept as ever.
+                        liveOnly = `with the clock paused it plays ${paused.result.mean.toFixed(1)} against v${pausedBar.version}'s ${pausedBar.evaluation.result.mean.toFixed(1)}`;
                     }
                     better = !refusal;
                 }
@@ -530,14 +534,25 @@ export class Trainer {
                     game.id,
                     {
                         ...candidate,
+                        ...(liveOnly ? { liveOnly: true } : {}),
                         tests: [...best.tests, ...newTests],
                         results: this.resultsOf(evaluation, seeds, gameSeconds, paused, { ...(test ? { test: { ...test, seeds: testSeeds } } : {}), random: floor, ...lagPoints }),
                     },
-                    { activate }
+                    { activate: activate && !liveOnly }
                 );
                 saved.push(kept.version);
-                history.push({ version: kept.version, mean: evaluation.result.mean, kept: true, note: candidate.note });
-                this.log(options, `  => v${kept.version} saved: ${evaluation.result.mean.toFixed(1)} beats ${bestEval.result.mean.toFixed(1)}`);
+                history.push({
+                    version: kept.version,
+                    mean: evaluation.result.mean,
+                    kept: true,
+                    note: liveOnly ? `KEPT FOR REAL TIME ONLY (${liveOnly}; not made active). ${candidate.note ?? ""}` : candidate.note,
+                });
+                this.log(
+                    options,
+                    liveOnly
+                        ? `  => v${kept.version} saved for real time only: ${evaluation.result.mean.toFixed(1)} beats ${bestEval.result.mean.toFixed(1)} in real time, but ${liveOnly} (not made active)`
+                        : `  => v${kept.version} saved: ${evaluation.result.mean.toFixed(1)} beats ${bestEval.result.mean.toFixed(1)}`
+                );
                 options.hooks?.onSaved?.(kept);
                 best = kept;
                 bestEval = evaluation;
@@ -944,6 +959,7 @@ export class Trainer {
                 ...(repair ? { repair } : {}),
                 ...(attempted ? { attempted } : {}),
                 ...(trainedHorizonS !== undefined && trainedHorizonS < gameSeconds ? { trainedHorizonS } : {}),
+                ...(options.note ? { userNote: options.note } : {}),
             });
             writeFileSync(path.join(options.workDir, `tuner-prompt-${history.length}-${attempt + 1}.md`), prompt);
             const started: number = Date.now();
@@ -1128,6 +1144,7 @@ export class Trainer {
             files: this.setupFiles(workDir),
             ...(options.decider === Decider.RULES ? { withTeacher: true } : {}),
             ...(options.realtime ? { realtime: this.realtimeTraining(options) } : {}),
+            ...(options.note ? { userNote: options.note } : {}),
         });
         writeFileSync(path.join(workDir, "setup-prompt.md"), prompt);
         const started: number = Date.now();

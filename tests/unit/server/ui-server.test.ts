@@ -272,8 +272,15 @@ describe("the UI server", (): void => {
             const live: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev", realtime: true });
             expect(live.status).toBe(400);
             expect(String(live.body.error)).toMatch(/^Jev answers in hundreds of ms/);
-            // Trained for the rules engine (or Laya), the rules as code decide: Jev is not asked.
-            expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules" })).status).toBe(202);
+            // Notes for the trainer: text, at most 2000 characters (they go into every prompt), refused before anything starts.
+            const long: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules", note: "x".repeat(2001) });
+            expect(long.status).toBe(400);
+            expect(String(long.body.error)).toMatch(/^note must be at most 2000 characters/);
+            expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules", note: 7 })).status).toBe(400);
+            // Trained for the rules engine (or Laya), the rules as code decide: Jev is not asked. The notes ride with the run.
+            const started: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules", note: "  keep low  " });
+            expect(started.status).toBe(202);
+            expect((started.body.run as { settings: { note?: string } }).settings.note).toBe("keep low");
         } finally {
             await t.ui.close();
             rmSync(t.root, { recursive: true, force: true });

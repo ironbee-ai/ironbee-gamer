@@ -130,4 +130,22 @@ describe("ibgamer train", (): void => {
         expect(mockDaemon).toEqual([]);
         expect(mockTrained).toEqual([]);
     });
+
+    it("tells the trainer the notes given (trimmed), and refuses notes too long for every prompt", async (): Promise<void> => {
+        const claude: string = path.join(root, "claude");
+        writeFileSync(claude, "#!/bin/sh\nexit 0\n");
+        chmodSync(claude, 0o755);
+        await train(claude, ["--decider", "rules", "--note", "  use the long bar in the well on the right  "]);
+        expect(mockTrained).toEqual([expect.objectContaining({ note: "use the long bar in the well on the right" })]);
+
+        mockDaemon.length = 0;
+        mockTrained.length = 0;
+        // Commander says why on stderr, then exits (mocked here: it goes on to exit again).
+        const said: string[] = [];
+        jest.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown): boolean => said.push(String(chunk)) > 0) as never);
+        await train(claude, ["--decider", "rules", "--note", "x".repeat(2001)]);
+        expect(exits[0]).toBe(1);
+        expect(said.join("")).toMatch(/--note.*at most 2000 characters/);
+        expect(mockTrained).toEqual([]);
+    });
 });

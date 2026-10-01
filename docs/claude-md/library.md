@@ -11,8 +11,10 @@ Two roots, one view: `builtInDir` (the package's `library/`, never written) and 
   numbers, `seeds?` non-negative whole numbers, `measuredAt` text, and the optional `realtime` / `test` /
   `random` the same way (`test.seeds` required; `realtime.lagMs` a number, `realtime.lagPoints` whole ms —
   the lags a seed was played at, its score there the mean of those games); other fields are kept as they are.
-  The summary `profiles(id)` gives says `hasTeacher` and `lagAware`: a game with no `configs` of its own is
-  offered live on the newest version trained for real time that kept its score there (src/game/configs.ts).
+  The summary `profiles(id)` gives says `hasTeacher`, `lagAware` and `liveOnly` (a version training kept for
+  real time only: never made active): a game with no `configs` of its own is offered live on the newest version
+  trained for real time that kept its score there — a live-only one measured against the active version's
+  paused score (src/game/configs.ts).
 - `windows/<id>.json`: `{ id, seed?, profileVersion, rawFrames, lagMs?, frameInfo? }` — replayed by regression tests;
   `frameInfo[i]` is what the extractor was told with frame i (lag, game time, a plan's moments), `unread: true` on a
   frame the page could not be read on (the extractor never saw it; a replay skips it).

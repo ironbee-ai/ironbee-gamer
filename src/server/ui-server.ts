@@ -32,6 +32,7 @@ import { DecisionLog } from "../run/decision-log";
 import { playGame } from "../run/play";
 import { ProgressTracker } from "../run/progress";
 import { RunKind, RunRecord, RunStatus, RunStore, summarizeEpisode } from "../run/runs";
+import { MAX_USER_NOTE_CHARS } from "../train/prompts";
 import { Decider, Trainer, TrainResult } from "../train/trainer";
 import { bindHost, hostAllowed, originAllowed, reachableHost, requestPath, serveFile, serveVideo } from "./http-guards";
 import { LiveHub } from "./live-hub";
@@ -115,6 +116,14 @@ interface ReaderJob {
     error?: string;
 }
 
+/** A distillation: of the version asked for (one the live clock plays, kept for real time only), else of the active one. */
+export interface DistillRequest {
+    gameId: string;
+    rounds: number;
+    minRows: number;
+    version?: number;
+}
+
 export interface TrainRequest {
     gameId: string;
     iterations: number;
@@ -122,6 +131,23 @@ export interface TrainRequest {
     engine: EngineKind;
     /** For real time: the rules decide as a fast engine plays live, LIVE_LATENCY late, simulated on the paused clock. */
     realtime?: boolean;
+    /** Notes for the trainer: what the person saw the game played do, or wants it to do (told in its every prompt). */
+    note?: string;
+}
+
+/** A training's notes for the trainer, as a request gives them: text, trimmed, at most MAX_USER_NOTE_CHARS; none when empty. */
+function noteOf(value: unknown): { note?: string } {
+    if (value === undefined || value === null) {
+        return {};
+    }
+    if (typeof value !== "string") {
+        throw new Error("note must be text");
+    }
+    const note: string = value.trim();
+    if (note.length > MAX_USER_NOTE_CHARS) {
+        throw new Error(`note must be at most ${MAX_USER_NOTE_CHARS} characters (it goes into every prompt of the training)`);
+    }
+    return note ? { note } : {};
 }
 
 /** The profile version a request names (a whole number), if it names one. */
@@ -570,7 +596,13 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             status: RunStatus.RUNNING,
             phase: "starting",
             startedAt: Date.now(),
-            settings: { episodes: (game.trainSeeds ?? [101, 202, 303]).length, gameSeconds, iterations: request.iterations, ...(request.realtime ? { realtime: true } : {}) },
+            settings: {
+                episodes: (game.trainSeeds ?? [101, 202, 303]).length,
+                gameSeconds,
+                iterations: request.iterations,
+                ...(request.realtime ? { realtime: true } : {}),
+                ...(request.note ? { note: request.note } : {}),
+            },
             episodes: [],
             log: [],
             savedVersions: [],
@@ -603,6 +635,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     gameSeconds,
                     // For real time: as Laya plays live, simulated on the paused clock (every run the same), from the active version.
                     ...(request.realtime ? { realtime: true, simulated: true, latency: LIVE_LATENCY } : {}),
+                    ...(request.note ? { note: request.note } : {}),
                     workDir: join(dir, "work"),
                     recordDir: dir,
                     signal: abort.signal,
@@ -637,8 +670,10 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     tracker.finish();
                     progressed();
                 }
+                // A best kept for real time only is not the one the paused clock plays: said so.
+                const bestLiveOnly: boolean = result.bestVersion !== undefined && library.profile(game.id, result.bestVersion)?.liveOnly === true;
                 record.phase = result.savedVersions.length
-                    ? `done: saved ${result.savedVersions.map((v: number): string => `v${v}`).join(", ")}; the best is v${result.bestVersion}`
+                    ? `done: saved ${result.savedVersions.map((v: number): string => `v${v}`).join(", ")}; the best is v${result.bestVersion}${bestLiveOnly ? " (for real time only)" : ""}`
                     : `done: no version beat v${result.bestVersion}`;
                 finish(record);
             } catch (err: unknown) {
@@ -651,13 +686,9 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
         return record;
     };
 
-    const startDistill: (request: { gameId: string; rounds: number; minRows: number }) => RunRecord = (request: {
-        gameId: string;
-        rounds: number;
-        minRows: number;
-    }): RunRecord => {
+    const startDistill: (request: DistillRequest) => RunRecord = (request: DistillRequest): RunRecord => {
         const game: GameDefinition = library.game(request.gameId);
-        const profile: Profile | undefined = library.profile(game.id);
+        const profile: Profile | undefined = library.profile(game.id, request.version);
         if (!profile) {
             throw new Error(`${game.name} has no profile yet: train it first`);
         }
@@ -721,6 +752,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     python: pythonPath,
                 }).distill({
                     gameId: game.id,
+                    profileVersion: profile.version,
                     teacher: TeacherKind.RULES,
                     minRows: request.minRows,
                     gameSeconds,
@@ -776,14 +808,16 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
      */
     const runStarter: (body: Record<string, unknown>) => Promise<() => RunRecord> = async (body: Record<string, unknown>): Promise<() => RunRecord> => {
         if (body.kind === RunKind.DISTILL) {
-            const request: { gameId: string; rounds: number; minRows: number } = {
+            const version: number | undefined = versionOf(body.version);
+            const request: DistillRequest = {
                 gameId: String(body.gameId ?? ""),
                 rounds: intIn(body.rounds, "rounds", 0, 10, 1),
                 minRows: intIn(body.minRows, "minRows", 100, 1_000_000, 12_000),
+                ...(version !== undefined ? { version } : {}),
             };
             // A game that is not there is a 404, one without a profile a 400 saying so, before anything is checked.
             const game: GameDefinition = library.game(request.gameId);
-            const profile: Profile | undefined = library.profile(game.id);
+            const profile: Profile | undefined = library.profile(game.id, request.version);
             if (!profile) {
                 throw new Error(`${game.name} has no profile yet: train it first`);
             }
@@ -792,7 +826,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             if (!python.ok) {
                 throw new Error(`${python.detail} (or set IBGAMER_LAYA_PYTHON)`);
             }
-            // The version it learns (the active one) without its rules as code: the trainer writes them first — without its
+            // The version it learns (the one asked for — a version the live clock plays —, else the active one) without its rules as code: the trainer writes them first — without its
             // CLI the run would stop there, after its daemon started.
             if (!profile.teacher) {
                 const trainer: EngineHealth = trainerHealth(config.claude);
@@ -816,6 +850,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 ...(body.gameSeconds !== undefined && body.gameSeconds !== "" ? { gameSeconds: intIn(body.gameSeconds, "gameSeconds", 1, 3_600, 45) } : {}),
                 engine: engine as EngineKind,
                 ...(body.realtime === true ? { realtime: true } : {}),
+                ...noteOf(body.note),
             };
             // A game that is not there is a 404 before any engine is looked at.
             library.game(request.gameId);

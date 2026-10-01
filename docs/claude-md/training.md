@@ -35,17 +35,32 @@ its floor), from the active version — nobody picks a number. A range (`250-600
 drifts across the range during the game (`latencyAt`: a ~20 s swing), because an engine's time differs
 from game to game and changes as it speeds up or slows down; the prompts say so and tell the tuner that
 a decision acts `info.lagMs` (the current lag, measured) after its frame, so the extractor computes
-time-critical features as of then, for any lag (with lagMs 0 the state is what the frame shows). A candidate that beats the best in real time is played with the clock paused too
-and kept only if it is no worse there than the version training began from: one profile serves both
-clocks. The bar stays where training began — a kept version that happened to play better paused does
+time-critical features as of then, for any lag (with lagMs 0 the state is what the frame shows). A candidate that beats the best in real time is played with the clock paused too:
+one that is no worse there than the version training began from serves both clocks and is kept as any
+other. The bar stays where training began — a kept version that happened to play better paused does
 not raise it (it once turned away a candidate playing Flappy exactly as the starting version did, 32.3
-against a kept 32.7). Its `results` are the paused scores, with `results.realtime` beside them — the
+against a kept 32.7). One that plays paused worse is **kept for real time only** (`liveOnly: true`, never
+made active; logged `=> vN saved for real time only: …`, and the tuner reads it in the history): some
+games want another game played live — Tetris's candidates played 61.5 rows live against 30.5 but 49
+paused against 69.5 (measured in rows then, before the game's own points), the time the pieces take to fall weighing differently — and turning those away
+lost the better live player. Training goes on from it, and a later candidate that plays both clocks
+well is kept and made active as ever. The live clock plays a live-only version (a built-in game's
+config pins it; a game with no configs earns it: docs/claude-md/adding-games.md), the active version
+the paused one; Distill teaches Laya the active version, the setup checklist's **⚡ Distill vN for live**
+the live one (`POST /api/runs` with `version`). Its `results` are the paused scores, with `results.realtime` beside them — the
 unseen seeds' among them (`results.realtime.test`: training plays those in real time too), so
 `results.test`, theirs with the clock paused, is left to `ibgamer measure` (which keeps the real-time
-ones). A
-version kept is made active unless training started `--from` another than the active one; a lag-aware
-version that plays paused worse than the one before it belongs in a live config (`version`, `lagMs`),
-with the active version left for the paused clock.
+ones). A version kept for both clocks is made active unless training started `--from` another than the
+active one.
+
+**Notes for the trainer** (`note`; CLI `train --note "<text>"`; the UI's **Notes for the trainer** beside
+Train and in the add-a-game wizard, remembered per game on the browser): what the person training the
+game saw it do, or wants it to do — "it never drops the long bar into the empty column on the right" —
+told to the trainer in its every prompt, setup and tuning alike (`userNoteRule`, at most
+`MAX_USER_NOTE_CHARS` = 2000 characters), and logged at the start. They shape what Jev reads (the
+instructions, with `--decider engine`) and what Laya learns (the rules as code, with `--decider rules`)
+alike. They change neither how a version is judged — it is kept only when it scores higher, so notes the
+measure does not reward are tried and turned away, the log saying so — nor the division of labor.
 
 **Real time simulated** (`simulated`; CLI `--realtime --simulated`, `--latency` defaulting to `LIVE_LATENCY`
 there): the same training, every game on the paused clock — each decision lands `latency` after its frame in

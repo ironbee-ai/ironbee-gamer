@@ -492,6 +492,7 @@ export function validateProfile(value: unknown, where: string = "profile"): Prof
         ...(value.askWhen !== undefined ? { askWhen: str(value.askWhen, `${where}.askWhen`) } : {}),
         ...(value.teacher !== undefined ? { teacher: str(value.teacher, `${where}.teacher`) } : {}),
         ...(value.lagAware === true ? { lagAware: true } : {}),
+        ...(value.liveOnly === true ? { liveOnly: true } : {}),
         ...(value.plan !== undefined ? { plan: planConfig(value.plan, `${where}.plan`) } : {}),
         tests: tests.map((t: unknown, i: number): RegressionTest => validateRegressionTest(t, `${where}.tests[${i}]`)),
         ...(value.results !== undefined ? { results: profileResults(value.results, `${where}.results`) } : {}),

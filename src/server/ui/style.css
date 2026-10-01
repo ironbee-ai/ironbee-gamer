@@ -87,6 +87,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); bo
 .controls input { width: 92px; }
 .controls label.check { flex-direction: row; align-items: center; margin: 0 0 6px; }
 .controls label.check input { width: auto; }
+label.note { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); flex: 1 1 100%; margin-top: 8px; }
+label.note textarea { width: 100%; box-sizing: border-box; font: inherit; resize: vertical; }
 .controls .buttons { display: flex; gap: 8px; margin-left: auto; }
 
 /* ---------- stage ---------- */

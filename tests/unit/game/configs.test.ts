@@ -50,4 +50,13 @@ describe("playConfigs", (): void => {
         // Never Jev live.
         expect(playConfigs(game, [kept]).some((c): boolean => c.engine === EngineKind.JEV && c.live === true)).toBe(false);
     });
+
+    it("measures a version kept for real time only against the active version's paused score, not its own", (): void => {
+        const active: VersionFacts = { version: 1, active: true, hasTeacher: true, results: results(70) };
+        // 50 in real time: far above its own paused 20, short of 80 % of the 70 the game plays paused.
+        expect(liveReadiness([{ version: 2, lagAware: true, liveOnly: true, hasTeacher: true, results: results(20, 50, 53) }, active]).why).toBe(
+            "v2 plays 50 in real time against 70 paused: better played paused"
+        );
+        expect(liveReadiness([{ version: 3, lagAware: true, liveOnly: true, hasTeacher: true, results: results(40, 61, 53) }, active])).toMatchObject({ version: 3, floorMs: 53, pausedMean: 70 });
+    });
 });

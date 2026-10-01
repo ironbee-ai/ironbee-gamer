@@ -91,23 +91,23 @@
   "teacher": "function teach(s) {\n  if (!s.playing) return 'start';\n  if (!s.piece) return 'none';\n  var fast = s.slack === 'ok';\n  if (s.aligned) return s.fallStalled ? 'none' : 'drop';\n  if (!s.keyReady) return fast ? 'drop' : 'none';\n  var turn = s.turnsCW > 0;\n  if (turn && s.turnFits) {\n    if (s.turnsCCW < s.turnsCW) return fast ? 'drop_ccw' : 'rotate_ccw';\n    return fast ? 'drop_cw' : 'rotate_cw';\n  }\n  var dir = s.shift < 0 ? -1 : s.shift > 0 ? 1 : (s.pieceCol < 4 ? 1 : -1);\n  if (dir < 0 && s.freeLeft === 0) dir = turn && s.freeRight > 0 ? 1 : 0;\n  else if (dir > 0 && s.freeRight === 0) dir = turn && s.freeLeft > 0 ? -1 : 0;\n  if (dir === 0) return 'drop';\n  if (dir < 0) return fast ? 'drop_left' : 'left';\n  return fast ? 'drop_right' : 'right';\n}",
   "tests": [],
   "results": {
-    "mean": 69.5,
+    "mean": 14003,
     "scores": [
-      69,
-      70
+      13419,
+      14587
     ],
     "seeds": [
       101,
       202
     ],
     "gameSeconds": 120,
-    "measuredAt": "2026-09-30T08:50:04.643Z",
+    "measuredAt": "2026-10-01T08:17:50.420Z",
     "test": {
-      "mean": 69,
+      "mean": 13505.67,
       "scores": [
-        69,
-        69,
-        69
+        13544,
+        13639,
+        13334
       ],
       "seeds": [
         1001,
@@ -116,10 +116,10 @@
       ]
     },
     "random": {
-      "mean": 0,
+      "mean": 218,
       "scores": [
-        0,
-        0
+        204,
+        232
       ]
     }
   }

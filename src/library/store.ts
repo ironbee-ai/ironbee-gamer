@@ -67,6 +67,8 @@ export interface ProfileSummary {
     hasTeacher: boolean;
     /** Trained for real time: its extractor makes up for the lag (`Profile.lagAware`). */
     lagAware: boolean;
+    /** For real time only (`Profile.liveOnly`): never made active; the live clock plays it. */
+    liveOnly: boolean;
     source: GameSource;
     active: boolean;
 }
@@ -354,6 +356,7 @@ export class Library {
                     tests: p.tests.length,
                     hasTeacher: Boolean(p.teacher),
                     lagAware: p.lagAware === true,
+                    liveOnly: p.liveOnly === true,
                     source: entry.source,
                     active: version === active,
                 };

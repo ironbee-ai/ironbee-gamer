@@ -82,6 +82,28 @@ export interface SetupPromptInput {
     realtime?: RealtimeTraining;
     /** Files in the work directory the trainer may Read, with what each is. */
     files: Array<{ path: string; what: string }>;
+    /** Notes from the person training the game (userNoteRule). */
+    userNote?: string;
+}
+
+/** The most a training's notes may hold: they go into every prompt of it. */
+export const MAX_USER_NOTE_CHARS: number = 2000;
+
+/**
+ * Notes from the person training the game — what they saw it do, or want it to do — for the trainer to act on. They cannot
+ * change how a version is judged (it is kept only when it scores higher) nor the division of labor.
+ */
+function userNoteRule(note: string | undefined): string {
+    const text: string | undefined = note?.trim();
+    if (!text) {
+        return "";
+    }
+    return (
+        `NOTES FROM THE PERSON TRAINING THIS GAME — what they saw it do, or want it to do; act on them in this version:\n<<<\n${text.slice(0, MAX_USER_NOTE_CHARS)}\n>>>\n` +
+        "A version is still kept only when it scores higher (and plays no worse with the clock paused when trained for real time) and passes the regression tests: " +
+        "follow the notes as far as the evidence allows, and say in your analysis how you did — or, where the scores show they cost points, why you could not. " +
+        "They never change the division of labor: the state carries features, never the answer.\n\n"
+    );
 }
 
 export function setupPrompt(input: SetupPromptInput): string {
@@ -120,7 +142,7 @@ Also give the action set: a small list of discrete choices; each has "keys" (key
 ${input.withTeacher ? `
 Also write the rules as code: \`function teach(state) { … }\` returns the action id your rules choose for a state (or probabilities by action id where they leave it open). Two things a small model learns badly: a counter that only grows as the game goes on (pellets eaten, the score, a level number, frames played) lets it act on WHEN it is — at pellet 37 go left — instead of on the situation the rules look at, so keep such counters out of the state unless a rule truly needs one; and where two or more actions are equally good (the same distance two ways), return probabilities that share between them ({\"left\": 0.5, \"up\": 0.5}) rather than one pick — a single pick teaches it an arbitrary tie-break that then counts as a mistake. It runs in the same bare sandbox, once per state, with no memory — so whatever a rule needs from earlier frames must already be a state field. Where the right move depends on more than the next moment — pursuers in a maze, where a falling piece should land — let it search: a breadth-first search over a small grid, or a short lookahead over the actions. ${TEACHER_TIME} ${NO_STATE_FRAMES} While the profile is trained, the teacher plays; afterwards a small local model is fine-tuned to make the same choices from the state alone, and plays live. The teacher and your notes are the same rules: code and words. That model reads at most ~1000 tokens of state (JSON as text), and the shorter the better: keep the state to a few dozen named fields — no raw grids, no long per-object or per-option lists; summarise them into the fields the rules compare (for a choice among many placements or targets, the predicted outcome of each ACTION, not of every option).
 ` : ""}
-${input.realtime ? `${realtimeRule(input.realtime)}\n\n` : ""}Reply with ONLY a JSON object, no prose, no code fence:
+${input.realtime ? `${realtimeRule(input.realtime)}\n\n` : ""}${userNoteRule(input.userNote)}Reply with ONLY a JSON object, no prose, no code fence:
 {"extractor": "<the full source of function extract(raw, memory, info) {...}>", "actions": [{"id": "...", "description": "...", "keys": []}], "notes": "<the rules the engine should apply, in terms of your state fields, a few sentences>", "tickMs": <game ms per decision; 96 unless the game needs finer control; a multiple of 16: the page draws a frame every 16 ms of game time, so each decision then sees the same number of frames>${input.withTeacher ? `, "teacher": "<the full source of function teach(state) {...}>"` : ""}}`;
 }
 
@@ -146,6 +168,8 @@ export interface TunePromptInput {
     /** The reply that failed the tests in `repair`, as a profile and its new tests. */
     attempted?: { profile: Profile; newTests: RegressionTest[] };
     trainedHorizonS?: number;
+    /** Notes from the person training the game (userNoteRule). */
+    userNote?: string;
 }
 
 /** What a tuner is shown of a played profile. */
@@ -228,7 +252,7 @@ ${input.latest ? `\nLATEST PROFILE TRIED (mean score ${input.latest.result.mean}
 SAVED FAILURE WINDOWS (the raw frames the extractor saw last before a game ended, replayable offline): ${JSON.stringify(input.windows)}
 EXISTING REGRESSION TESTS (a new profile must keep passing them): ${JSON.stringify(input.tests)}
 ${input.repair ? `\nYOUR PREVIOUS ATTEMPT FAILED THESE REGRESSION TESTS. The existing tests always run and cannot be changed: fix the profile so they pass. A test of your own (in newTests) that was wrong you may rewrite or leave out.\n${JSON.stringify(input.repair).slice(0, 20_000)}\n${input.attempted ? `THAT ATTEMPT (its profile and new tests):\n${JSON.stringify({ ...tunableProfile(input.attempted.profile, withTeacher), newTests: input.attempted.newTests })}\n` : ""}` : ""}
-Study the runs: what caused each game to end or stall? Is it the state (missing / wrong / hard-to-use fields, perception bugs), the instructions (wrong or unclear rule), the actions, or the timing (tickMs / decideOn)? Then write an improved profile, starting from the best one. Change what the evidence points to; keep what works.
+${userNoteRule(input.userNote)}Study the runs: what caused each game to end or stall? Is it the state (missing / wrong / hard-to-use fields, perception bugs), the instructions (wrong or unclear rule), the actions, or the timing (tickMs / decideOn)? Then write an improved profile, starting from the best one. Change what the evidence points to; keep what works.
 Where you fix a failure, add regression tests that pin the fix down. A test runs the extractor over one saved window from its first frame (fresh memory; the first 3 frames are warm-up) and checks a JavaScript expression over \`state\` (and \`choice\`, the engine's decision, only if needsChoice) at the given frames ("all", or a list of frame indices). Tests may only name the windows listed above; a window's \`unread\` frames are ones the page could not be read on — the extractor never saw them, so a test checks nothing there.
 
 Reply with ONLY a JSON object, no prose, no code fence:

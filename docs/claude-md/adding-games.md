@@ -43,7 +43,9 @@
    trainer's CLI too, by the same check (`trainerHealth`), before Jev is asked or its daemon starts).
    **…for real time** (the wizard's box, and **For real time** beside Train): a game that does not wait for
    the player is trained as Laya plays live (docs/claude-md/training.md: the rules 45–60 ms late, simulated,
-   every seed at 45, 53 and 60 ms) — no lag to pick; not for Jev (hundreds of ms: the server refuses it).
+   every seed at 45, 53 and 60 ms) — no lag to pick; not for Jev (hundreds of ms: the box is off for it, and the
+   server refuses it). **Notes for the trainer** (the wizard's and Train's, optional): what the game should be
+   played like, told to the trainer in its every prompt (docs/claude-md/training.md).
 
 Each step checks what it holds before Next (Add, on the last): a number out of its field's range says
 which field and why, and Next waits. The form is not validated by the browser (`novalidate`): a value it
@@ -74,8 +76,9 @@ measurements — a live pair from games played live for real, not from `play --l
 whoever measured (the built-in games). **A game that lists none** — one added here — is offered what its
 versions earn (`playConfigs`; the game detail's `configs` and `live`): every engine with the clock paused,
 and live Laya and the rules on the newest version trained for real time whose real-time score (as training
-measured it) is at least 80 % of its paused one (`LIVE_SHARE`), that version pinned and its inputs held to
-the lag it was measured at; never Jev live. Until one is, the live clock is greyed out saying why, and the
+measured it) is at least 80 % of its paused one (`LIVE_SHARE`; for a version kept for real time only, of the
+active version's), that version pinned and its inputs held to the lag it was measured at; never Jev live.
+A live version Laya has not learnt gets **⚡ Distill vN for live** in the checklist. Until one is, the live clock is greyed out saying why, and the
 setup checklist offers **Train for real time**. The UI greys out every other engine and clock, and `parsePlayRequest` refuses them
 (the CLI does not: it is for trying, though it plays a listed pair's `version` unless `--profile-version`
 names another, and its `lagMs`). An engine is judged per clock, as the server takes a play: Laya with its

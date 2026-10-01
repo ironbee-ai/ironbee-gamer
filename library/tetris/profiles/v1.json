@@ -55,5 +55,38 @@
   "decideOn": "tick",
   "tickMs": 64,
   "teacher": "function teach(s) {\n  if (!s.playing) return 'start';\n  if (!s.piece) return 'none';\n  if (s.aligned) return 'drop';\n  var turn = s.turnsCW > 0;\n  if (turn && s.turnFits) {\n    if (s.turned) return 'none';\n    return s.turnsCCW < s.turnsCW ? 'rotate_ccw' : 'rotate_cw';\n  }\n  var dir = s.shift < 0 ? -1 : s.shift > 0 ? 1 : (s.pieceCol < 4 ? 1 : -1);\n  if (dir < 0 && s.freeLeft === 0) dir = turn && s.freeRight > 0 ? 1 : 0;\n  else if (dir > 0 && s.freeRight === 0) dir = turn && s.freeLeft > 0 ? -1 : 0;\n  if (dir === 0) return 'drop';\n  if (dir < 0) return s.movedX < 0 ? 'none' : 'left';\n  return s.movedX > 0 ? 'none' : 'right';\n}",
-  "tests": []
+  "tests": [],
+  "results": {
+    "mean": 7742,
+    "scores": [
+      7607,
+      7877
+    ],
+    "seeds": [
+      101,
+      202
+    ],
+    "gameSeconds": 120,
+    "measuredAt": "2026-10-01T08:19:13.245Z",
+    "test": {
+      "mean": 8289.33,
+      "scores": [
+        8227,
+        8260,
+        8381
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 175,
+      "scores": [
+        222,
+        128
+      ]
+    }
+  }
 }

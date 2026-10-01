@@ -27,7 +27,11 @@ export const LIVE_SHARE: number = 0.8;
 export interface VersionFacts {
     version: number;
     lagAware?: boolean;
+    /** For real time only (`Profile.liveOnly`): its paused score is not what the game is played paused with. */
+    liveOnly?: boolean;
     hasTeacher?: boolean;
+    /** The active version: the one the game is played paused with. */
+    active?: boolean;
     results?: ProfileResults;
 }
 
@@ -55,16 +59,19 @@ export function liveFloorMs(profile: Pick<Profile, "lagAware" | "results">, conf
 
 /**
  * The newest version fit to be played live: trained for real time (lag-aware), with its real-time score measured and
- * at least LIVE_SHARE of its paused one. Otherwise, why none is.
+ * at least LIVE_SHARE of the paused one — its own, or for a version kept for real time only, the active version's (what
+ * the game is played paused with). Otherwise, why none is.
  */
 export function liveReadiness(versions: VersionFacts[]): LiveReadiness {
     const trained: VersionFacts[] = versions.filter((v: VersionFacts): boolean => v.lagAware === true).sort((a: VersionFacts, b: VersionFacts): number => b.version - a.version);
     if (!trained.length) {
         return { why: "no version is trained for real time" };
     }
+    const activePaused: number | undefined = versions.find((v: VersionFacts): boolean => v.active === true)?.results?.mean;
+    const pausedOf: (v: VersionFacts) => number | undefined = (v: VersionFacts): number | undefined => (v.liveOnly ? (activePaused ?? v.results?.mean) : v.results?.mean);
     for (const v of trained) {
         const realtime: number | undefined = v.results?.realtime?.mean;
-        const paused: number | undefined = v.results?.mean;
+        const paused: number | undefined = pausedOf(v);
         if (realtime !== undefined && paused !== undefined && realtime >= LIVE_SHARE * paused) {
             return { version: v.version, floorMs: liveFloorMs(v) as number, realtimeMean: realtime, pausedMean: paused };
         }
@@ -75,7 +82,7 @@ export function liveReadiness(versions: VersionFacts[]): LiveReadiness {
         why:
             realtime === undefined
                 ? `v${newest.version} is trained for real time, but its real-time score is not measured`
-                : `v${newest.version} plays ${realtime} in real time against ${newest.results?.mean} paused: better played paused`,
+                : `v${newest.version} plays ${realtime} in real time against ${pausedOf(newest)} paused: better played paused`,
     };
 }
 

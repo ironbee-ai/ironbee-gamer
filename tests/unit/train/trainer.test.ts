@@ -10,6 +10,7 @@ import { EpisodeResult, Pace, Player } from "../../../src/play/player";
 import { CALL_TIMEOUT_MS } from "../../../src/play/sandbox";
 import { DecisionLog } from "../../../src/run/decision-log";
 import { finalReply, parseJsonObject } from "../../../src/train/claude";
+import { setupPrompt } from "../../../src/train/prompts";
 import { runRegressionTests, TestResult } from "../../../src/train/regression";
 import { Decider, playsUnseenWell, Trainer, TrainOptions, TrainResult, UNSEEN_TOLERANCE } from "../../../src/train/trainer";
 import { FakeEngine, jumpWhenClose } from "../../helpers/fake-engine";
@@ -451,6 +452,50 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
     });
 });
 
+describe("Trainer notes", (): void => {
+    it("tells the tuner the notes of the person training, in its every prompt, and logs them at the start", async (): Promise<void> => {
+        const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-train-notes-"));
+        try {
+            const library: Library = new Library(path.join(root, "built-in"), path.join(root, "user"));
+            library.saveGame(fakeGameDefinition({ budgets: { gameSeconds: 2, episodes: 1 }, trainSeeds: [1] }));
+            library.saveProfile("fake-runner", { ...fakeProfile({ teacher: RIGHT_RULES }) } as never);
+            const prompts: string[] = [];
+            const log: string[] = [];
+            await new Trainer({
+                library,
+                engine: new FakeEngine((): string => "NOOP"),
+                openBrowser: (): GameBrowser => new FakeGame(),
+                trainer: { command: "claude", model: "opus" },
+                ask: async (prompt: string): Promise<string> => {
+                    prompts.push(prompt);
+                    return tunerReply({ teacher: RIGHT_RULES });
+                },
+            }).train({
+                gameId: "fake-runner",
+                decider: Decider.RULES,
+                iterations: 2,
+                note: "  jump only on the last moment  ",
+                workDir: path.join(root, "work"),
+                hooks: { onLog: (l: string): number => log.push(l) },
+            });
+            expect(prompts.length).toBeGreaterThanOrEqual(2);
+            for (const prompt of prompts) {
+                expect(prompt).toContain("NOTES FROM THE PERSON TRAINING THIS GAME");
+                expect(prompt).toContain("<<<\njump only on the last moment\n>>>");
+            }
+            expect(log[0]).toBe('the notes for this training, told to the trainer: "jump only on the last moment"');
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it("says nothing of notes when none are given", (): void => {
+        const prompt: string = setupPrompt({ game: fakeGameDefinition(), files: [] });
+        expect(prompt).not.toContain("NOTES FROM THE PERSON TRAINING THIS GAME");
+        expect(setupPrompt({ game: fakeGameDefinition(), files: [], userNote: "keep low" })).toContain("<<<\nkeep low\n>>>");
+    });
+});
+
 describe("Trainer for real time: the paused bar", (): void => {
     /** Trains two iterations in simulated real time, each evaluation's mean set by its label — `it<i>` in real time, `it<i>-paused` paused (the games themselves are the fake runner's). */
     const trainWith = async (means: Record<string, number>): Promise<{ library: Library; log: string[]; prompts: string[]; root: string }> => {
@@ -497,22 +542,36 @@ describe("Trainer for real time: the paused bar", (): void => {
         }
     }, 30_000);
 
-    it("tells the tuner why the latest version was not kept although it scored higher", async (): Promise<void> => {
-        const { prompts, root } = await trainWith({ v1: 10, "v1-paused": 10, it1: 20, "it1-paused": 5 });
+    it("keeps a version better in real time but worse paused for real time only — never made active — and tells the tuner so", async (): Promise<void> => {
+        const { library, prompts, root } = await trainWith({ v1: 10, "v1-paused": 10, it1: 20, "it1-paused": 5 });
         try {
-            expect(prompts[1]).toContain("NOT KEPT: it beat the best (10.0) in real time, but with the clock paused it played 5.0 against v1's 10.0");
-            expect(prompts[1]).not.toContain("it did NOT beat the best");
+            expect(library.profile("fake-runner", 2)?.liveOnly).toBe(true);
+            expect(library.activeVersion("fake-runner")).toBe(1);
+            expect(prompts[1]).toContain("KEPT FOR REAL TIME ONLY (with the clock paused it plays 5.0 against v1's 10.0; not made active)");
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
     }, 30_000);
 
-    it("turns away a version that plays paused worse than where training began, and says against what", async (): Promise<void> => {
+    it("measures paused play against where training began: one worse there is kept for real time only, the active version staying the paused clock's", async (): Promise<void> => {
         const { library, log, root } = await trainWith({ v1: 10, "v1-paused": 10, it1: 20, "it1-paused": 20, it2: 25, "it2-paused": 5 });
         try {
-            expect(library.profile("fake-runner", 2)).toBeDefined();
-            expect((): unknown => library.profile("fake-runner", 3)).toThrow(/no profile v3/);
-            expect(log.some((l: string): boolean => /not kept: 25\.0 beats 20\.0 in real time, but with the clock paused it plays 5\.0 against v1's 10\.0/.test(l))).toBe(true);
+            expect(library.profile("fake-runner", 2)?.liveOnly).toBeUndefined();
+            expect(library.profile("fake-runner", 3)?.liveOnly).toBe(true);
+            expect(library.activeVersion("fake-runner")).toBe(2);
+            expect(log).toContainEqual("  => v3 saved for real time only: 25.0 beats 20.0 in real time, but with the clock paused it plays 5.0 against v1's 10.0 (not made active)");
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it("goes on from a version kept for real time only, and makes active a later one that plays both clocks well", async (): Promise<void> => {
+        const { library, root } = await trainWith({ v1: 10, "v1-paused": 10, it1: 20, "it1-paused": 5, it2: 25, "it2-paused": 12 });
+        try {
+            expect(library.profile("fake-runner", 2)?.liveOnly).toBe(true);
+            expect(library.profile("fake-runner", 3)?.liveOnly).toBeUndefined();
+            expect(library.profile("fake-runner", 3)?.parent).toBe(2);
+            expect(library.activeVersion("fake-runner")).toBe(3);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

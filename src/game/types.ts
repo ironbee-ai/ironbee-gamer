@@ -252,6 +252,12 @@ export interface Profile {
      */
     lagAware?: boolean;
     /**
+     * For real time only: training for real time kept it for playing better with the clock running, though it plays
+     * worse paused than the version training began from — so it is never made active, and a game is played live with
+     * it (a config's pin, or the configs its versions earn) while the active version keeps the paused clock.
+     */
+    liveOnly?: boolean;
+    /**
      * Plan mode, for real time with a slow engine: one request decides the next `slots` moments,
      * `slotMs` apart, from the extractor's prediction of each (`info.slots`, `info.pending`). Only with
      * the clock running; paused, the profile plays one decision a tick as any other.

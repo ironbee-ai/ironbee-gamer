@@ -414,6 +414,8 @@ async function selectGame(id) {
         $("pace").value = game.preferredConfig?.live ? "realtime" : "watch";
         // Its own engine, wanted until another is picked: its config's, else the one it was added for, else the one last wanted.
         state.engineWanted = game.preferredConfig?.engine || game.preferredEngine || recall("engine");
+        // The notes last written for its trainer, on this browser.
+        $("train-note").value = recall(`trainNote.${game.id}`) || "";
     }
     // A version picked here stays while it exists.
     if (!profiles.some((p) => String(p.version) === state.versionChosen)) {
@@ -1070,7 +1072,18 @@ $("train").addEventListener("click", async () => {
     // As Play: the engine wanted, never a fallback shown.
     rememberWanted();
     // A game meant for Laya is trained with its rules deciding, even before it has a Laya model.
-    await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining());
+    await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining(), trainerNotes());
+});
+
+/** The notes for the trainer written beside Train: kept per game on this browser as they are typed. */
+function trainerNotes() {
+    return $("train-note").value.trim();
+}
+
+$("train-note").addEventListener("input", () => {
+    if (state.selected) {
+        remember(`trainNote.${state.selected}`, $("train-note").value);
+    }
 });
 
 // Enter in a field of the play form is Play (its submit button), but Train iterations is Train's field: Enter there
@@ -1085,15 +1098,18 @@ $("iterations").addEventListener("keydown", (event) => {
     }
 });
 
-$("distill").addEventListener("click", async () => {
+$("distill").addEventListener("click", () => startDistill());
+
+/** A distillation of the game shown: of `version` (one the live clock plays), else of the active version. */
+async function startDistill(version) {
     try {
-        const { run } = await api("POST", "/api/runs", { kind: "distill", gameId: state.selected, rounds: 1 });
+        const { run } = await api("POST", "/api/runs", { kind: "distill", gameId: state.selected, rounds: 1, ...(version !== undefined ? { version } : {}) });
         renderStarted(run);
         showTab("training");
     } catch (err) {
         showError(err);
     }
-});
+}
 
 $("stop").addEventListener("click", () => {
     api("POST", "/api/runs/stop").catch(showError);
@@ -1723,7 +1739,12 @@ $("add-form").addEventListener("submit", async (event) => {
     state.selected = game.id;
     await loadGames().catch(showError);
     if ($("add-train-now").checked) {
-        await startTrain(engine, numberField("add-iterations", "Training iterations", "", 3, true).value, $("add-train-live").checked);
+        const note = $("add-train-note").value.trim();
+        if (note) {
+            remember(`trainNote.${game.id}`, note);
+            $("train-note").value = note;
+        }
+        await startTrain(engine, numberField("add-iterations", "Training iterations", "", 3, true).value, $("add-train-live").checked, note);
     }
 });
 
@@ -1839,15 +1860,22 @@ function renderSetup() {
     // Live: a clock that never pauses, offered and playable (the game's configs, else a version trained for real time
     // that kept its score there, pinned with its floor) — else why not, and the training that gets it there.
     const liveBy = ["laya", "rules"].filter((k) => !unplayableOn(k, true));
+    // The live clock pinned to a version Laya has not learnt (one kept for real time only, say): Distill teaches it that one.
+    const liveVersion = offered("laya", true)?.version;
+    const unlearnt =
+        trained && liveVersion !== undefined && !distilledVersions().includes(liveVersion) && d.profiles.some((p) => p.version === liveVersion && p.hasTeacher);
+    const distillLive =
+        unlearnt && state.status?.engines?.laya?.python?.ok !== false && run?.kind !== "distill" ? { id: "distill-live", label: `⚡ Distill v${liveVersion} for live` } : null;
     if (liveBy.length) {
         const c = offered(liveBy[0], true);
         steps.push({
             done: true,
             text: `Plays live with ${liveBy.map(engineLabel).join(" or ")}${c?.version !== undefined ? ` · v${c.version}` : ""}${c?.lagMs !== undefined ? ` · inputs ≥ ${c.lagMs} ms` : ""}`,
+            action: distillLive,
         });
     } else if (trained && run?.kind !== "train") {
         const why = (!g.configs && d.live?.why) || ["laya", "rules"].map((k) => unplayableOn(k, true)).find((w) => w && w !== NOT_OFFERED) || NOT_OFFERED;
-        steps.push({ text: "Not played live yet", action: refusal || engine === "jev" ? null : { id: "train-live", label: "Train for real time" }, why });
+        steps.push({ text: "Not played live yet", action: distillLive || (refusal || engine === "jev" ? null : { id: "train-live", label: "Train for real time" }), why });
     }
     list.innerHTML = steps
         .map(
@@ -1868,10 +1896,12 @@ $("setup").addEventListener("click", async (event) => {
         return;
     }
     if (button.dataset.setup === "train") {
-        // As the Train button: for the engine the game was added for, else the one chosen here.
-        await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining());
+        // As the Train button: for the engine the game was added for, else the one chosen here — with its notes.
+        await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining(), trainerNotes());
     } else if (button.dataset.setup === "train-live") {
-        await startTrain(trainEngine(), Number($("iterations").value) || 3, true);
+        await startTrain(trainEngine(), Number($("iterations").value) || 3, true, trainerNotes());
+    } else if (button.dataset.setup === "distill-live") {
+        await startDistill(offered("laya", true)?.version);
     } else if (button.dataset.setup === "distill") {
         $("distill").click();
     }
@@ -1879,9 +1909,9 @@ $("setup").addEventListener("click", async (event) => {
 
 /**
  * A training for the game shown (`realtime`: for real time — the rules decide as Laya plays live; not for Jev, whose
- * hundreds of ms no game is played live with).
+ * hundreds of ms no game is played live with; `note`: told to the trainer in its every prompt).
  */
-async function startTrain(engine, iterations, realtime = false) {
+async function startTrain(engine, iterations, realtime = false, note = "") {
     // Not offered while the trainer, or Jev for a training it decides, is not ready; the server refuses it too.
     const refusal = trainRefusal(engine);
     if (refusal) {
@@ -1890,7 +1920,7 @@ async function startTrain(engine, iterations, realtime = false) {
     }
     try {
         const live = realtime && engine !== "jev" ? { realtime: true } : {};
-        const { run } = await api("POST", "/api/runs", { kind: "train", gameId: state.selected, iterations, engine, ...live });
+        const { run } = await api("POST", "/api/runs", { kind: "train", gameId: state.selected, iterations, engine, ...live, ...(note ? { note } : {}) });
         renderStarted(run);
         showTab("training");
     } catch (err) {

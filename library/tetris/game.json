@@ -3,7 +3,7 @@
   "name": "Tetris",
   "description": "Classic Tetris with NES-style speed levels: place the falling pieces to complete and clear rows. A Phaser 3 game from the Phaser examples gallery.",
   "url": "https://noowxela.github.io/phaser-examples/games/ready/jtetris/",
-  "goal": "Tetris. Pieces fall into a 10-column well. Left and Right arrows move the falling piece, X rotates it clockwise and Z counter-clockwise, holding Down drops it faster. A completely filled row clears. The game ends when the pieces stack up to the top. Clear as many rows as you can.",
+  "goal": "Tetris. Pieces fall into a 10-column well. Left and Right arrows move the falling piece, X rotates it clockwise and Z counter-clockwise, holding Down drops it faster. A completely filled row clears; rows cleared at once score far more together (one row 40 points, two 100, three 300, four at once 1200, times the level plus one). The game ends when the pieces stack up to the top. Score as many points as you can.",
   "perception": {
     "adapter": "phaser",
     "read": "(() => { const g = window.__ibgamer && window.__ibgamer.phaser && window.__ibgamer.phaser.game(); const s = g && g.scene && g.scene.getScene('inGame'); if (!s || !g.scene.isActive('inGame') || !s.table || !s.piece) { return { playing: false }; } const p = s.piece; const board = s.table.colorsArray.map((r) => r.map((v) => (v ? 1 : 0))); p.frame.forEach((row, ry) => row.forEach((v, rx) => { if (!v) { return; } const q = p.localToTable(rx, ry); if (board[q.y] && board[q.y][q.x] !== undefined) { board[q.y][q.x] = 0; } })); return { playing: !s.isGameOver, board, piece: { type: p.type, rotation: p.rotation, x: p.x, y: p.y, frame: p.frame }, next: s.pieceQueue.next, level: s.table.level, lines: s.table.lines }; })()",
@@ -28,8 +28,8 @@
     }
   ],
   "score": {
-    "expression": "(() => { const g = window.__ibgamer && window.__ibgamer.phaser && window.__ibgamer.phaser.game(); const s = g && g.scene && g.scene.getScene('inGame'); if (!s || !g.scene.isActive('inGame') || !s.table) { return { over: false, score: 0 }; } return { over: !!s.isGameOver, score: s.table.lines, points: s.score, level: s.table.level }; })()",
-    "label": "rows cleared"
+    "expression": "(() => { const g = window.__ibgamer && window.__ibgamer.phaser && window.__ibgamer.phaser.game(); const s = g && g.scene && g.scene.getScene('inGame'); if (!s || !g.scene.isActive('inGame') || !s.table) { return { over: false, score: 0 }; } return { over: !!s.isGameOver, score: s.score, lines: s.table.lines, level: s.table.level }; })()",
+    "label": "points"
   },
   "budgets": {
     "gameSeconds": 120,

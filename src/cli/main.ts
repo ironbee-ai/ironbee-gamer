@@ -20,6 +20,7 @@ import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../p
 import { Distiller, DistillResult, TeacherKind } from "../distill/distiller";
 import { RulesTeacher } from "../distill/teacher";
 import { askClaude, trainerHealth } from "../train/claude";
+import { MAX_USER_NOTE_CHARS } from "../train/prompts";
 import { checkpointFor, checkpointProfileVersion, checkpointsToServe, currentCheckpoints, LayaServers, LayaSetup } from "../distill/laya-play";
 import { checkLayaPython, LayaCheckpoint, layaCheckpoints, layaPortLockFile, layaScriptsDir, LayaServerHandle, refuseHeldLayaPort, startLayaServer } from "../distill/laya-runtime";
 import { DecisionLog } from "../run/decision-log";
@@ -56,6 +57,15 @@ function amount(name: string, zero: boolean = false): (value: string) => number 
         }
         return n;
     };
+}
+
+/** A training's notes for the trainer: trimmed, at most MAX_USER_NOTE_CHARS. */
+function noteText(value: string): string {
+    const note: string = value.trim();
+    if (note.length > MAX_USER_NOTE_CHARS) {
+        throw new InvalidArgumentError(`at most ${MAX_USER_NOTE_CHARS} characters (it goes into every prompt of the training)`);
+    }
+    return note;
 }
 
 /** `35` (a fixed latency) or `250-600` (a range: each game somewhere in it, drifting). */
@@ -276,12 +286,14 @@ program
         "with --realtime: simulate it on the paused clock — each decision lands --latency after its frame in game time — so every run gives the same result; over a range, each seed is played at its low end, middle and high end"
     )
     .option("--plan <n>x<ms>", "with --realtime, for a slow engine: one request decides the next n moments, ms apart (e.g. 8x50)", planConfig)
+    .option("--note <text>", `notes for the trainer — what you saw the game played do, or want it to do — told to it in every prompt (at most ${MAX_USER_NOTE_CHARS} characters; a version is still kept only on its scores)`, noteText)
     .option("--headed", "show the browser windows")
     .action(
         async (
             gameId: string,
             opts: {
                 iterations: number;
+                note?: string;
                 seconds?: number;
                 seeds?: string;
                 sequential?: boolean;
@@ -350,6 +362,7 @@ program
                     ...(opts.plan ? { plan: opts.plan } : {}),
                     ...(opts.simulated ? { simulated: true } : {}),
                     ...(opts.from !== undefined ? { fromVersion: opts.from } : {}),
+                    ...(opts.note ? { note: opts.note } : {}),
                     workDir,
                     signal: abort.signal,
                     hooks: {
