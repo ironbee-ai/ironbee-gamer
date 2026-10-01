@@ -1,11 +1,20 @@
 # Decision engines (src/engine/)
 
-`DecisionEngine { kind, label, ask(state, questions), warmUp?(), health() }` over the System One
+`DecisionEngine { kind, label, ask(state, questions), warmUp?(), keepWarm?(question), health() }` over the System One
 protocol (`SystemOneClient`: HTTP/2 pool, 5 attempts with backoff on 429/5xx, on a connection dropped
 or timed out before the answer or while its body arrives, and on a 200 whose body is not a JSON answer —
 the clock is frozen while it waits; a body that stays no answer is an `InvalidAnswerError`, as an answer
 naming no offered action is: the player keeps the decision in force). `validateChoice` accepts only an
 offered option with sane probabilities.
+
+`keepWarm` (Laya only; the player starts it for real-time play, before the page opens, and stops it when
+the play ends): a local model idles down within a second — its answer after 0.2 s idle took ~40–65 ms, after
+2–5 s ~70–130 ms (the forward pass itself: the server's `inference_ms`), against ~28 ms back to back — so
+every game's first decision, and every one after a pause (`askWhen`, a round's end), came late. Laya is asked
+the last question again whenever it has been idle 100 ms (before any, the decision's question about an empty
+game), never beside one in flight: the server answers one at a time, so a decision asked meanwhile waits for
+one warm answer. Measured 2026-10-01: Mario's first decisions 31–56 ms against 71–120 cold, the rest
+unchanged; Pop the Lock (`askWhen`) at a 45–48 ms lag against 77–86 cold. Jev has none (its questions cost).
 
 | Engine | Where | Latency (measured 2026-09-27) |
 |---|---|---|

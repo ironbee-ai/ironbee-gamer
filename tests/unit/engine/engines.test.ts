@@ -1,7 +1,7 @@
 import { createEngine, EngineKind, InvalidAnswerError } from "../../../src/engine";
 import { JevEngine } from "../../../src/engine/jev";
 import { LayaEngine } from "../../../src/engine/laya";
-import { SystemOneClient, SystemOneResponse } from "../../../src/engine/systemone";
+import { Question, SystemOneClient, SystemOneResponse } from "../../../src/engine/systemone";
 
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { AddressInfo } from "net";
@@ -24,6 +24,52 @@ describe("engines", (): void => {
         }) as unknown as typeof fetch;
         await new LayaEngine({ url: "http://laya:8000/", model: "dino", fetchImpl }).ask({ game: 1 }, {});
         expect(calls[0]).toEqual({ url: "http://laya:8000/v1/systemone", body: { model: "dino", state: { game: 1 }, questions: {} } });
+    });
+
+    it("keeps Laya warm while it idles: the last question again (before any, the one given about an empty game), never beside one in flight, until stopped", async (): Promise<void> => {
+        jest.useFakeTimers();
+        try {
+            const states: unknown[] = [];
+            const held: Array<() => void> = [];
+            let holding: boolean = false;
+            const fetchImpl: typeof fetch = (async (_url: string, init: RequestInit): Promise<Response> => {
+                states.push(JSON.parse(String(init.body)).state);
+                if (holding) {
+                    await new Promise<void>((resolve: () => void): number => held.push(resolve));
+                }
+                return new Response(JSON.stringify({ answers: {} }), { status: 200 });
+            }) as unknown as typeof fetch;
+            const laya: LayaEngine = new LayaEngine({ fetchImpl });
+            const question: Record<string, Question> = { action: { type: "choice", criteria: { go: "go" }, instructions: "the rules" } };
+            const stop: () => void = laya.keepWarm(question);
+            await jest.advanceTimersByTimeAsync(80);
+            expect(states).toEqual([]);
+            await jest.advanceTimersByTimeAsync(40);
+            expect(states).toEqual([{ game: {} }]);
+
+            await laya.ask({ game: 1 }, question);
+            states.length = 0;
+            await jest.advanceTimersByTimeAsync(80);
+            expect(states).toEqual([]);
+            await jest.advanceTimersByTimeAsync(40);
+            expect(states).toEqual([{ game: 1 }]);
+
+            holding = true;
+            states.length = 0;
+            const slow: Promise<SystemOneResponse> = laya.ask({ game: 2 }, question);
+            await jest.advanceTimersByTimeAsync(1000);
+            expect(states).toEqual([{ game: 2 }]);
+            holding = false;
+            held.forEach((release: () => void): void => release());
+            await slow;
+
+            stop();
+            states.length = 0;
+            await jest.advanceTimersByTimeAsync(1000);
+            expect(states).toEqual([]);
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     it("reports health: Jev by its key, Laya by its server", async (): Promise<void> => {

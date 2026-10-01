@@ -78,7 +78,9 @@ versions earn (`playConfigs`; the game detail's `configs` and `live`): every eng
 and live Laya and the rules on the newest version trained for real time whose real-time score (as training
 measured it) is at least 80 % of its paused one (`LIVE_SHARE`; for a version kept for real time only, of the
 active version's), that version pinned and its inputs held to the lag it was measured at; never Jev live.
-A live version Laya has not learnt gets **⚡ Distill vN for live** in the checklist. Until one is, the live clock is greyed out saying why, and the
+A game whose newest version is not the one to train and distil from (one trained for another engine) names
+its active version in game.json (`activeVersion`: active until the user, a training or `library activate`
+sets one). A live version Laya has not learnt gets **⚡ Distill vN for live** in the checklist. Until one is, the live clock is greyed out saying why, and the
 setup checklist offers **Train for real time**. The UI greys out every other engine and clock, and `parsePlayRequest` refuses them
 (the CLI does not: it is for trying, though it plays a listed pair's `version` unless `--profile-version`
 names another, and its `lagMs`). An engine is judged per clock, as the server takes a play: Laya with its

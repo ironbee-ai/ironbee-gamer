@@ -6,8 +6,11 @@ Two roots, one view: `builtInDir` (the package's `library/`, never written) and 
 - `game(id)`: the user's `game.json` if any (an edited built-in game), else the built-in one. Validated.
 - Versions: `profiles/v<N>.json` of both roots; a user version number shadows the built-in one.
   `saveProfile` numbers after every existing version and makes it active; `state.json` (user root)
-  holds the active version (default: the newest not kept for real time only — a live-only version saved
-  without activation never becomes active by being the newest, as in a fresh library). A profile's `results` are validated too (the UI shows
+  holds the active version (default: the version game.json names, `activeVersion`, when the library holds it —
+  a game whose newest version is another engine's, Infinite Mario's v7 being Jev's; else the newest not kept for
+  real time only — a live-only version saved without activation never becomes active by being the newest, as
+  in a fresh library). `activeVersion` alone is read from game.json there, not the whole game validated: it is
+  asked on every listing. A profile's `results` are validated too (the UI shows
   them, measuring and distilling replay them): `mean` and `gameSeconds` numbers, `scores` a list of
   numbers, `seeds?` non-negative whole numbers, `measuredAt` text, and the optional `realtime` / `test` /
   `random` the same way (`test.seeds` required; `realtime.lagMs` a number, `realtime.lagPoints` whole ms —

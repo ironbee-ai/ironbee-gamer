@@ -13,6 +13,13 @@ import { DecisionEngine, EngineHealth, EngineKind } from "./types";
 
 export const DEFAULT_LAYA_URL: string = "http://127.0.0.1:8000";
 const HEALTH_TIMEOUT_MS: number = 2_000;
+/**
+ * keepWarm: idle this long, Laya is asked again. Its device idles down within a second: on an M-series GPU the
+ * answer after 0.2 s idle took ~40–65 ms, after 2–5 s ~70–130 ms, against ~28 ms back to back.
+ */
+const KEEP_WARM_AFTER_MS: number = 100;
+/** keepWarm: how often it looks whether Laya is idle. */
+const KEEP_WARM_POLL_MS: number = 20;
 
 export interface LayaEngineOptions {
     /** Base URL of the server. */
@@ -30,6 +37,10 @@ export class LayaEngine implements DecisionEngine {
     private readonly client: SystemOneClient;
     private readonly baseUrl: string;
     private readonly fetchImpl: typeof fetch;
+    /** Questions asked and not answered yet (keepWarm's too), since when none is, and the last one the player asked. */
+    private inFlight: number = 0;
+    private idleSince: number = Date.now();
+    private lastAsked?: { state: unknown; questions: Record<string, Question> };
 
     constructor(options: LayaEngineOptions = {}) {
         this.baseUrl = (options.url ?? DEFAULT_LAYA_URL).replace(/\/$/, "");
@@ -45,12 +56,46 @@ export class LayaEngine implements DecisionEngine {
         });
     }
 
-    ask(state: unknown, questions: Record<string, Question>): Promise<SystemOneResponse> {
-        return this.client.ask(state, questions);
+    async ask(state: unknown, questions: Record<string, Question>): Promise<SystemOneResponse> {
+        this.lastAsked = { state, questions };
+        this.inFlight++;
+        try {
+            return await this.client.ask(state, questions);
+        } finally {
+            this.inFlight--;
+            this.idleSince = Date.now();
+        }
     }
 
     warmUp(): void {
         this.client.warmUp();
+    }
+
+    /**
+     * Asks again whenever Laya has been idle KEEP_WARM_AFTER_MS — the last question (before any, `question` about
+     * an empty game), never beside one in flight: the server answers one at a time, so a decision asked meanwhile
+     * waits for one warm answer (~30 ms) where a cold one would take 70–130 ms. Steady play asks more often than
+     * that and is never joined.
+     */
+    keepWarm(question: Record<string, Question>): () => void {
+        const timer: NodeJS.Timeout = setInterval((): void => {
+            if (this.inFlight > 0 || Date.now() - this.idleSince < KEEP_WARM_AFTER_MS) {
+                return;
+            }
+            const asked: { state: unknown; questions: Record<string, Question> } = this.lastAsked ?? { state: { game: {} }, questions: question };
+            this.inFlight++;
+            this.client
+                .ask(asked.state, asked.questions)
+                .catch((): void => {
+                    // Only to keep the device busy: a decision asks on its own.
+                })
+                .finally((): void => {
+                    this.inFlight--;
+                    this.idleSince = Date.now();
+                });
+        }, KEEP_WARM_POLL_MS);
+        timer.unref();
+        return (): void => clearInterval(timer);
     }
 
     async health(): Promise<EngineHealth> {

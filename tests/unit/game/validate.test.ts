@@ -111,6 +111,14 @@ describe("validateGame", (): void => {
         expect((): unknown => validateGame({ ...fakeGameDefinition(), configs: [{ ...live, lagMs: -1 }] })).toThrow(/configs\[0\]\.lagMs/);
     });
 
+    it("takes the version a game names active until one is set, a version number", (): void => {
+        expect(validateGame({ ...fakeGameDefinition(), activeVersion: 6 }).activeVersion).toBe(6);
+        expect(validateGame(fakeGameDefinition()).activeVersion).toBeUndefined();
+        for (const bad of [0, 1.5, "6"]) {
+            expect((): unknown => validateGame({ ...fakeGameDefinition(), activeVersion: bad })).toThrow(/activeVersion/);
+        }
+    });
+
     it("names the field that is wrong", (): void => {
         expect((): unknown => validateGame({ ...fakeGameDefinition(), id: "Bad Id" })).toThrow(/game\.json\.id/);
         expect((): unknown => validateGame({ ...fakeGameDefinition(), url: "javascript:alert(1)" })).toThrow(/url/);

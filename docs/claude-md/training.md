@@ -48,10 +48,11 @@ well is kept and made active as ever. The live clock plays a live-only version (
 config pins it; a game with no configs earns it: docs/claude-md/adding-games.md), the active version
 the paused one; Distill teaches Laya the active version, the setup checklist's **⚡ Distill vN for live**
 the live one (`POST /api/runs` with `version`). Its `results` are the paused scores, with `results.realtime` beside them — the
-unseen seeds' among them (`results.realtime.test`: training plays those in real time too), so
-`results.test`, theirs with the clock paused, is left to `ibgamer measure` (which keeps the real-time
-ones). A version kept for both clocks is made active unless training started `--from` another than the
-active one.
+unseen seeds' among them (`results.realtime.test`: training plays those in real time too, to decide) —
+and `results.test`, the unseen seeds with the clock paused, as every version has them: a kept version (and
+a starting one with no record yet) plays them once more paused, three quick games, for the record only
+(`ibgamer measure` measures `test` again and keeps `realtime.test`). A version kept for both clocks is made active unless training
+started `--from` another than the active one.
 
 **Notes for the trainer** (`note`; CLI `train --note "<text>"`; the UI's **Notes for the trainer** beside
 Train and in the add-a-game wizard, remembered per game on the browser): what the person training the
@@ -90,7 +91,7 @@ a point on one seed is noise — a candidate playing 1266 against 494 was turned
 the tuner (no windows, no screens: `scoreOn`); a rejected candidate's history note says why ("… it played
 X against Y (more than 1 % worse) — rules fitted to these games rather than to the game"). The floor: random play (`RandomPlayer`, a seeded random action a decision) on
 the training seeds, measured for the starting version and again for each version kept, with its own
-actions and timing. Both are recorded (`results.test` — in real-time training `results.realtime.test` —
+actions and timing. Both are recorded (`results.test` — in real-time training `results.realtime.test` too —
 and `results.random`); the distiller places Laya between random play (0 %) and its teacher (100 %). A
 stop during any measurement records nothing of it: partial scores are never a version's results, and a
 candidate they would decide is not kept. A candidate's game that fails (a DevTools timeout, an engine

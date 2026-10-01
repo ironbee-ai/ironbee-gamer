@@ -257,6 +257,20 @@ function median(values: number[]): number | undefined {
     return sorted[sorted.length >> 1];
 }
 
+/** One decision's question, as the decision log records its parts. */
+type DecisionQuestion = { action: { type: "choice"; criteria: Record<string, string>; instructions: { goal: string; instructions: string } } };
+
+/** Which action, by the game's goal and the profile's rules; an action the game ignored (`fruitless`) is marked. */
+function decisionQuestion(game: GameDefinition, profile: Profile, fruitless?: { action: string; times: number }): DecisionQuestion {
+    const criteria: Record<string, string> = {};
+    for (const a of profile.actions) {
+        criteria[a.id] =
+            a.description +
+            (fruitless && fruitless.action === a.id ? ` [CHOSEN ${fruitless.times} TIMES IN A ROW WITH NO EFFECT: THE GAME IGNORED IT]` : "");
+    }
+    return { action: { type: "choice", criteria, instructions: { goal: game.goal, instructions: profile.instructions } } };
+}
+
 function numberOr(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -321,6 +335,10 @@ export class Player {
         let stopped: boolean = false;
         const engineMs: number[] = [];
         this.engine.warmUp?.();
+        // In real time a local model is kept from idling down while the page loads and between decisions: after a
+        // pause its first answer comes 2–3× slower (keepWarm).
+        const stopWarm: (() => void) | undefined =
+            options.pace === Pace.REALTIME ? this.engine.keepWarm?.(decisionQuestion(options.game, options.profile)) : undefined;
         try {
             for (let ep: number = 1; ep <= options.episodes; ep++) {
                 if (options.signal?.aborted) {
@@ -350,6 +368,7 @@ export class Player {
                 }
             }
         } finally {
+            stopWarm?.();
             if (recording) {
                 videoPath = await this.browser
                     .stopRecording()
@@ -1045,17 +1064,12 @@ export class Player {
         fruitless?: { action: string; times: number },
         onDecision?: (record: DecisionRecord) => void
     ): Promise<ChoiceAnswer> {
-        const criteria: Record<string, string> = {};
-        for (const a of profile.actions) {
-            criteria[a.id] =
-                a.description +
-                (fruitless && fruitless.action === a.id ? ` [CHOSEN ${fruitless.times} TIMES IN A ROW WITH NO EFFECT: THE GAME IGNORED IT]` : "");
-        }
+        const question: DecisionQuestion = decisionQuestion(game, profile, fruitless);
+        const { criteria, instructions } = question.action;
         const ids: string[] = profile.actions.map((a: GameAction): string => a.id);
-        const instructions: { goal: string; instructions: string } = { goal: game.goal, instructions: profile.instructions };
         for (let attempt: number = 0; ; attempt++) {
             const started: number = Date.now();
-            const response: { answers: Record<string, unknown> } = await this.engine.ask({ game: state }, { action: { type: "choice", criteria, instructions } });
+            const response: { answers: Record<string, unknown> } = await this.engine.ask({ game: state }, question);
             try {
                 const answer: ChoiceAnswer = validateChoice(response.answers?.action, ids);
                 onDecision?.({ state, criteria, instructions, ...answer, ms: Date.now() - started });

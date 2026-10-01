@@ -142,6 +142,12 @@ export interface GameDefinition {
     configs?: PlayConfig[];
     /** How the UI plays the game when it is picked (one of `configs`); none: `preferredEngine`, clock paused. */
     preferredConfig?: PlayConfig;
+    /**
+     * The active version until one is set (training, the UI, `library activate`): a game whose newest version is
+     * not the one to train and distil from (Infinite Mario's v7 is Jev's, without rules as code). Unset, or a
+     * version the library does not hold: the newest one not kept for real time only.
+     */
+    activeVersion?: number;
 }
 
 /** One way a game is played. */

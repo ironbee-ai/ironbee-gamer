@@ -307,7 +307,10 @@ export class Library {
         return out;
     }
 
-    /** The active version: the one the user set, else the newest not kept for real time only (else the newest). */
+    /**
+     * The active version: the one the user set, else the one the game names (`GameDefinition.activeVersion`), else the
+     * newest not kept for real time only (else the newest).
+     */
     activeVersion(id: string): number | undefined {
         const newestFirst: Array<[number, { file: string; source: GameSource }]> = [...this.versionFiles(id).entries()].sort(
             (a: [number, unknown], b: [number, unknown]): number => b[0] - a[0],
@@ -315,21 +318,42 @@ export class Library {
         if (newestFirst.length === 0) {
             return undefined;
         }
+        const held: (version: unknown) => version is number = (version: unknown): version is number =>
+            typeof version === "number" && newestFirst.some(([v]: [number, unknown]): boolean => v === version);
         const stateFile: string = path.join(this.userDir, id, "state.json");
         if (existsSync(stateFile)) {
             try {
                 const active: unknown = (readJson(stateFile) as { active?: unknown }).active;
-                if (typeof active === "number" && newestFirst.some(([version]: [number, unknown]): boolean => version === active)) {
+                if (held(active)) {
                     return active;
                 }
             } catch {
                 // an unreadable state file: as if none were set
             }
         }
+        // None set (a fresh library, a built-in game): the version the game names. Only that field of its game.json is
+        // read, not the whole game validated: this is asked on every listing.
+        const named: unknown = this.namedActiveVersion(id);
+        if (held(named)) {
+            return named;
+        }
         // A training saves a version for real time only without making it active: with none set (a fresh library,
         // a built-in game), being the newest must not make it active all the same.
         const playable: [number, unknown] | undefined = newestFirst.find(([, entry]: [number, { file: string }]): boolean => !keptForRealTimeOnly(entry.file));
         return (playable ?? newestFirst[0])[0];
+    }
+
+    /** The `activeVersion` the game's game.json (the user's, else the built-in one) holds; nothing when it cannot be read. */
+    private namedActiveVersion(id: string): unknown {
+        const file: string | undefined = this.file(id, "game.json");
+        if (!file) {
+            return undefined;
+        }
+        try {
+            return (readJson(file) as { activeVersion?: unknown }).activeVersion;
+        } catch {
+            return undefined;
+        }
     }
 
     setActive(id: string, version: number): void {

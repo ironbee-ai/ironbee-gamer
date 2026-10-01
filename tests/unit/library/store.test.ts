@@ -80,6 +80,20 @@ describe("Library", (): void => {
         expect(library.profile("fake-runner")?.version).toBe(4);
     });
 
+    it("makes the version the game names active until one is set, but never one the library does not hold", (): void => {
+        writeJson(path.join(builtIn, "fake-runner", "game.json"), { ...fakeGameDefinition(), activeVersion: 1 });
+        expect(library.activeVersion("fake-runner")).toBe(1);
+        expect(library.list()[0]).toMatchObject({ activeVersion: 1 });
+        // A training's version made active, or the user's pick, wins.
+        const { version: _, ...draft } = fakeProfile({ origin: "tuner" });
+        library.saveProfile("fake-runner", draft);
+        expect(library.activeVersion("fake-runner")).toBe(3);
+        // Named but not here: as if none were named — the newest.
+        rmSync(path.join(user, "fake-runner", "state.json"));
+        writeJson(path.join(builtIn, "fake-runner", "game.json"), { ...fakeGameDefinition(), activeVersion: 9 });
+        expect(library.activeVersion("fake-runner")).toBe(3);
+    });
+
     it("says which versions carry their rules as code (what the rules engine can play)", (): void => {
         library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
         const summaries: Array<{ version: number; hasTeacher: boolean }> = library.profiles("fake-runner");

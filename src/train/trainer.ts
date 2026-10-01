@@ -409,9 +409,22 @@ export class Trainer {
         // A stop during any of these measurements leaves it partial: none of it is recorded.
         const measured: boolean = !options.signal?.aborted && !bestEval.result.stopped && !pausedBar?.evaluation.result.stopped && !bestTest.stopped && !random.stopped;
         if (!best.results && measured) {
-            // A version fresh from setup has no record yet: this measurement is it (the library card, the setup checklist).
-            library.saveResults(game.id, best.version, this.resultsOf(bestEval, seeds, gameSeconds, pausedBar?.evaluation, { test: { ...bestTest, seeds: testSeeds }, random, ...lagPoints }));
-            best = library.profile(game.id, best.version) ?? best;
+            // A version fresh from setup has no record yet: this measurement is it (the library card, the setup checklist) —
+            // trained for real time, with its unseen seeds played paused too.
+            const pausedTest: Scores | undefined = pausedBar ? await this.scoreOn(game, best, testSeeds, gameSeconds, { ...options, realtime: false }) : undefined;
+            if (!pausedTest?.stopped) {
+                library.saveResults(
+                    game.id,
+                    best.version,
+                    this.resultsOf(bestEval, seeds, gameSeconds, pausedBar?.evaluation, {
+                        test: { ...bestTest, seeds: testSeeds },
+                        ...(pausedTest ? { pausedTest: { ...pausedTest, seeds: testSeeds } } : {}),
+                        random,
+                        ...lagPoints,
+                    })
+                );
+                best = library.profile(game.id, best.version) ?? best;
+            }
         }
         const history: TrainResult["history"] = [{ version: best.version, mean: bestEval.result.mean, note: "starting point" }];
         let latest: { profile: Profile; evaluation: Evaluation; why: string } | undefined;
@@ -454,6 +467,8 @@ export class Trainer {
             let better: boolean;
             let paused: Evaluation | undefined;
             let test: Scores | undefined;
+            /** Trained for real time: the unseen seeds with the clock paused too, recorded as every version has them. */
+            let pausedTest: Scores | undefined;
             let floor: Scores | undefined;
             let refusal: Refusal | undefined;
             /** Better in real time, worse paused than where training began: kept for real time only (never made active). */
@@ -517,6 +532,14 @@ export class Trainer {
                     }
                     this.log(options, `  random play with iteration ${i}'s actions: mean ${floor.mean.toFixed(1)} [${floor.scores.join(", ")}]`);
                 }
+                if (better && pausedBar) {
+                    pausedTest = await this.scoreOn(game, candidate, testSeeds, gameSeconds, { ...options, realtime: false });
+                    if (pausedTest.stopped) {
+                        stopped = true;
+                        break;
+                    }
+                    this.log(options, `  iteration ${i} on the unseen seeds with the clock paused: mean ${pausedTest.mean.toFixed(1)} [${pausedTest.scores.join(", ")}]`);
+                }
             } catch (err: unknown) {
                 if (options.signal?.aborted) {
                     stopped = true;
@@ -536,7 +559,12 @@ export class Trainer {
                         ...candidate,
                         ...(liveOnly ? { liveOnly: true } : {}),
                         tests: [...best.tests, ...newTests],
-                        results: this.resultsOf(evaluation, seeds, gameSeconds, paused, { ...(test ? { test: { ...test, seeds: testSeeds } } : {}), random: floor, ...lagPoints }),
+                        results: this.resultsOf(evaluation, seeds, gameSeconds, paused, {
+                            ...(test ? { test: { ...test, seeds: testSeeds } } : {}),
+                            ...(pausedTest ? { pausedTest: { ...pausedTest, seeds: testSeeds } } : {}),
+                            random: floor,
+                            ...lagPoints,
+                        }),
                     },
                     { activate: activate && !liveOnly }
                 );
@@ -585,19 +613,22 @@ export class Trainer {
     /**
      * What a version is recorded with: its scores with the clock paused, as every version is compared in
      * the library; trained for real time, the real-time scores beside them (`paused` given) — the unseen
-     * seeds' among them, since training played those in real time too: `test` is left to a measurement
-     * with the clock paused (ibgamer measure).
+     * seeds' among them (`realtime.test`: `extra.test`, played in real time like the rest) — and the unseen
+     * seeds with the clock paused as `test` (`extra.pausedTest`), as every version records them.
      */
     private resultsOf(
         evaluation: Evaluation,
         seeds: number[],
         gameSeconds: number,
         paused?: Evaluation,
-        extra: { test?: ProfileResults["test"]; random?: ProfileResults["random"]; points?: number[] } = {}
+        extra: { test?: ProfileResults["test"]; pausedTest?: ProfileResults["test"]; random?: ProfileResults["random"]; points?: number[] } = {}
     ): ProfileResults {
         const main: Evaluation = paused ?? evaluation;
         const lags: number[] = evaluation.result.episodes.flatMap((e: EpisodeResult): number[] => (e.lagMs !== undefined ? [e.lagMs] : []));
-        const test: ProfileResults["test"] = extra.test ? { mean: Number(extra.test.mean.toFixed(2)), scores: extra.test.scores, seeds: extra.test.seeds } : undefined;
+        const unseen: (scores: ProfileResults["test"]) => ProfileResults["test"] = (scores: ProfileResults["test"]): ProfileResults["test"] =>
+            scores ? { mean: Number(scores.mean.toFixed(2)), scores: scores.scores, seeds: scores.seeds } : undefined;
+        const test: ProfileResults["test"] = unseen(extra.test);
+        const pausedTest: ProfileResults["test"] = paused ? unseen(extra.pausedTest) : test;
         return {
             mean: Number(main.result.mean.toFixed(2)),
             scores: main.result.episodes.map((e: EpisodeResult): number => e.score),
@@ -615,9 +646,8 @@ export class Trainer {
                         ...(test ? { test } : {}),
                     },
                 }
-                : test
-                    ? { test }
-                    : {}),
+                : {}),
+            ...(pausedTest ? { test: pausedTest } : {}),
             ...(extra.random ? { random: { mean: Number(extra.random.mean.toFixed(2)), scores: extra.random.scores } } : {}),
         };
     }

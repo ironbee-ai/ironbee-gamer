@@ -191,8 +191,10 @@ Laya in real time, Chrome Dino, Super Coin Box and Infinite Mario with Laya and 
 both clocks on one version trained for real time (Dino: `{"engine": "laya", "live": true, "version": 11, "lagMs": 50}`),
 but Super Coin Box, whose v5 was kept for real time only (live on v5, paused on v4, the active one), and
 Infinite Mario, whose configs name a version for every engine — Laya and the rules v6 on both clocks, Jev v7
-(`{"engine": "jev", "version": 7}`, trained with Jev deciding, without rules as code): v7 is the newest
-version, so in a fresh library it is the active one.
+(`{"engine": "jev", "version": 7}`, trained with Jev deciding, without rules as code). A game can also name
+the version that is active until one is set (`"activeVersion"`; else the newest not kept for real time
+only): Infinite Mario names v6,
+so a fresh library trains and distils from it, not from v7.
 
 The score expression reads the game's own state and is used **for measuring only**. Neither the
 engine nor the trainer ever sees it as a state field. A game without one can use
@@ -280,7 +282,8 @@ measure. That measure is self-reported, so a tuner could inflate it.
   win every level and its Laya 5 games of 6 (1267, 1268 and seed 202 three times, 1264 each) — the one
   it lost ended at 1.3 s, its first decisions slow (the inputs at 87 ms). Each plays both clocks with
   one Laya. Super Coin Box's v5 plays better in real time (117.6 against v4's 106.7 over the nine
-  games; unseen 120.7) but worse paused (99.7 against 105.3), so it was kept for real time only: the
+  games; unseen 120.7) but worse paused on the training seeds (99.7 against 105.3; on the unseen ones
+  112, 152, 138 against v4's 70, 128, 100), so it was kept for real time only: the
   live configs play v5 — rules 128, 86 (dead at 54 s), 107 and Laya 131, 102, 118 live ≥ 50 ms — and
   the paused ones v4, each clock with a Laya of its own. Infinite Mario's v7 was trained with Jev
   deciding (a new extractor and instructions, no rules as code): Jev wins every level with it (1267,
@@ -350,7 +353,7 @@ with every number and pitfall, is in [research/KNOW-HOW.md](research/KNOW-HOW.md
 
 | | Jev (TypeSafe, hosted) | Laya (open, local) | Rules (code) |
 |---|---|---|---|
-| Latency | ~275 ms from Türkiye (~50 ms of it is the model; the rest is the round trip) | ~25–30 ms on an Apple M-series GPU | < 1 ms |
+| Latency | ~275 ms from Türkiye (~50 ms of it is the model; the rest is the round trip) | ~25–30 ms on an Apple M-series GPU (kept warm in real time: idle seconds, its next answer took 70–130 ms) | < 1 ms |
 | Rules | reads them in the instructions every decision | learns them: fine-tuned per game and profile version | are the profile's `teach(state)`, written by the trainer |
 | Setup | `TYPESAFE_API_KEY` | `ibgamer laya setup`, then `ibgamer laya distill <game>` | none: a version trained with the rules deciding carries them |
 

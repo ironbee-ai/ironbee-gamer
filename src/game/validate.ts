@@ -277,6 +277,10 @@ export function validateGame(value: unknown, where: string = "game.json"): GameD
     };
     const trainSeeds: number[] | undefined = seedList(value.trainSeeds, "trainSeeds");
     const testSeeds: number[] | undefined = seedList(value.testSeeds, "testSeeds");
+    const activeVersion: number | undefined = value.activeVersion !== undefined ? (num(value.activeVersion, `${where}.activeVersion`, 1, 1_000_000) as number) : undefined;
+    if (activeVersion !== undefined && !Number.isInteger(activeVersion)) {
+        fail(`${where}.activeVersion`, "must be an integer");
+    }
     return {
         id,
         name: str(value.name, `${where}.name`) as string,
@@ -309,6 +313,7 @@ export function validateGame(value: unknown, where: string = "game.json"): GameD
         ...(value.credits !== undefined ? { credits: str(value.credits, `${where}.credits`) } : {}),
         ...(value.preferredEngine !== undefined ? { preferredEngine: preferredEngine(value.preferredEngine, `${where}.preferredEngine`) } : {}),
         ...playConfigs(value, where),
+        ...(activeVersion !== undefined ? { activeVersion } : {}),
     };
 }
 

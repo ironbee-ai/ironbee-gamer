@@ -412,6 +412,7 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
             library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
             const prompts: string[] = [];
             let opened: number = 0;
+            const scoreOn: jest.SpyInstance = jest.spyOn(Trainer.prototype as any, "scoreOn");
             await new Trainer({
                 library,
                 engine: new FakeEngine((): string => "NOOP"),
@@ -425,6 +426,14 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
                     return tunerReply({ teacher: RIGHT_RULES });
                 },
             }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, realtime: true, simulated: true, latency: { minMs: 20, maxMs: 40 }, workDir: path.join(root, "work") });
+            // The unseen seeds played once more with the clock paused (not at the lag points), by the rules: for the starting
+            // version (fresh, no record yet) and for the kept one.
+            const pausedUnseen: unknown[][] = scoreOn.mock.calls.filter(
+                (c: unknown[]): boolean => JSON.stringify(c[2]) === JSON.stringify([1001, 2002, 3003]) && (c[4] as TrainOptions).realtime === false && c[5] === undefined
+            );
+            scoreOn.mockRestore();
+            expect(pausedUnseen).toHaveLength(2);
+            expect(library.profile("fake-runner", 1)?.results?.test?.seeds).toEqual([1001, 2002, 3003]);
             expect(prompts[0]).toContain("Each seed is played once at each of 20, 30, 40 ms");
             for (const lag of [20, 30, 40]) {
                 expect(prompts[0]).toContain(`"lagMs":${lag}`);
@@ -434,6 +443,9 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
             expect(realtime?.lagPoints).toEqual([20, 30, 40]);
             expect(realtime?.scores).toHaveLength(2);
             expect(realtime?.lagMs).toBe(30);
+            // The unseen seeds both ways: in real time beside its real-time scores, and paused as every version has them.
+            expect(realtime?.test).toMatchObject({ seeds: [1001, 2002, 3003], scores: [expect.any(Number), expect.any(Number), expect.any(Number)] });
+            expect(library.profile("fake-runner", 2)?.results?.test).toMatchObject({ seeds: [1001, 2002, 3003], scores: [expect.any(Number), expect.any(Number), expect.any(Number)] });
             // Real time at three points for both versions and their unseen seeds; paused and random once a seed.
             expect(opened).toBeGreaterThanOrEqual(2 * (6 + 9) + 2 * 2);
         } finally {
@@ -1415,7 +1427,7 @@ describe("Trainer: what fails, and where it is recorded", (): void => {
         expect(library.profile("fake-runner", 2)).toMatchObject({ origin: "teacher", teacher: RIGHT_RULES });
     });
 
-    it("trained for real time, records the unseen seeds' real-time scores beside the real-time ones, and leaves `test` to a paused measurement", async (): Promise<void> => {
+    it("trained for real time, records the unseen seeds' real-time scores beside the real-time ones, and their paused ones as `test`", async (): Promise<void> => {
         library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
         await new Trainer({
             library,
@@ -1427,7 +1439,7 @@ describe("Trainer: what fails, and where it is recorded", (): void => {
         for (const version of [1, 2]) {
             const results: Profile["results"] = library.profile("fake-runner", version)?.results;
             expect(results?.realtime?.test).toMatchObject({ seeds: [1001, 2002, 3003], scores: [expect.any(Number), expect.any(Number), expect.any(Number)] });
-            expect(results?.test).toBeUndefined();
+            expect(results?.test).toMatchObject({ seeds: [1001, 2002, 3003], scores: [expect.any(Number), expect.any(Number), expect.any(Number)] });
         }
     });
 
