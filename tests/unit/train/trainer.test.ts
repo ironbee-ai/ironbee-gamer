@@ -6,7 +6,7 @@ import { DecisionEngineError, RequestTooLargeError, SystemOneResponse } from "..
 import { LIVE_LATENCY } from "../../../src/game/configs";
 import { FailureWindow, Perception, Profile, ProfileResults, RegressionTest } from "../../../src/game/types";
 import { Library } from "../../../src/library/store";
-import { EpisodeResult, Pace, Player } from "../../../src/play/player";
+import { EpisodeResult, Pace, Player, PlayOptions, PlayResult } from "../../../src/play/player";
 import { CALL_TIMEOUT_MS } from "../../../src/play/sandbox";
 import { DecisionLog } from "../../../src/run/decision-log";
 import { finalReply, parseJsonObject } from "../../../src/train/claude";
@@ -452,6 +452,59 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
             rmSync(root, { recursive: true, force: true });
         }
     });
+
+    it("live, plays each seed its games for real, one at a time, the rules at once and the inputs held to the floor; the unseen seeds paused", async (): Promise<void> => {
+        const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-train-live-"));
+        try {
+            const library: Library = new Library(path.join(root, "built-in"), path.join(root, "user"));
+            // Two seconds: the obstacle comes at one, so a version that never jumps loses where the right rules play on.
+            library.saveGame(fakeGameDefinition({ budgets: { gameSeconds: 2, episodes: 1 }, trainSeeds: [1, 2] }));
+            library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
+            const prompts: string[] = [];
+            const played: Array<{ seed: number; pace: Pace; minLagMs?: number; latency: unknown; startedAt: number; endedAt?: number }> = [];
+            const play: Player["play"] = Player.prototype.play;
+            jest.spyOn(Player.prototype, "play").mockImplementation(function (this: Player, o: PlayOptions): Promise<PlayResult> {
+                const p: (typeof played)[number] = { seed: o.seeds?.[0] as number, pace: o.pace, minLagMs: o.minLagMs, latency: ((this as any).engine as any).latency, startedAt: Date.now() };
+                played.push(p);
+                return play.call(this, o).finally((): void => {
+                    p.endedAt = Date.now();
+                });
+            });
+            await new Trainer({
+                library,
+                engine: new FakeEngine((): string => "NOOP"),
+                openBrowser: (): GameBrowser => new RealtimeFakeGame(),
+                trainer: { command: "claude", model: "opus" },
+                ask: async (prompt: string): Promise<string> => {
+                    prompts.push(prompt);
+                    return tunerReply({ teacher: RIGHT_RULES });
+                },
+            }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, realtime: true, live: { minLagMs: 30, gamesPerSeed: 2 }, workDir: path.join(root, "work") });
+            jest.restoreAllMocks();
+            const live: Array<(typeof played)[number]> = played.filter((p: (typeof played)[number]): boolean => p.pace === Pace.REALTIME);
+            // Each version: seeds 1 and 2 twice each, live, held to the floor, the rules answering at once, one game after another.
+            expect(live.map((p: (typeof played)[number]): number => p.seed)).toEqual([1, 1, 2, 2, 1, 1, 2, 2]);
+            expect(live.every((p: (typeof played)[number]): boolean => p.minLagMs === 30 && p.latency === undefined)).toBe(true);
+            for (let i: number = 1; i < live.length; i++) {
+                expect(live[i].startedAt).toBeGreaterThanOrEqual(live[i - 1].endedAt as number);
+            }
+            // The seeds it is never shown: paused.
+            const unseen: Array<(typeof played)[number]> = played.filter((p: (typeof played)[number]): boolean => p.seed >= 1001);
+            expect(unseen.length).toBeGreaterThan(0);
+            expect(unseen.every((p: (typeof played)[number]): boolean => p.pace === Pace.TURN)).toBe(true);
+            expect(prompts[0]).toContain("These games are played live, for real");
+            expect(prompts[0]).toContain("each seed 2 times");
+            const results: ProfileResults | undefined = library.profile("fake-runner", 2)?.results;
+            expect(results?.test?.seeds).toEqual([1001, 2002, 3003]);
+            expect(results?.realtime?.test).toBeUndefined();
+            expect(results?.realtime?.scores).toHaveLength(2);
+            // Paused (each version's bar, and its random floor) once a seed, as ever: never live's repeats.
+            expect(played.filter((p: (typeof played)[number]): boolean => p.pace === Pace.TURN && p.seed < 1001)).toHaveLength(8);
+            expect(results?.scores).toHaveLength(2);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    }, 60_000);
 
     it("defaults to the lag Laya plays at live when simulated, and plays one lag once", (): void => {
         const trainer: Trainer = new Trainer({ library: new Library("/nonexistent-a", "/nonexistent-b"), engine: new FakeEngine((): string => "NOOP"), openBrowser: (): GameBrowser => new FakeGame(), trainer: { command: "claude", model: "opus" } });
@@ -1080,6 +1133,41 @@ describe("Trainer: what it records and hands on", (): void => {
         }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, fromVersion: 2, workDir: path.join(root, "work") });
         expect(library.profile("fake-runner", 3)).toMatchObject({ origin: "teacher", parent: 2, teacher: right });
         expect(library.activeVersion("fake-runner")).toBe(1);
+    });
+
+    it("asked not to, makes no version it keeps active, though it started from the active one (a version trained for one engine)", async (): Promise<void> => {
+        library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
+        const result: TrainResult = await new Trainer({
+            library,
+            engine: new FakeEngine((): string => "NOOP"),
+            openBrowser: (): GameBrowser => new FakeGame(),
+            trainer: { command: "claude", model: "opus" },
+            ask: async (): Promise<string> => tunerReply({ teacher: RIGHT_RULES }),
+        }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, activate: false, workDir: path.join(root, "work") });
+        expect(result.savedVersions).toEqual([2]);
+        expect(library.activeVersion("fake-runner")).toBe(1);
+    });
+
+    it("asked not to make a version active, keeps the active one where none was ever set (no state file: the newest would be taken)", async (): Promise<void> => {
+        const fresh: string = mkdtempSync(path.join(tmpdir(), "ibgamer-train-fresh-"));
+        try {
+            const builtIn: string = path.join(fresh, "built-in");
+            mkdirSync(path.join(builtIn, "fake-runner", "profiles"), { recursive: true });
+            writeFileSync(path.join(builtIn, "fake-runner", "game.json"), JSON.stringify(fakeGameDefinition()));
+            writeFileSync(path.join(builtIn, "fake-runner", "profiles", "v1.json"), JSON.stringify(fakeProfile({ teacher: "function teach() { return 'NOOP'; }" })));
+            const lib: Library = new Library(builtIn, path.join(fresh, "user"));
+            const result: TrainResult = await new Trainer({
+                library: lib,
+                engine: new FakeEngine((): string => "NOOP"),
+                openBrowser: (): GameBrowser => new FakeGame(),
+                trainer: { command: "claude", model: "opus" },
+                ask: async (): Promise<string> => tunerReply({ teacher: RIGHT_RULES }),
+            }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, activate: false, workDir: path.join(fresh, "work") });
+            expect(result.savedVersions).toEqual([2]);
+            expect(lib.activeVersion("fake-runner")).toBe(1);
+        } finally {
+            rmSync(fresh, { recursive: true, force: true });
+        }
     });
 
     it("keeps a teacher the reply did not rewrite only while it holds: the rules decide, or nothing it was written for changed", (): void => {

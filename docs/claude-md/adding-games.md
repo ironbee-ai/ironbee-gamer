@@ -41,8 +41,8 @@
    CLI is there. The Train buttons follow the same rules, and the server refuses such a training with a
    400 naming what Jev or the trainer lacks, before anything runs; `ibgamer train` refuses one without the
    trainer's CLI too, by the same check (`trainerHealth`), before Jev is asked or its daemon starts).
-   **…for real time** (the wizard's box, and **For real time** beside Train): a game that does not wait for
-   the player is trained as Laya plays live (docs/claude-md/training.md: the rules 45–60 ms late, simulated,
+   **…for real time** (the wizard's box, later the setup checklist's **Train for real time**, and Train with the
+   clock running once the game is played live): a game that does not wait for the player is trained as Laya plays live (docs/claude-md/training.md: the rules 45–60 ms late, simulated,
    every seed at 45, 53 and 60 ms) — no lag to pick; not for Jev (hundreds of ms: the box is off for it, and the
    server refuses it). **Notes for the trainer** (the wizard's and Train's, optional): what the game should be
    played like, told to the trainer in its every prompt (docs/claude-md/training.md).
@@ -104,10 +104,10 @@ ends, not only every 30 s; Laya's server is started ahead of Play (`POST /api/la
 it can play. With every engine greyed out, Play is disabled, its title saying why; a play request with an
 empty engine (the UI's, when it had none to offer) is refused (400) as none being ready, one naming an
 unknown engine with the kinds there are, and one without `engine` plays the server's default
-(`IBGAMER_ENGINE`). `preferredEngine` stays what the game is trained for (the setup checklist and both
-Train buttons); a game without one is trained for the engine wanted — its `preferredConfig`'s, or the one
-picked —, never for a fallback the select shows, else for the server's default; while the select shows
-another, Train's title and the checklist name it. Enter in a field of the play form is Play, but in Train
+(`IBGAMER_ENGINE`). Train (and the setup checklist) trains for the engine wanted — picked
+in the Engine list, else the game's own (its `preferredConfig`'s, else its `preferredEngine`) —, never for a fallback
+the select shows, else for the server's default; while the select shows another, Train's title and the checklist name
+it. Train acts on the Clock chosen too (docs/claude-md/improve.md). Enter in a field of the play form is Play, but in Train
 iterations — Train's field — it is Train (nothing while Train is disabled, as a disabled Play takes no
 Enter).
 
@@ -116,8 +116,14 @@ score) → Laya taught (when Laya is the engine it is trained for, or it has a c
 each open step with its button, a running step with its stage, bar and time left. Playable with Jev or
 Laya, and with its rules (code), by the Engine select's own test: some clock offered with it can play (Jev's
 key; Laya's Python and a checkpoint of the version that clock plays; that version's rules as code); else
-with its rules (code) now, if they can, and why the engine is not beside it. Distill — its button and the
-checklist's — is offered only while Laya's Python is ready and, for an active version without its rules
+with its rules (code) now, if they can, and why the engine is not beside it. **Train** checks how the engine
+and clock chosen play, fixes what loses (else trains for a higher score) and checks again (docs/claude-md/improve.md);
+with nothing to check yet it does what the engine chosen needs (src/train/train-for.ts): Jev's rules in words, the
+rules as code, or for Laya the rules as code and then Laya taught the version kept (`LayaTrainingTracker`: the
+training's stages, then Laya's) — Laya with no model of the version it plays taught that version alone; Train for
+Laya is refused (greyed out, saying why) without Laya's Python, and the server refuses it too. There is no Distill
+or Improve button beside it any more. The checklist's
+distillation steps are offered only while Laya's Python is ready and, for an active version without its rules
 as code (the trainer writes them first), the trainer's CLI is there; else why, beside it. The server
 refuses such a distillation before a run begins — a 400 naming what is missing, a 409 while a
 distillation in another process holds Laya's port —, and `ibgamer laya distill` before its daemon starts

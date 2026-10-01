@@ -26,8 +26,8 @@ export function latencyAt(range: LatencyRange, elapsedMs: number): number {
 
 /**
  * A real-time step's own time on top of the tick — reading the page, sending the input: a browser round
- * trip. Measured live on 2026-09-29 with the rules answering at once: Flappy's frames 19 ms apart at a
- * 16 ms tick, Dino's 35 at 30, Super Coin Box's 106 at 100 (a few ms either way).
+ * trip. Measured live on 2026-09-29 with the rules answering at once, on three games: frames 19 ms apart
+ * at a 16 ms tick, 35 at 30, 106 at 100 (a few ms either way).
  */
 export const STEP_TIME: LatencyRange = { minMs: 2, maxMs: 6 };
 

@@ -13,7 +13,7 @@ How it trains, and why:
   player sends (`{"game": state}`): the model trains on exactly what it will see.
 - The loss is the cross-entropy against the teacher's probabilities (soft targets): a strictly
   proper score, so the model learns honest probabilities, not just the argmax.
-- A game's decisions are lopsided (a runner mostly keeps running), so rows are drawn with weights
+- A game's decisions are lopsided (one action can be most of them), so rows are drawn with weights
   that lift the rare actions, and identical rows are merged.
 - Validation is held out in stretches of play, not in rows drawn at random: frames of one game are
   near duplicates, and a row split would grade the model on what it has seen. The rows carry their

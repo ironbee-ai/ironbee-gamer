@@ -288,3 +288,237 @@ export class ProgressTracker {
         this.eta = left ? minutes(Math.max(60_000, left * average - running)) : undefined;
     }
 }
+
+/** A check's games: how many it plays, how many have ended, and how long each took. */
+interface CheckCount {
+    planned: number;
+    played: number;
+    lastAt?: number;
+    gameMs: number[];
+}
+
+/** The share of a checked training each check counts for in the bar (the fix: the rest). */
+const CHECK_SHARE: number = 0.2;
+
+/**
+ * A checked training's progress (Train with something to check: src/improve/): the check, the fix — a training's or a
+ * distillation's own stages, followed by the trackers above — and the check after it, read from the Improver's phases and
+ * check games and the fix's own lines. The bar is weighed (each check a fifth, the fix the rest), so it never runs back
+ * when the fix's stages appear.
+ */
+export class ImproveTracker {
+    private readonly checks: { before: CheckCount; after: CheckCount } = {
+        before: { planned: 0, played: 0, gameMs: [] },
+        after: { planned: 0, played: 0, gameMs: [] },
+    };
+    private part: "before" | "fix" | "after" | "done" = "before";
+    private training?: ProgressTracker;
+    private distilling?: ProgressTracker;
+    private readonly results: string[] = [];
+
+    constructor(private readonly now: () => number = Date.now) {}
+
+    /** A check begins: the games it plays. */
+    onCheckStart(when: "before" | "after", games: number): void {
+        this.part = when;
+        this.checks[when] = { planned: games, played: 0, lastAt: this.now(), gameMs: [] };
+    }
+
+    /** One of the check's games ended. */
+    onGame(): void {
+        if (this.part !== "before" && this.part !== "after") {
+            return;
+        }
+        const check: CheckCount = this.checks[this.part];
+        const at: number = this.now();
+        if (check.lastAt !== undefined) {
+            check.gameMs.push(at - check.lastAt);
+        }
+        check.lastAt = at;
+        check.played++;
+    }
+
+    /** A check ended: what it found. */
+    onCheck(when: "before" | "after", verdict: string, why: string): void {
+        this.results.push(`${when === "before" ? "found" : "now"}: ${verdict === "nothing" ? "nothing played worse" : why}`);
+        if (when === "before") {
+            this.part = "fix";
+        }
+    }
+
+    /** The Improver's phases: the fix it starts. */
+    onPhase(text: string): void {
+        let m: RegExpExecArray | null;
+        if ((m = /^training .*\((\d+) iterations\)$/.exec(text))) {
+            this.part = "fix";
+            this.training = new ProgressTracker(RunKind.TRAIN, { iterations: Number(m[1]) }, this.now);
+        } else if ((m = /^(?:teaching Laya more|distilling Laya for v\d+).*?(\d+) rounds/.exec(text))) {
+            this.part = "fix";
+            this.distilling = new ProgressTracker(RunKind.DISTILL, { rounds: Number(m[1]) }, this.now);
+        }
+    }
+
+    onTrainLog(line: string): void {
+        this.training?.onLog(line);
+    }
+
+    onTrainPhase(text: string): void {
+        this.training?.onPhase(text);
+    }
+
+    onDistillLog(line: string): void {
+        this.distilling?.onLog(line);
+    }
+
+    onDistillPhase(text: string): void {
+        this.distilling?.onPhase(text);
+    }
+
+    /** The training is over: what it came to. */
+    finish(outcome: string): void {
+        this.training?.finish();
+        this.distilling?.finish();
+        this.part = "done";
+        this.results.push(outcome);
+    }
+
+    private checkStage(label: string, when: "before" | "after", reached: boolean): ProgressStage {
+        const check: CheckCount = this.checks[when];
+        const state: StageState = this.part === when ? StageState.CURRENT : reached ? StageState.DONE : StageState.TODO;
+        return { label, state, ...(check.planned ? { detail: `${check.played} of ${check.planned} games` } : {}) };
+    }
+
+    get progress(): RunProgress {
+        const fixed: boolean = this.part === "after" || this.part === "done";
+        const stages: ProgressStage[] = [this.checkStage("Checking how it plays", "before", this.part !== "before")];
+        const inner: Array<{ prefix: string; tracker: ProgressTracker }> = [
+            ...(this.training ? [{ prefix: "Training", tracker: this.training }] : []),
+            ...(this.distilling ? [{ prefix: "Laya", tracker: this.distilling }] : []),
+        ];
+        for (const { prefix, tracker } of inner) {
+            stages.push(...tracker.progress.stages.map((s: ProgressStage): ProgressStage => ({ ...s, label: `${prefix}: ${s.label}` })));
+        }
+        if (!inner.length) {
+            stages.push({ label: "Training", state: this.part === "before" ? StageState.TODO : fixed ? StageState.DONE : StageState.CURRENT });
+        }
+        const after: ProgressStage = this.checkStage("Checking again", "after", this.part === "done" && this.checks.after.planned > 0);
+        // Over with no check after it: nothing new to play (the training kept no version, the lesson the checkpoint before it).
+        stages.push(this.part === "done" && !this.checks.after.planned ? { ...after, state: StageState.SKIPPED, detail: "nothing new to check" } : after);
+
+        // The current part: its share done and its time left.
+        let fraction: number | undefined;
+        let eta: string | undefined;
+        if (this.part === "before" || this.part === "after") {
+            const check: CheckCount = this.checks[this.part];
+            if (check.planned) {
+                fraction = Math.min(1, check.played / check.planned);
+                const mean: number = check.gameMs.length ? check.gameMs.reduce((a: number, b: number): number => a + b, 0) / check.gameMs.length : 0;
+                eta = mean ? minutes(mean * Math.max(0, check.planned - check.played)) : undefined;
+            }
+        } else if (this.part === "fix") {
+            const running: ProgressTracker | undefined = this.distilling ?? this.training;
+            fraction = running?.progress.fraction;
+            eta = running?.progress.eta;
+        }
+        const share: (when: "before" | "after") => number = (when: "before" | "after"): number =>
+            this.part === "done" || (when === "before" && this.part !== "before") ? 1 : this.part === when ? (fraction ?? 0) : 0;
+        const fixShare: number = fixed
+            ? 1
+            : inner.length
+                ? inner.reduce((a: number, i: { tracker: ProgressTracker }): number => a + i.tracker.progress.overall, 0) / inner.length
+                : 0;
+        const overall: number = this.part === "done" ? 1 : CHECK_SHARE * share("before") + (1 - 2 * CHECK_SHARE) * fixShare + CHECK_SHARE * share("after");
+        return {
+            stages,
+            ...(fraction !== undefined ? { fraction } : {}),
+            overall: Math.min(1, overall),
+            ...(eta ? { eta } : {}),
+            results: [...this.results, ...inner.flatMap((i: { prefix: string; tracker: ProgressTracker }): string[] => i.tracker.progress.results.map((r: string): string => `${i.prefix}: ${r}`))],
+        };
+    }
+}
+
+/** The share of a training for Laya the rules' training counts for in the bar (Laya's lesson: the rest). */
+const TRAINING_SHARE: number = 0.6;
+
+/**
+ * A training for Laya (src/train/train-for.ts): the rules trained — a training's stages —, then Laya taught the version
+ * kept — a distillation's —; or, Laya having no model of the version it plays, the distillation alone.
+ */
+export class LayaTrainingTracker {
+    private readonly training?: ProgressTracker;
+    private distilling?: ProgressTracker;
+    /** Why Laya was not taught (no version kept): its stage skipped, saying so. */
+    private untaught?: string;
+    private finished: boolean = false;
+
+    constructor(
+        options: { iterations?: number; setup?: boolean; alone: boolean },
+        private readonly now: () => number = Date.now
+    ) {
+        if (options.alone) {
+            this.distilling = new ProgressTracker(RunKind.DISTILL, { rounds: 1 }, now);
+        } else {
+            this.training = new ProgressTracker(RunKind.TRAIN, { iterations: options.iterations, ...(options.setup ? { setup: true } : {}) }, now);
+        }
+    }
+
+    onTrainLog(line: string): void {
+        this.training?.onLog(line);
+    }
+
+    onTrainPhase(text: string): void {
+        this.training?.onPhase(text);
+    }
+
+    /** Laya is taught now: the training (if any) is over. */
+    onTeach(rounds: number): void {
+        this.training?.finish();
+        this.distilling ??= new ProgressTracker(RunKind.DISTILL, { rounds }, this.now);
+    }
+
+    onDistillLog(line: string): void {
+        this.distilling?.onLog(line);
+    }
+
+    onDistillPhase(text: string): void {
+        this.distilling?.onPhase(text);
+    }
+
+    finish(untaught?: string): void {
+        this.training?.finish();
+        this.distilling?.finish();
+        this.untaught = untaught;
+        this.finished = true;
+    }
+
+    get progress(): RunProgress {
+        const training: RunProgress | undefined = this.training?.progress;
+        const distilling: RunProgress | undefined = this.distilling?.progress;
+        const stages: ProgressStage[] = [
+            ...(training?.stages.map((s: ProgressStage): ProgressStage => ({ ...s, label: `Training: ${s.label}` })) ?? []),
+            ...(distilling
+                ? distilling.stages.map((s: ProgressStage): ProgressStage => ({ ...s, label: `Laya: ${s.label}` }))
+                : [
+                    {
+                        label: "Laya: learns the version kept",
+                        state: this.untaught || this.finished ? StageState.SKIPPED : StageState.TODO,
+                        ...(this.untaught ? { detail: this.untaught } : {}),
+                    },
+                ]),
+        ];
+        const current: RunProgress | undefined = distilling ?? training;
+        const overall: number = this.finished
+            ? 1
+            : !training
+                ? (distilling?.overall ?? 0)
+                : TRAINING_SHARE * training.overall + (1 - TRAINING_SHARE) * (distilling?.overall ?? 0);
+        return {
+            stages,
+            ...(current?.fraction !== undefined ? { fraction: current.fraction } : {}),
+            overall: Math.min(1, overall),
+            ...(current?.eta ? { eta: current.eta } : {}),
+            results: [...(training?.results ?? []), ...(distilling?.results ?? []).map((r: string): string => `Laya: ${r}`)],
+        };
+    }
+}

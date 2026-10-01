@@ -144,7 +144,7 @@ export interface GameDefinition {
     preferredConfig?: PlayConfig;
     /**
      * The active version until one is set (training, the UI, `library activate`): a game whose newest version is
-     * not the one to train and distil from (Infinite Mario's v7 is Jev's, without rules as code). Unset, or a
+     * not the one to train and distil from (one trained for Jev, without rules as code). Unset, or a
      * version the library does not hold: the newest one not kept for real time only.
      */
     activeVersion?: number;

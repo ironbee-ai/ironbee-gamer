@@ -32,8 +32,8 @@ import path from "path";
 
 /**
  * Agreement with the engine's logged decisions a teacher needs, per action the engine chose and
- * averaged (a runner's decisions are nearly all "keep running": overall agreement would pass a
- * teacher that never jumps).
+ * averaged (a game's decisions can be nearly all one action: overall agreement would pass a
+ * teacher that never chooses the others).
  */
 export const MIN_AGREEMENT: number = 0.95;
 /** How close to the profile's own score the teacher's play must come. */

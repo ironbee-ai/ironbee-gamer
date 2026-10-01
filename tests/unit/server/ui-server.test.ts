@@ -287,6 +287,32 @@ describe("the UI server", (): void => {
         }
     });
 
+    it("refuses a training it could not carry out — Jev on the running clock, a version the game does not have, no trainer — a 400 saying why, before any run starts", async (): Promise<void> => {
+        const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-ui-train-"));
+        const missing: string = path.join(root, "no-claude");
+        const t: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, claude: { ...c.claude, command: missing } }));
+        try {
+            // The clock running, as the UI's Clock says it (`live`): never Jev.
+            const live: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev", live: true });
+            expect(live.status).toBe(400);
+            expect(String(live.body.error)).toMatch(/^Jev answers in hundreds of ms/);
+            // A version to check that the game does not have.
+            const noVersion: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules", version: 9 });
+            expect(noVersion).toEqual({ status: 400, body: { error: "fake-runner has no profile v9" } });
+            // With something to check (Jev plays v1) a fix may train; with nothing (v1 has no rules as code) it trains: the trainer either way.
+            const trainerError: string = `The trainer is not ready: ${missing} is not on PATH: training needs the Claude Code CLI`;
+            expect(await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev" })).toEqual({ status: 400, body: { error: trainerError } });
+            expect(await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules" })).toEqual({ status: 400, body: { error: trainerError } });
+            expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "no-such-game", engine: "rules" })).status).toBe(404);
+            expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "rules", note: "x".repeat(2001) })).status).toBe(400);
+            expect((await call(t.port, "GET", "/api/runs")).body).toMatchObject({ runs: [], current: null });
+        } finally {
+            await t.ui.close();
+            rmSync(t.root, { recursive: true, force: true });
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     it("refuses any training while the trainer's CLI is not there: a 400 naming it, as the status does, before any run starts", async (): Promise<void> => {
         const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-ui-python-"));
         // A Python that has Laya, for the status.
@@ -424,7 +450,7 @@ describe("the UI server", (): void => {
             expect(await offered()).toEqual({ laya: [`v1-${hash}-r1`], card: true, status: { ok: true, detail: "local, fine-tuned for fake-runner", python: ready } });
             const other: { status: number; body: Record<string, unknown> } = await play(2);
             expect(other.status).toBe(400);
-            expect(String(other.body.error)).toMatch(/^Fake Runner v2 has no Laya checkpoint: distill one first \(ibgamer laya distill fake-runner --profile-version 2\)/);
+            expect(String(other.body.error)).toMatch(/^Fake Runner v2 has no Laya checkpoint: Train with Laya teaches it that version/);
             const played: { status: number; body: Record<string, unknown> } = await play(1);
             expect(played.status).toBe(202);
             expect((played.body.run as { engine: string }).engine).toBe(`laya (fake-runner v1-${hash}-r1)`);

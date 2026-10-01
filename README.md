@@ -32,7 +32,7 @@ page (canvas / engine)
 **The division of labor.** Each part has one job:
 
 - **The trainer (Claude, through the Claude Code CLI)** writes the logic: what the state
-  computes, such as distances, times to impact and what is open. It also writes the rules that
+  computes, such as distances, how soon things happen and what is possible now. It also writes the rules that
   map those features to an action.
 - **The decision engine** makes every live decision by applying those rules to the state.
 
@@ -57,7 +57,7 @@ and for how long, and why, if the game does not start.
 ```bash
 ibgamer library list                 # the games and their active profiles
 ibgamer play dino --seconds 30       # plays in the terminal; --watch paces it to the game's own speed
-ibgamer train flappy-bird --iterations 3  # the trainer rewrites the profile; kept only when it scores higher
+ibgamer train flappy-bird           # checks how it plays, fixes what loses (else trains for a higher score), keeps it only if it plays better
 ibgamer check pacman-ghosts          # plays a seed twice: the same frame for frame, or where it first differs
 ibgamer play pop-the-lock --lag 45   # real time simulated on the paused clock: each decision lands 45 ms late, every run the same
 ```
@@ -256,7 +256,7 @@ measure. That measure is self-reported, so a tuner could inflate it.
   Dino's, hold the inputs to that lag (`lagMs`), however fast the engine answers. Dino played live on
   v7 with its own Laya (`laya distill dino --profile-version 7`; at Laya's own 23 ms it lost a game at
   24 s) and paused on v4, until v10 (below) played both. Flappy Bird's v5 was trained for real time
-  on the simulated clock (`train --realtime --simulated --latency 45-60`) and played both clocks:
+  on the simulated clock (`train --no-check --realtime --simulated --latency 45-60`) and played both clocks:
   paused 38, 38, 21 (unseen seeds 38 ×3), live with its inputs ≥ 50 ms rules 38, 38, 22 and Laya
   38, 38, 38. So did Super Coin Box's v4 (trained the same way): paused 109, 113, 94 (unseen 70, 128,
   100) where v2 played 87, 80, 126 (74, 70, 111), its Laya 152, 115, 115 paused and 136, 125, 100 live
@@ -294,13 +294,13 @@ measure. That measure is self-reported, so a tuner could inflate it.
   game is indicative only (the Phaser Flappy: 34 once, 15 the next time; `play --lag` now simulates real time on the paused clock, the same every run). What loses is being late where the game
   allows no lateness — Dino jumps only on a fresh press right after landing, Pop the Lock's click must
   land while the needle is on the dot — and what fixes it is a profile trained for real time (`train
-  --realtime`): its extractor describes the world the action meets (`info.lagMs`) and the player
+  --no-check --realtime`): its extractor describes the world the action meets (`info.lagMs`) and the player
   holds each input to land at that lag, so a decision time of 40–70 ms plays like a fixed one. Pop the
   Lock went from dead on the first dot to 59, never missed. Dino, trained for real time with the rules
   answering 35 ms late: v6 and v7 played live well and paused worse (v7, 2026-09-29: 628, 840, 815),
   so v4 stayed for the paused clock; v10, trained on the simulated clock at 45–60 ms, played both, and
   so does v11, trained with each seed at 45, 53 and 60 ms.
-- **Plans, for an engine slower than the game** (`train --realtime --latency 250-600 --plan 8x50`,
+- **Plans, for an engine slower than the game** (`train --no-check --realtime --latency 250-600 --plan 8x50`,
   then `play --engine jev --realtime --profile-version <n>`): Jev (~300–600 ms a request) is asked for
   the next 8 moments, 50 ms apart, in one request — the extractor predicts each moment — and the
   player lands each input at its moment while the next request is already out. It decides *when* to
@@ -321,27 +321,52 @@ play the best version on fixed seeds (several games at once)
   → it plays the same seeds → kept only if its mean is higher
 ```
 
-What plays while a profile is trained is a choice:
+What plays while a profile is trained is a choice (`train --no-check --decider …` in the CLI; Train picks it by the engine):
 - **Jev** (`--decider engine`): Jev reads the instructions.
 - **The rules as code** (`--decider rules`): the profile's `teach(state)`. It is instant, so an evaluation
   takes seconds instead of minutes, and it is the path to a fast local Laya afterwards.
 
-In the UI, Train uses the engine that is chosen.
+In the UI, **Train** makes the game play better with the engine and clock chosen above — Laya, Rules (code) or Jev,
+live or paused (Jev paused only); `ibgamer train <game> --engine laya --realtime` in the CLI. It is the one button to
+press, whether the game plays badly or well; the app finds what loses and fixes it, nobody diagnoses anything:
+- it plays the game with that engine and clock (live: five games a seed) beside the version's rules on the same
+  clock, and says which seeds the rules play below their record, and which the engine plays below its rules — with
+  the decisions before each loss where the engine chose otherwise than the rules;
+- it fixes the rules first (trained on that clock: live, with live games, so a loss only live play shows is seen),
+  then the engine — Laya taught more where it plays its rules worse (live games for the running clock), Jev's
+  instructions trained with Jev deciding; with nothing playing worse, it trains the version for a higher score;
+- it plays again, and keeps the change only if the game plays better: that engine and clock play the new version
+  from then on; one that does not is undone (Laya's checkpoint before it comes back, the active version the one before).
 
-**For real time** (the box beside Train, and in the add-a-game wizard; `train --decider rules --realtime
---simulated` in the CLI) trains a game that does not wait for the player, for Laya or Rules (code): the rules decide 45–60 ms
-late, as Laya plays live, on the paused clock so every run gives the same result, and every seed is played
-at 45, 53 and 60 ms — a version must play at every lag in that range. It is kept only if it also plays no
-worse with the clock paused, so one version serves both clocks. Distill then teaches Laya its live states
-too (`laya distill` does it for such a version by itself), and the game is offered live once a version plays
+With nothing to check yet — a new game, Laya with no model of the version it plays, a clock the game is not played
+on yet — Train trains from there, for the engine chosen:
+- **Jev**: the trainer rewrites the rules Jev reads, Jev deciding;
+- **Rules (code)**: it rewrites the rules as code, the rules deciding;
+- **Laya**: it rewrites the rules as code, then Laya learns the version kept on this machine (a distillation: the
+  rules label the states, Laya is fine-tuned on them). Laya with no model of the version it plays yet learns that
+  version alone — nothing to train for that.
+
+`ibgamer train <game> --check-only` only says what it would fix; `--no-check` trains without the checks, with the
+trainer's own options (`--decider`, `--seeds`, `--realtime --simulated`, `--plan`, …). `ibgamer laya distill` still
+distils by hand.
+
+**For real time**, a game that does not wait for the player, for Laya or Rules (code): until a version plays live, the
+setup checklist's **Train for real time** (and the add-a-game wizard's box; `ibgamer train <game> --realtime` in the
+CLI) trains it — the rules decide 45–60 ms late, as Laya plays live, on the paused clock so every run gives the same
+result, and every seed is played at 45, 53 and 60 ms: a version must play at every lag in that range. It is kept only
+if it also plays no worse with the clock paused, so one version serves both clocks. Laya then learns its live states
+too (a training for Laya teaches the version kept with the lag), and the game is offered live once a version plays
 there nearly as well as paused. No lag or version to pick. A version that plays better live but worse paused than
 where training began is kept for real time only: never made active, the live clock plays it and the paused clock the
-active version (the checklist's **⚡ Distill vN for live** teaches Laya that one).
+active version (the checklist's **⚡ Distill vN for live** teaches Laya that one). From then on, Train with the clock
+running (Never pauses) checks and fixes it live.
 
 **Notes for the trainer** (beside Train and in the wizard; `train --note "…"` in the CLI) tell the trainer what you
 saw the game played do, or want it to do — "it never drops the long bar into the empty column on the right" — in its
 every prompt, for Jev's rules in words and Laya's rules as code alike. A version is still kept only when it scores
 higher: notes the measure does not reward are tried and turned away, and the log says so.
+
+Notes for the trainer, when written, are your own idea: Train trains the version with them whatever the check finds.
 
 Training stops after two versions in a row that do not beat the best one, or once a version reaches
 the game's top score (`score.max`). "Trained once, done" is

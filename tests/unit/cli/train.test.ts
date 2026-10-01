@@ -1,6 +1,7 @@
 /**
  * `ibgamer train` as the CLI runs it, up to the training: the daemon's start and the training itself are replaced, so
- * what starts before a training can be read — and without the trainer's CLI, nothing does.
+ * what starts before a training can be read — and without the trainer's CLI, nothing does. The fake runner has no
+ * version yet: nothing to check, Train trains (as `--no-check` does, with the trainer's own options).
  */
 
 import { Library } from "../../../src/library/store";
@@ -101,7 +102,7 @@ describe("ibgamer train", (): void => {
 
     it("refuses a training while the trainer's CLI is not there, whatever decides it: before Jev is asked, and before the daemon starts", async (): Promise<void> => {
         const missing: string = path.join(root, "no-claude");
-        for (const args of [[], ["--decider", "rules"]]) {
+        for (const args of [[], ["--engine", "rules"], ["--no-check", "--decider", "rules"]]) {
             exits.length = 0;
             errors.length = 0;
             await train(missing, args);
@@ -117,10 +118,17 @@ describe("ibgamer train", (): void => {
         const claude: string = path.join(root, "claude");
         writeFileSync(claude, "#!/bin/sh\nexit 0\n");
         chmodSync(claude, 0o755);
-        await train(claude, ["--decider", "rules"]);
+        await train(claude, ["--engine", "rules"]);
         expect(exits).toEqual([]);
         expect(mockTrained).toEqual([expect.objectContaining({ gameId: "fake-runner", decider: Decider.RULES, workDir: path.join(root, "work") })]);
         expect(mockDaemon).toEqual(["start", "stop"]);
+
+        // Without the check, the trainer's own options: the rules deciding a training for Jev.
+        mockDaemon.length = 0;
+        mockTrained.length = 0;
+        await train(claude, ["--no-check", "--decider", "rules", "--seeds", "4,5"]);
+        expect(exits).toEqual([]);
+        expect(mockTrained).toEqual([expect.objectContaining({ decider: Decider.RULES, seeds: [4, 5] })]);
 
         mockDaemon.length = 0;
         mockTrained.length = 0;
@@ -135,7 +143,7 @@ describe("ibgamer train", (): void => {
         const claude: string = path.join(root, "claude");
         writeFileSync(claude, "#!/bin/sh\nexit 0\n");
         chmodSync(claude, 0o755);
-        await train(claude, ["--decider", "rules", "--note", "  use the long bar in the well on the right  "]);
+        await train(claude, ["--engine", "rules", "--note", "  use the long bar in the well on the right  "]);
         expect(mockTrained).toEqual([expect.objectContaining({ note: "use the long bar in the well on the right" })]);
 
         mockDaemon.length = 0;
@@ -143,9 +151,20 @@ describe("ibgamer train", (): void => {
         // Commander says why on stderr, then exits (mocked here: it goes on to exit again).
         const said: string[] = [];
         jest.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown): boolean => said.push(String(chunk)) > 0) as never);
-        await train(claude, ["--decider", "rules", "--note", "x".repeat(2001)]);
+        await train(claude, ["--engine", "rules", "--note", "x".repeat(2001)]);
         expect(exits[0]).toBe(1);
         expect(said.join("")).toMatch(/--note.*at most 2000 characters/);
+        expect(mockTrained).toEqual([]);
+    });
+
+    it("keeps the trainer's own options to a training without the check: refused with the check, before anything starts", async (): Promise<void> => {
+        const claude: string = path.join(root, "claude");
+        writeFileSync(claude, "#!/bin/sh\nexit 0\n");
+        chmodSync(claude, 0o755);
+        await train(claude, ["--engine", "rules", "--seeds", "1,2", "--decider", "rules"]);
+        expect(exits).toEqual([1]);
+        expect(errors).toEqual(["--seeds, --decider: the trainer's own, for a training without the check (--no-check)"]);
+        expect(mockDaemon).toEqual([]);
         expect(mockTrained).toEqual([]);
     });
 });

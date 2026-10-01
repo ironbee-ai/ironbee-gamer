@@ -162,6 +162,20 @@ export interface TrainOptions {
      */
     fromVersion?: number;
     /**
+     * Real time as the game is played live (Improve, where a version loses live what simulated real time never shows):
+     * with `realtime`, not `simulated`, every seed played `gamesPerSeed` times with the clock running, one game at a time,
+     * the rules answering at once and the inputs landing no sooner than `minLagMs` after their frame — as a live config
+     * plays them. A version is measured over all those games (a seed's score their mean); the seeds it is never shown
+     * are played paused, live games varying too much to hold a version to them.
+     */
+    live?: { minLagMs: number; gamesPerSeed: number };
+    /**
+     * Whether the versions it keeps are made active (default: when it started from the active version). False leaves the
+     * active version as it is: a version trained for one engine (Jev's, without rules as code) is played by that
+     * engine's config, not by every engine (Improve).
+     */
+    activate?: boolean;
+    /**
      * Notes from the person training the game — what they saw it do, or want it to do — told to the trainer in its every
      * prompt (setup and tuning). A version is still kept only on its scores.
      */
@@ -255,8 +269,9 @@ export class Trainer {
     /** What plays a profile while it is trained: the engine, or the profile's own teacher. */
     private deciderFor(profile: Profile, options: TrainOptions, seed?: number): DecisionEngine {
         // Simulated, the player lands each decision late: the rules answer at once.
+        // On the running clock the rules answer as late as an engine would; live as played (Improve), at once.
         return options.decider === Decider.RULES
-            ? new RulesTeacher(profile, options.realtime && !options.simulated ? { latency: { ...this.latencyRange(options), ...(seed !== undefined ? { seed } : {}) } } : {})
+            ? new RulesTeacher(profile, options.realtime && !options.simulated && !options.live ? { latency: { ...this.latencyRange(options), ...(seed !== undefined ? { seed } : {}) } } : {})
             : this.deps.engine;
     }
 
@@ -267,6 +282,10 @@ export class Trainer {
     private paceOf(options: TrainOptions, lag?: number): Pick<PlayOptions, "pace" | "expectedLagMs" | "simulatedLag" | "minLagMs"> {
         if (!options.realtime) {
             return { pace: Pace.TURN };
+        }
+        if (options.live) {
+            // As a live config plays it: its inputs held to its lag.
+            return { pace: Pace.REALTIME, minLagMs: options.live.minLagMs };
         }
         // Before any decision was timed, the player expects the decider's latency (it adds the step itself).
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
@@ -285,9 +304,9 @@ export class Trainer {
     /**
      * Real time simulated over a range of lags: each seed is played at the range's low end, its middle and its high end,
      * and a version is measured over all of them. One game per seed, drifting somewhere in the range, kept a version that
-     * lost at one lag and won at another (Infinite Mario v4, 2026-09-30: seed 202 lost at 45 and 50 ms, won at 55 and 60;
-     * seed 3003 won at 45, lost at 50, 55 and 60) — live, the lag is wherever the engine's time puts it. None for one lag,
-     * or the running clock.
+     * lost at one lag and won at another (measured 2026-09-30: one seed lost at 45 and 50 ms and won at 55 and 60, another
+     * won at 45 and lost at 50, 55 and 60) — live, the lag is wherever the engine's time puts it. None for one lag, or the
+     * running clock.
      */
     private lagPoints(options: TrainOptions): number[] | undefined {
         if (!options.realtime || !options.simulated) {
@@ -297,10 +316,25 @@ export class Trainer {
         return range.maxMs > range.minMs ? [...new Set([range.minMs, Math.round((range.minMs + range.maxMs) / 2), range.maxMs])] : undefined;
     }
 
-    /** The games an evaluation plays: each seed once, or at each of the lag points. */
+    /** The games an evaluation plays: each seed once, at each of the lag points, or live its games a seed. */
     private runsOf(seeds: number[], options: TrainOptions): Array<{ seed: number; lag?: number }> {
+        if (options.live) {
+            const games: number = options.live.gamesPerSeed;
+            return seeds.flatMap((seed: number): Array<{ seed: number }> => Array.from({ length: games }, (): { seed: number } => ({ seed })));
+        }
         const points: number[] | undefined = this.lagPoints(options);
         return points ? seeds.flatMap((seed: number): Array<{ seed: number; lag: number }> => points.map((lag: number): { seed: number; lag: number } => ({ seed, lag }))) : seeds.map((seed: number): { seed: number } => ({ seed }));
+    }
+
+    /** How the seeds a version is never shown are played: as its games are, but live ones paused (live games vary too much to hold a version to). */
+    private unseenOptions(options: TrainOptions): TrainOptions {
+        return options.live ? this.pausedOptions(options) : options;
+    }
+
+    /** The games a version plays with the clock paused (its paused bar, the random floor): once a seed, as ever — never live's repeats. */
+    private pausedOptions(options: TrainOptions): TrainOptions {
+        const { live: _live, ...paused } = options;
+        return { ...paused, realtime: false };
     }
 
     /**
@@ -313,6 +347,10 @@ export class Trainer {
 
     /** Real-time training: how late a decision acts (the decider's latency, and on the running clock the step that lands its input). */
     private realtimeTraining(options: TrainOptions): RealtimeTraining {
+        if (options.live) {
+            // The rules answer at once: a decision lands at the floor its inputs are held to.
+            return { minMs: options.live.minLagMs, maxMs: options.live.minLagMs, live: { gamesPerSeed: options.live.gamesPerSeed } };
+        }
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
         const step: number = options.simulated ? 0 : REALTIME_STEP_MS;
         const points: number[] | undefined = this.lagPoints(options);
@@ -340,6 +378,9 @@ export class Trainer {
         if (options.simulated && (!options.realtime || options.plan)) {
             throw new TrainerError("simulated real time goes with realtime, and plan mode is played on the running clock only");
         }
+        if (options.live && (!options.realtime || options.simulated || options.plan)) {
+            throw new TrainerError("live training plays as the game is played live: realtime, neither simulated nor in plans");
+        }
         const { library } = this.deps;
         const game: GameDefinition = library.game(options.gameId);
         const seeds: number[] = options.seeds ?? game.trainSeeds ?? DEFAULT_TRAIN_SEEDS;
@@ -355,7 +396,7 @@ export class Trainer {
         if (options.fromVersion !== undefined && !best) {
             throw new TrainerError(`${game.name} has no profile v${options.fromVersion}`);
         }
-        const activate: boolean = options.fromVersion === undefined || options.fromVersion === activeBefore;
+        const activate: boolean = options.activate ?? (options.fromVersion === undefined || options.fromVersion === activeBefore);
         const startVersion: number | undefined = best?.version;
         const saved: number[] = [];
         if (!best) {
@@ -394,14 +435,14 @@ export class Trainer {
         // Trained for real time, a version must still play as well with the clock paused: one profile serves both.
         // The bar is how the version training began from plays paused, and it stays there: a kept version that
         // happened to play better paused does not raise it — that turned away a version playing exactly as the
-        // starting one did (Flappy, 2026-09-29: 38, 38, 21 against a kept 22, 38, 38).
+        // starting one did (measured 2026-09-29: 38, 38, 21 against a kept 22, 38, 38).
         const pausedBar: { version: number; evaluation: Evaluation } | undefined = options.realtime
             ? { version: best.version, evaluation: await this.evaluatePaused(game, best, seeds, gameSeconds, `v${best.version}`, `v${best.version}`, options) }
             : undefined;
         // Seeds the tuner never sees: a kept version plays them no more than UNSEEN_TOLERANCE worse (rules fitted to three games
         // are not rules).
         const testSeeds: number[] = options.testSeeds ?? game.testSeeds ?? DEFAULT_TEST_SEEDS;
-        let bestTest: Scores = await this.scoreOn(game, best, testSeeds, gameSeconds, options);
+        let bestTest: Scores = await this.scoreOn(game, best, testSeeds, gameSeconds, this.unseenOptions(options));
         this.log(options, `  v${best.version} on seeds it is never shown (${testSeeds.join(", ")}): mean ${bestTest.mean.toFixed(1)} [${bestTest.scores.join(", ")}]`);
         // The floor: a random action every decision, on the training seeds.
         const random: Scores = await this.randomFloor(game, best, seeds, gameSeconds, options);
@@ -411,13 +452,13 @@ export class Trainer {
         if (!best.results && measured) {
             // A version fresh from setup has no record yet: this measurement is it (the library card, the setup checklist) —
             // trained for real time, with its unseen seeds played paused too.
-            const pausedTest: Scores | undefined = pausedBar ? await this.scoreOn(game, best, testSeeds, gameSeconds, { ...options, realtime: false }) : undefined;
+            const pausedTest: Scores | undefined = pausedBar ? (options.live ? bestTest : await this.scoreOn(game, best, testSeeds, gameSeconds, this.pausedOptions(options))) : undefined;
             if (!pausedTest?.stopped) {
                 library.saveResults(
                     game.id,
                     best.version,
                     this.resultsOf(bestEval, seeds, gameSeconds, pausedBar?.evaluation, {
-                        test: { ...bestTest, seeds: testSeeds },
+                        ...(options.live ? {} : { test: { ...bestTest, seeds: testSeeds } }),
                         ...(pausedTest ? { pausedTest: { ...pausedTest, seeds: testSeeds } } : {}),
                         random,
                         ...lagPoints,
@@ -492,15 +533,15 @@ export class Trainer {
                     refusal = this.rulesFailed(options, paused.result.episodes, "with the clock paused");
                     if (!refusal && paused.result.mean < pausedBar.evaluation.result.mean) {
                         // One version serves both clocks when it can; one that does not keep the paused clock's score is
-                        // still the better live player — some games want another game played in real time (a Tetris that
-                        // loses its time to falling pieces) — so it is kept for the live clock only, and the active version
-                        // stays the paused clock's. A later one that plays both well is kept as ever.
+                        // still the better live player — some games want another game played in real time (the game moves
+                        // on while a decision is made: a plan that needs that time loses it) — so it is kept for the live clock
+                        // only, and the active version stays the paused clock's. A later one that plays both well is kept as ever.
                         liveOnly = `with the clock paused it plays ${paused.result.mean.toFixed(1)} against v${pausedBar.version}'s ${pausedBar.evaluation.result.mean.toFixed(1)}`;
                     }
                     better = !refusal;
                 }
                 if (better) {
-                    test = await this.scoreOn(game, candidate, testSeeds, gameSeconds, options);
+                    test = await this.scoreOn(game, candidate, testSeeds, gameSeconds, this.unseenOptions(options));
                     if (test.stopped) {
                         stopped = true;
                         break;
@@ -533,7 +574,8 @@ export class Trainer {
                     this.log(options, `  random play with iteration ${i}'s actions: mean ${floor.mean.toFixed(1)} [${floor.scores.join(", ")}]`);
                 }
                 if (better && pausedBar) {
-                    pausedTest = await this.scoreOn(game, candidate, testSeeds, gameSeconds, { ...options, realtime: false });
+                    // Live, the unseen seeds were played paused already.
+                    pausedTest = options.live && test ? test : await this.scoreOn(game, candidate, testSeeds, gameSeconds, this.pausedOptions(options));
                     if (pausedTest.stopped) {
                         stopped = true;
                         break;
@@ -560,7 +602,7 @@ export class Trainer {
                         ...(liveOnly ? { liveOnly: true } : {}),
                         tests: [...best.tests, ...newTests],
                         results: this.resultsOf(evaluation, seeds, gameSeconds, paused, {
-                            ...(test ? { test: { ...test, seeds: testSeeds } } : {}),
+                            ...(test && !options.live ? { test: { ...test, seeds: testSeeds } } : {}),
                             ...(pausedTest ? { pausedTest: { ...pausedTest, seeds: testSeeds } } : {}),
                             random: floor,
                             ...lagPoints,
@@ -568,6 +610,11 @@ export class Trainer {
                     },
                     { activate: activate && !liveOnly }
                 );
+                // Not made active: the active version stays the one it was. With none set (a fresh library) the newest would
+                // be taken for it — this one, a version for Jev alone or from another.
+                if (!activate && activeBefore !== undefined && library.activeVersion(game.id) !== activeBefore) {
+                    library.setActive(game.id, activeBefore);
+                }
                 saved.push(kept.version);
                 history.push({
                     version: kept.version,
@@ -639,8 +686,11 @@ export class Trainer {
                 ? {
                     realtime: {
                         mean: Number(evaluation.result.mean.toFixed(2)),
-                        // Played at the lag points: a seed's score is the mean of its games there.
-                        scores: extra.points ? scoresBySeed(evaluation.result.episodes, seeds) : evaluation.result.episodes.map((e: EpisodeResult): number => e.score),
+                        // A seed played more than once (at the lag points, or live its games a seed): its score is the mean of its games.
+                        scores:
+                            evaluation.result.episodes.length > seeds.length
+                                ? scoresBySeed(evaluation.result.episodes, seeds)
+                                : evaluation.result.episodes.map((e: EpisodeResult): number => e.score),
                         ...(lags.length ? { lagMs: Math.round(mean(lags)) } : {}),
                         ...(extra.points ? { lagPoints: extra.points } : {}),
                         ...(test ? { test } : {}),
@@ -654,7 +704,7 @@ export class Trainer {
 
     /** The floor a version is measured from: a random action every decision, with its actions and timing, the clock paused. */
     private randomFloor(game: GameDefinition, profile: Profile, seeds: number[], gameSeconds: number, options: TrainOptions): Promise<Scores> {
-        return this.scoreOn(game, profile, seeds, gameSeconds, { ...options, realtime: false }, (seed: number): DecisionEngine => new RandomPlayer(seed));
+        return this.scoreOn(game, profile, seeds, gameSeconds, this.pausedOptions(options), (seed: number): DecisionEngine => new RandomPlayer(seed));
     }
 
     /**
@@ -687,8 +737,9 @@ export class Trainer {
             }
         };
         const runs: Array<{ seed: number; lag?: number }> = this.runsOf(seeds, options);
+        // Live games one at a time: side by side they slow each other.
         const results: PlayResult[] =
-            options.parallel === false
+            options.parallel === false || options.live !== undefined
                 ? await runs.reduce(
                     async (acc: Promise<PlayResult[]>, run: { seed: number; lag?: number }): Promise<PlayResult[]> => [...(await acc), await one(run)],
                     Promise.resolve([])
@@ -721,7 +772,7 @@ export class Trainer {
         options: TrainOptions
     ): Promise<Evaluation> {
         const { recordDir: _recordDir, ...rest } = options;
-        const paused: Evaluation = await this.evaluate(game, profile, seeds, gameSeconds, `${shots}-paused`, undefined, { ...rest, realtime: false });
+        const paused: Evaluation = await this.evaluate(game, profile, seeds, gameSeconds, `${shots}-paused`, undefined, this.pausedOptions(rest));
         this.log(options, `  ${label} with the clock paused: mean ${paused.result.mean.toFixed(1)} [${paused.result.episodes.map((e: EpisodeResult): number => e.score).join(", ")}]`);
         return paused;
     }
@@ -855,8 +906,9 @@ export class Trainer {
             }
         };
         const runs: Array<{ seed: number; lag?: number }> = this.runsOf(seeds, options);
+        // Live games one at a time: side by side they slow each other.
         const results: PlayResult[] =
-            options.parallel === false
+            options.parallel === false || options.live !== undefined
                 ? await runs.reduce(
                     async (acc: Promise<PlayResult[]>, run: { seed: number; lag?: number }, index: number): Promise<PlayResult[]> => [...(await acc), await one(run, index)],
                     Promise.resolve([])

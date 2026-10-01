@@ -22,18 +22,21 @@ import { GameDefinition, Perception, PlayConfig, Profile } from "../game/types";
 import { InvalidDefinitionError, MAX_EPISODES } from "../game/validate";
 import { defaultBuiltInDir, GameNotFoundError, GameSummary, Library, ProfileSummary } from "../library/store";
 import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../play/player";
-import { Distiller, DistillResult, TeacherKind } from "../distill/distiller";
+import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../distill/distiller";
 import { RulesTeacher } from "../distill/teacher";
+import { CheckGame, CheckReport } from "../improve/check";
+import { ImproveEngines, ImproveOutcome, ImproveResult, Improver, nothingToCheck } from "../improve/improve";
 import { askClaude, trainerHealth } from "../train/claude";
 import { checkLayaPython, LayaCheckpoint, layaPortHeldByOther, LayaPortHeldError, layaPortLockFile, refuseHeldLayaPort } from "../distill/laya-runtime";
 import { checkpointFor, checkpointProfileVersion, currentCheckpoints, LayaServers, LayaSetup } from "../distill/laya-play";
 import { PageReaderWriter, PROBE_BOOT_MS, ReaderProposal } from "../reader/page-reader";
 import { DecisionLog } from "../run/decision-log";
 import { playGame } from "../run/play";
-import { ProgressTracker } from "../run/progress";
-import { RunKind, RunRecord, RunStatus, RunStore, summarizeEpisode } from "../run/runs";
+import { ImproveTracker, LayaTrainingTracker, ProgressTracker } from "../run/progress";
+import { CheckSummary, RunKind, RunRecord, RunStatus, RunStore, summarizeEpisode } from "../run/runs";
 import { MAX_USER_NOTE_CHARS } from "../train/prompts";
-import { Decider, Trainer, TrainResult } from "../train/trainer";
+import { layaToTeach, trainFor, TrainForResult } from "../train/train-for";
+import { Decider, Trainer, TrainOptions, TrainResult } from "../train/trainer";
 import { bindHost, hostAllowed, originAllowed, reachableHost, requestPath, serveFile, serveVideo } from "./http-guards";
 import { LiveHub } from "./live-hub";
 
@@ -124,15 +127,22 @@ export interface DistillRequest {
     version?: number;
 }
 
+/**
+ * Train: the engine and clock chosen made to play better. With something to check (a version that clock plays, the engine
+ * able to play it): checked, fixed — or trained for a higher score when nothing loses —, checked again (src/improve/).
+ * With nothing to check yet: a training starts there (src/train/train-for.ts).
+ */
 export interface TrainRequest {
     gameId: string;
     iterations: number;
     gameSeconds?: number;
     engine: EngineKind;
-    /** For real time: the rules decide as a fast engine plays live, LIVE_LATENCY late, simulated on the paused clock. */
-    realtime?: boolean;
+    /** The clock running (real time): checked and trained live; with nothing to check yet, a first training for real time. */
+    live: boolean;
     /** Notes for the trainer: what the person saw the game played do, or wants it to do (told in its every prompt). */
     note?: string;
+    /** The version checked when no config pins one for that engine and clock: the one the person plays (the Profile select's). */
+    version?: number;
 }
 
 /** A training's notes for the trainer, as a request gives them: text, trimmed, at most MAX_USER_NOTE_CHARS; none when empty. */
@@ -469,8 +479,8 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
         if (laya && !checkpoint) {
             throw new Error(
                 request.version !== undefined && checkpoints.length
-                    ? `${game.name} v${request.version} has no Laya checkpoint: distill one first (ibgamer laya distill ${game.id} --profile-version ${request.version})`
-                    : `${game.name} has no Laya checkpoint yet: distill one first (ibgamer laya distill ${game.id})`
+                    ? `${game.name} v${request.version} has no Laya checkpoint: Train with Laya teaches it that version`
+                    : `${game.name} has no Laya checkpoint yet: Train with Laya teaches it`
             );
         }
         // A distillation in another process (the CLI) holds the port for hours: refused here, a 409 naming it, before a
@@ -579,20 +589,32 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
         return record;
     };
 
-    /** A training; one Jev would decide is started only when Jev is ready (runStarter checks it first). */
-    const startTrain: (request: TrainRequest) => RunRecord = (request: TrainRequest): RunRecord => {
+    /**
+     * Train with nothing to check yet (`nothingYet`, why): a training for the engine asked (src/train/train-for.ts) — Jev:
+     * its rules in words, Jev deciding; Rules (code): the rules as code; Laya: the rules as code, then Laya taught the
+     * version kept (or, Laya with no model of the version it plays, Laya taught that version alone); the clock running: a
+     * first training for real time. One Jev would decide is started only when Jev is ready (runStarter checks it first).
+     */
+    const startTraining: (request: TrainRequest, nothingYet: string) => RunRecord = (request: TrainRequest, nothingYet: string): RunRecord => {
         const game: GameDefinition = library.game(request.gameId);
         const decider: Decider = trainDecider(request.engine);
         const engine: DecisionEngine = engineFor(EngineKind.JEV);
         const start: Profile | undefined = library.profile(game.id);
         const gameSeconds: number = request.gameSeconds ?? game.budgets.trainSeconds ?? game.budgets.gameSeconds;
+        const forLaya: boolean = request.engine === EngineKind.LAYA;
+        const alone: number | undefined = forLaya ? layaToTeach(library, game, request.live) : undefined;
         const record: RunRecord = {
             id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
             kind: RunKind.TRAIN,
             gameId: game.id,
             gameName: game.name,
-            ...(start ? { version: start.version } : {}),
-            engine: decider === Decider.RULES ? `the profile's rules (for Laya)${request.realtime ? ", for real time" : ""}` : engine.label,
+            ...(alone !== undefined ? { version: alone } : start ? { version: start.version } : {}),
+            engine:
+                alone !== undefined
+                    ? `laya: learns v${alone}`
+                    : decider === Decider.RULES
+                        ? `the profile's rules${forLaya ? ", then Laya" : ""}${request.live ? ", for real time" : ""}`
+                        : engine.label,
             status: RunStatus.RUNNING,
             phase: "starting",
             startedAt: Date.now(),
@@ -600,7 +622,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 episodes: (game.trainSeeds ?? [101, 202, 303]).length,
                 gameSeconds,
                 iterations: request.iterations,
-                ...(request.realtime ? { realtime: true } : {}),
+                ...(request.live ? { realtime: true } : {}),
                 ...(request.note ? { note: request.note } : {}),
             },
             episodes: [],
@@ -610,74 +632,152 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
         const { abort, dir }: { abort: AbortController; dir: string } = begin(record);
         void (async (): Promise<void> => {
             const browsers: DevtoolsClient[] = [];
-            const tracker: ProgressTracker = new ProgressTracker(RunKind.TRAIN, { iterations: request.iterations, setup: !library.profile(game.id) });
+            const setup: boolean = !library.profile(game.id);
+            // A training for Laya follows two parts — the rules' training, Laya's lesson —, the others a training's stages.
+            const laya: LayaTrainingTracker | undefined = forLaya ? new LayaTrainingTracker({ iterations: request.iterations, setup, alone: alone !== undefined }) : undefined;
+            const plain: ProgressTracker | undefined = forLaya ? undefined : new ProgressTracker(RunKind.TRAIN, { iterations: request.iterations, setup });
             const progressed: () => void = (): void => {
-                record.progress = tracker.progress;
+                record.progress = (laya ?? (plain as ProgressTracker)).progress;
                 hub.broadcast({ type: "progress", id: record.id, progress: record.progress });
             };
             progressed();
+            const log: (line: string) => void = (line: string): void => {
+                record.log?.push(line);
+                hub.broadcast({ type: "log", id: record.id, line });
+                saveRecord(record);
+            };
+            const phase: (detail: string) => void = (detail: string): void => {
+                record.phase = detail;
+                hub.broadcast({ type: "phase", id: record.id, phase: detail });
+            };
+            log(`— nothing to check yet (${nothingYet}): a training`);
             try {
                 const handle: DaemonHandle = await starting(ensureRunDaemon());
-                const trainer: Trainer = new Trainer({
-                    library,
-                    engine,
-                    openBrowser: (): GameBrowser => {
-                        const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: handle.baseUrl });
-                        browsers.push(browser);
-                        return browser;
-                    },
-                    trainer: config.claude,
-                });
-                const result: TrainResult = await trainer.train({
-                    gameId: game.id,
-                    decider,
-                    iterations: request.iterations,
-                    gameSeconds,
-                    // For real time: as Laya plays live, simulated on the paused clock (every run the same), from the active version.
-                    ...(request.realtime ? { realtime: true, simulated: true, latency: LIVE_LATENCY } : {}),
-                    ...(request.note ? { note: request.note } : {}),
-                    workDir: join(dir, "work"),
-                    recordDir: dir,
-                    signal: abort.signal,
-                    hooks: {
-                        onLog: (line: string): void => {
-                            record.log?.push(line);
-                            hub.broadcast({ type: "log", id: record.id, line });
-                            tracker.onLog(line);
-                            progressed();
-                            saveRecord(record);
-                        },
-                        onPhase: (detail: string): void => {
-                            record.phase = detail;
-                            hub.broadcast({ type: "phase", id: record.id, phase: detail });
-                            tracker.onPhase(detail);
-                            progressed();
-                        },
-                        play: { onTick: onTick(record) },
-                        onEpisodeEnd: (result: EpisodeResult, version: number | undefined): void => {
-                            record.episodes.push(summarizeEpisode(result, version, dir));
-                            publish(record);
-                        },
-                        onSaved: (profile: Profile): void => {
-                            record.savedVersions?.push(profile.version);
-                            hub.broadcast({ type: "library" });
+                const openBrowser: () => GameBrowser = (): GameBrowser => {
+                    const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: handle.baseUrl });
+                    browsers.push(browser);
+                    return browser;
+                };
+                const result: TrainForResult = await trainFor(
+                    {
+                        library,
+                        train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine, openBrowser, trainer: config.claude }).train(o),
+                        distill: (o: DistillOptions): Promise<DistillResult> =>
+                            new Distiller({
+                                library,
+                                ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, work, signal),
+                                openBrowser,
+                                python: config.layaRuntime.python,
+                            }).distill(o),
+                        distillDefaults: { teacher: TeacherKind.RULES, minRows: 12_000, gameSeconds, parallel: 2, rounds: 1, studentGames: 2, epochs: 1, port: config.layaRuntime.port },
+                        beforeDistill: async (): Promise<void> => {
+                            // The Python there is now (`ibgamer laya setup` may have made one since the UI started); the UI's own
+                            // Laya server holds the port the distiller serves its student on.
+                            const python: { ok: boolean; detail: string } = await checkLayaPython(config.layaRuntime.python);
+                            if (!python.ok) {
+                                throw new Error(`${python.detail} (or set IBGAMER_LAYA_PYTHON)`);
+                            }
+                            await stopLaya();
                         },
                     },
-                });
-                record.mean = result.bestMean;
-                record.status = result.stopped ? RunStatus.STOPPED : RunStatus.DONE;
-                if (!result.stopped) {
-                    tracker.finish();
+                    {
+                        gameId: game.id,
+                        engine: request.engine,
+                        iterations: request.iterations,
+                        gameSeconds,
+                        ...(request.live ? { realtime: true } : {}),
+                        ...(request.note ? { note: request.note } : {}),
+                        workDir: join(dir, "work"),
+                        recordDir: dir,
+                        signal: abort.signal,
+                        hooks: {
+                            train: {
+                                onLog: (line: string): void => {
+                                    if (laya) {
+                                        laya.onTrainLog(line);
+                                    } else {
+                                        plain?.onLog(line);
+                                    }
+                                    progressed();
+                                    log(line);
+                                },
+                                onPhase: (detail: string): void => {
+                                    if (laya) {
+                                        laya.onTrainPhase(detail);
+                                    } else {
+                                        plain?.onPhase(detail);
+                                    }
+                                    progressed();
+                                    phase(detail);
+                                },
+                                play: { onTick: onTick(record) },
+                                onEpisodeEnd: (episode: EpisodeResult, version: number | undefined): void => {
+                                    record.episodes.push(summarizeEpisode(episode, version, dir));
+                                    publish(record);
+                                },
+                                onSaved: (profile: Profile): void => {
+                                    record.savedVersions?.push(profile.version);
+                                    hub.broadcast({ type: "library" });
+                                },
+                            },
+                            distill: {
+                                onLog: (line: string): void => {
+                                    laya?.onDistillLog(line);
+                                    progressed();
+                                    log(line);
+                                },
+                                onPhase: (detail: string): void => {
+                                    laya?.onDistillPhase(detail);
+                                    progressed();
+                                    phase(detail);
+                                },
+                                play: { onTick: onTick(record) },
+                            },
+                            onTeach: (version: number, learnsAlone: boolean): void => {
+                                laya?.onTeach(1);
+                                progressed();
+                                log(learnsAlone ? `— Laya has no model of v${version} yet: it learns that version` : `— Laya learns v${version}, the version kept`);
+                            },
+                        },
+                    }
+                );
+                const trained: TrainResult | undefined = result.trained;
+                const stopped: boolean = trained?.stopped === true || abort.signal.aborted;
+                record.mean = trained?.bestMean ?? result.taught?.result.student?.mean;
+                record.status = stopped ? RunStatus.STOPPED : RunStatus.DONE;
+                if (!stopped) {
+                    if (laya) {
+                        laya.finish(result.untaught);
+                    } else {
+                        plain?.finish();
+                    }
                     progressed();
                 }
                 // A best kept for real time only is not the one the paused clock plays: said so.
-                const bestLiveOnly: boolean = result.bestVersion !== undefined && library.profile(game.id, result.bestVersion)?.liveOnly === true;
-                record.phase = result.savedVersions.length
-                    ? `done: saved ${result.savedVersions.map((v: number): string => `v${v}`).join(", ")}; the best is v${result.bestVersion}${bestLiveOnly ? " (for real time only)" : ""}`
-                    : `done: no version beat v${result.bestVersion}`;
+                const bestLiveOnly: boolean = trained?.bestVersion !== undefined && library.profile(game.id, trained.bestVersion)?.liveOnly === true;
+                const what: string[] = [
+                    ...(trained
+                        ? [
+                            trained.savedVersions.length
+                                ? `saved ${trained.savedVersions.map((v: number): string => `v${v}`).join(", ")}; the best is v${trained.bestVersion}${bestLiveOnly ? " (for real time only)" : ""}`
+                                : `no version beat v${trained.bestVersion}`,
+                        ]
+                        : []),
+                    ...(result.taught
+                        ? [`Laya learnt v${result.taught.version}: ${result.taught.result.checkpoint.split("/").pop()}${result.taught.result.student ? ` — Laya ${result.taught.result.student.scores.join(", ")}` : ""}`]
+                        : []),
+                ];
+                record.phase = `done: ${what.join("; ")}`;
                 finish(record);
             } catch (err: unknown) {
-                finish(record, err);
+                if (abort.signal.aborted) {
+                    // A stopped distillation throws: stopped, as a stopped training shows, not failed.
+                    record.status = RunStatus.STOPPED;
+                    record.phase = "stopped";
+                    finish(record);
+                } else {
+                    finish(record, err);
+                }
             } finally {
                 await Promise.all(browsers.map((b: DevtoolsClient): Promise<void> => b.close()));
                 hub.broadcast({ type: "library" });
@@ -802,6 +902,193 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
     };
 
     /**
+     * Train with something to check (src/improve/): the engine on the clock checked; what loses fixed — Laya taught more,
+     * Jev's instructions or the rules trained —, else the version trained for a higher score; checked again, and kept only
+     * if it plays better.
+     */
+    const startCheckedTraining: (request: TrainRequest) => RunRecord = (request: TrainRequest): RunRecord => {
+        const game: GameDefinition = library.game(request.gameId);
+        const gameSeconds: number = request.gameSeconds ?? game.budgets.trainSeconds ?? game.budgets.gameSeconds;
+        const record: RunRecord = {
+            id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
+            kind: RunKind.TRAIN,
+            gameId: game.id,
+            gameName: game.name,
+            engine: `${request.engine}, the clock ${request.live ? "running" : "paused"}: checked`,
+            status: RunStatus.RUNNING,
+            phase: "starting",
+            startedAt: Date.now(),
+            settings: {
+                episodes: 0,
+                gameSeconds,
+                iterations: request.iterations,
+                ...(request.live ? { realtime: true } : {}),
+                ...(request.note ? { note: request.note } : {}),
+            },
+            episodes: [],
+            log: [],
+            savedVersions: [],
+            improve: { engine: request.engine, live: request.live },
+        };
+        const { abort, dir }: { abort: AbortController; dir: string } = begin(record);
+        void (async (): Promise<void> => {
+            const browsers: DevtoolsClient[] = [];
+            // What the run is doing, how much of it is done and how long the stage may take: its checks' games, the fix's stages.
+            const tracker: ImproveTracker = new ImproveTracker();
+            const progressed: () => void = (): void => {
+                record.progress = tracker.progress;
+                hub.broadcast({ type: "progress", id: record.id, progress: record.progress });
+            };
+            progressed();
+            const say: (line: string) => void = (line: string): void => {
+                record.log?.push(line);
+                hub.broadcast({ type: "log", id: record.id, line });
+                saveRecord(record);
+            };
+            /** A line of the fix's training or distillation: logged, and read by its stage tracker. */
+            const fixLine: (feed: (line: string) => void) => (line: string) => void =
+                (feed: (line: string) => void): ((line: string) => void) =>
+                    (line: string): void => {
+                        feed(line);
+                        progressed();
+                        say(line);
+                    };
+            const summary: (report: CheckReport) => CheckSummary = (report: CheckReport): CheckSummary => ({
+                verdict: report.verdict,
+                why: report.why,
+                version: report.version,
+                played: report.played.means,
+                ...(report.rules ? { rules: report.rules.means } : {}),
+                worseSeeds: report.worseSeeds,
+            });
+            try {
+                const handle: DaemonHandle = await starting(ensureRunDaemon());
+                const openBrowser: () => GameBrowser = (): GameBrowser => {
+                    const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: handle.baseUrl });
+                    browsers.push(browser);
+                    return browser;
+                };
+                const engines: ImproveEngines = {
+                    engineFor: async (kind: EngineKind, version: number | undefined): Promise<{ engine: DecisionEngine; profileVersion: number }> => {
+                        if (kind === EngineKind.LAYA) {
+                            const setup: LayaSetup = await (await layaServers()).engineFor(game.id, version);
+                            return { engine: setup.engine, profileVersion: setup.profileVersion };
+                        }
+                        const profile: Profile | undefined = library.profile(game.id, version);
+                        if (!profile) {
+                            throw new Error(`${game.name} has no profile yet: train it first`);
+                        }
+                        return { engine: kind === EngineKind.RULES ? new RulesTeacher(profile) : engineFor(EngineKind.JEV), profileVersion: profile.version };
+                    },
+                    // The UI's own Laya server holds the port a distillation serves its student on.
+                    release: stopLaya,
+                };
+                const result: ImproveResult = await new Improver({
+                    library,
+                    openBrowser,
+                    engines,
+                    train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine: engineFor(EngineKind.JEV), openBrowser, trainer: config.claude }).train(o),
+                    distill: (o: DistillOptions): Promise<DistillResult> =>
+                        new Distiller({
+                            library,
+                            ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, work, signal),
+                            openBrowser,
+                            python: config.layaRuntime.python,
+                        }).distill(o),
+                    distillDefaults: { teacher: TeacherKind.RULES, minRows: 12_000, gameSeconds, parallel: 2, epochs: 1, port: config.layaRuntime.port },
+                }).improve({
+                    gameId: game.id,
+                    engine: request.engine,
+                    live: request.live,
+                    iterations: request.iterations,
+                    ...(request.note ? { note: request.note } : {}),
+                    ...(request.version !== undefined ? { version: request.version } : {}),
+                    workDir: join(dir, "work"),
+                    signal: abort.signal,
+                    hooks: {
+                        onLog: say,
+                        onPhase: (detail: string): void => {
+                            record.phase = detail;
+                            hub.broadcast({ type: "phase", id: record.id, phase: detail });
+                            tracker.onPhase(detail);
+                            progressed();
+                            saveRecord(record);
+                        },
+                        onCheckStart: (when: "before" | "after", games: number): void => {
+                            tracker.onCheckStart(when, games);
+                            progressed();
+                        },
+                        onGame: (side: string, g: CheckGame): void => {
+                            tracker.onGame();
+                            progressed();
+                            say(`  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}${g.disagreements ? ` (${g.disagreements} decisions otherwise than the rules)` : ""}`);
+                        },
+                        onTick: onTick(record),
+                        onCheck: (when: "before" | "after", report: CheckReport): void => {
+                            record.improve = { engine: request.engine, live: request.live, ...record.improve, [when]: summary(report) };
+                            tracker.onCheck(when, report.verdict, report.why);
+                            progressed();
+                            publish(record);
+                        },
+                        train: {
+                            onLog: fixLine((line: string): void => tracker.onTrainLog(line)),
+                            onPhase: (detail: string): void => {
+                                tracker.onTrainPhase(detail);
+                                progressed();
+                            },
+                            play: { onTick: onTick(record) },
+                            onSaved: (profile: Profile): void => {
+                                record.savedVersions?.push(profile.version);
+                                hub.broadcast({ type: "library" });
+                            },
+                        },
+                        distill: {
+                            onLog: fixLine((line: string): void => tracker.onDistillLog(line)),
+                            onPhase: (detail: string): void => {
+                                tracker.onDistillPhase(detail);
+                                progressed();
+                                say(`— ${detail}`);
+                            },
+                            play: { onTick: onTick(record) },
+                        },
+                    },
+                });
+                record.improve = { engine: request.engine, live: request.live, ...record.improve, outcome: result.outcome, done: result.done };
+                tracker.finish(result.outcome);
+                progressed();
+                record.version = result.version;
+                // As it plays now: the check after the fix when it was kept, else the one before it.
+                const now: number[] = Object.values((result.outcome === ImproveOutcome.IMPROVED && result.after ? result.after : result.before).played.means);
+                if (now.length) {
+                    record.mean = Number((now.reduce((a: number, b: number): number => a + b, 0) / now.length).toFixed(1));
+                }
+                record.status = result.outcome === ImproveOutcome.STOPPED ? RunStatus.STOPPED : RunStatus.DONE;
+                record.phase = `${result.outcome}${result.done.length ? `: ${result.done.join("; ")}` : ""}`;
+                finish(record);
+            } catch (err: unknown) {
+                if (abort.signal.aborted) {
+                    // A stop part way (a distillation throws on one) is a stop: what the fix did is undone.
+                    record.status = RunStatus.STOPPED;
+                    record.phase = "stopped";
+                    finish(record);
+                } else {
+                    finish(record, err);
+                }
+            } finally {
+                await Promise.all(browsers.map((b: DevtoolsClient): Promise<void> => b.close()));
+                hub.broadcast({ type: "library" });
+            }
+        })().catch(escaped(record));
+        return record;
+    };
+
+    /** Train: checked and fixed when there is something to check, else a training starts there (why: in its log). */
+    const startTrain: (request: TrainRequest) => RunRecord = (request: TrainRequest): RunRecord => {
+        const nothingYet: string | undefined = nothingToCheck(library, library.game(request.gameId), request.engine, request.live, request.version);
+        return nothingYet !== undefined ? startTraining(request, nothingYet) : startCheckedTraining(request);
+    };
+
+    /**
      * The run a POST /api/runs asks for, read and checked but not begun: its every wait (Jev's health, for a training
      * Jev decides; Laya's Python, for a distillation) is here, so the run begins right after the one-run-at-a-time check,
      * with nothing awaited between.
@@ -844,24 +1131,42 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             if (!Object.values(EngineKind).includes(engine as EngineKind)) {
                 throw new Error(`engine must be one of ${Object.values(EngineKind).join(", ")}`);
             }
+            const version: number | undefined = versionOf(body.version);
             const request: TrainRequest = {
                 gameId: String(body.gameId ?? ""),
                 iterations: intIn(body.iterations, "iterations", 1, 20, 3),
                 ...(body.gameSeconds !== undefined && body.gameSeconds !== "" ? { gameSeconds: intIn(body.gameSeconds, "gameSeconds", 1, 3_600, 45) } : {}),
                 engine: engine as EngineKind,
-                ...(body.realtime === true ? { realtime: true } : {}),
+                // The clock chosen: running (`live`; `realtime`, a training for real time, says the same).
+                live: body.live === true || body.realtime === true,
+                ...(version !== undefined ? { version } : {}),
                 ...noteOf(body.note),
             };
             // A game that is not there is a 404 before any engine is looked at.
-            library.game(request.gameId);
+            const game: GameDefinition = library.game(request.gameId);
             // Real time is for an engine that answers in tens of ms: Jev's hundreds would train a profile for play no one offers.
-            if (request.realtime && trainDecider(request.engine) === Decider.ENGINE) {
+            if (request.live && trainDecider(request.engine) === Decider.ENGINE) {
                 throw new Error("Jev answers in hundreds of ms, and no game is played live with it: train for real time with Laya or Rules (code)");
             }
+            // A version asked for that the game does not have: refused here (a 400), not after the run began.
+            nothingToCheck(library, game, request.engine, request.live, request.version);
+            // For Laya, Laya learns on this machine (its Python, the port its student is served on); with no model of the
+            // version it plays yet, it learns that version alone — the trainer only for rules it has to write first. Anything
+            // to check needs the trainer: a fix may train.
+            const alone: number | undefined = request.engine === EngineKind.LAYA ? layaToTeach(library, game, request.live) : undefined;
+            if (request.engine === EngineKind.LAYA) {
+                const python: { ok: boolean; detail: string } = await checkLaya();
+                if (!python.ok) {
+                    throw new Error(`${python.detail} (or set IBGAMER_LAYA_PYTHON)`);
+                }
+                refuseHeldLayaPort(layaPortLockFile(library, config.layaRuntime.port), config.layaRuntime.port);
+            }
             // Without it a training would play every measuring game, then fail each tuning and end "done".
-            const trainer: EngineHealth = trainerHealth(config.claude);
-            if (!trainer.ok) {
-                throw new Error(`The trainer is not ready: ${trainer.detail}`);
+            if (alone === undefined || !library.profile(game.id, alone)?.teacher) {
+                const trainer: EngineHealth = trainerHealth(config.claude);
+                if (!trainer.ok) {
+                    throw new Error(`The trainer is not ready: ${trainer.detail}`);
+                }
             }
             // Jev deciding, a training without it would run its setup (minutes, tokens) and then fail every decision.
             if (trainDecider(request.engine) === Decider.ENGINE) {

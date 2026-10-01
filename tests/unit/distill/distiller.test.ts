@@ -40,6 +40,10 @@ interface Played {
     seed: number;
     lag?: { minMs: number; maxMs: number };
     engine: DecisionEngine;
+    pace: Pace;
+    minLagMs?: number;
+    startedAt: number;
+    endedAt?: number;
 }
 
 /** Records every game the player is asked to play (and plays it). */
@@ -47,8 +51,18 @@ function recordPlays(): Played[] {
     const played: Played[] = [];
     const play: Player["play"] = Player.prototype.play;
     jest.spyOn(Player.prototype, "play").mockImplementation(function (this: Player, options: PlayOptions): Promise<PlayResult> {
-        played.push({ seed: options.seeds?.[0] as number, ...(options.simulatedLag ? { lag: options.simulatedLag } : {}), engine: (this as any).engine as DecisionEngine });
-        return play.call(this, options);
+        const p: Played = {
+            seed: options.seeds?.[0] as number,
+            ...(options.simulatedLag ? { lag: options.simulatedLag } : {}),
+            engine: (this as any).engine as DecisionEngine,
+            pace: options.pace,
+            ...(options.minLagMs !== undefined ? { minLagMs: options.minLagMs } : {}),
+            startedAt: Date.now(),
+        };
+        played.push(p);
+        return play.call(this, options).finally((): void => {
+            p.endedAt = Date.now();
+        });
     });
     return played;
 }
@@ -346,6 +360,32 @@ describe("Distiller", (): void => {
         expect(result.laggedRows?.dagger).toBeGreaterThan(0);
         expect(JSON.parse(readFileSync(path.join(result.checkpoint, "distill.json"), "utf-8"))).toMatchObject({ lag, lagged: result.lagged, laggedRows: result.laggedRows });
     });
+
+    it("live, plays every round's Laya games with the clock running, one at a time, its inputs held to the floor: their rows keep the lag each decision was made at", async (): Promise<void> => {
+        const played: Played[] = recordPlays();
+        const tuned: Tuned[] = [];
+        const lines: string[] = [];
+        await distiller(tuned, { game: (): FakeGame => new RealtimeFakeGame() }).distill({
+            ...OPTIONS,
+            // Live games take their time: a second each.
+            gameSeconds: 1,
+            live: { minLagMs: 30 },
+            workDir: path.join(root, "work"),
+            hooks: { onLog: (l: string): number => lines.push(l) },
+        });
+        const studentGames: Played[] = played.filter((p: Played): boolean => p.seed >= 1_000_000);
+        expect(studentGames.map((p: Played): string => `${p.pace} ${p.minLagMs}`)).toEqual([`${Pace.REALTIME} 30`, `${Pace.REALTIME} 30`]);
+        expect(studentGames[1].startedAt).toBeGreaterThanOrEqual(studentGames[0].endedAt as number);
+        // The teacher's games and the profile's seeds as ever: paused.
+        expect(played.filter((p: Played): boolean => p.seed < 1_000_000).every((p: Played): boolean => p.pace === Pace.TURN && p.minLagMs === undefined)).toBe(true);
+        const daggerRows: Array<{ lag?: { minMs: number; maxMs: number } }> = readFileSync(tuned[1].trainOnly![0], "utf-8")
+            .trim()
+            .split("\n")
+            .map((l: string): { lag?: { minMs: number; maxMs: number } } => JSON.parse(l));
+        expect(daggerRows.length).toBeGreaterThan(0);
+        expect(daggerRows.every((r: { lag?: { minMs: number; maxMs: number } }): boolean => r.lag !== undefined && r.lag.minMs === r.lag.maxMs)).toBe(true);
+        expect(lines).toContainEqual(expect.stringMatching(/^ {2}Laya games \(live\): \d+\*?, \d+\*?$/));
+    }, 30_000);
 
     it("with a lag, on a version whose rows hold enough paused states (distilled before), plays lagged teacher's games until half the states wanted are made with it, and says what it reused", async (): Promise<void> => {
         library.saveProfile("fake-runner", { ...fakeProfile({ teacher: RIGHT, extractor: LAG_EXTRACTOR }), results: { mean: 30, scores: [30, 30], seeds: [1, 2], gameSeconds: 3, measuredAt: "x" } } as never);

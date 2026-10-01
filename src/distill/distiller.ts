@@ -127,6 +127,13 @@ export interface DistillOptions {
      * decide which checkpoint stays), then once more with the lag.
      */
     lag?: { minMs: number; maxMs: number };
+    /**
+     * Every DAgger round's student games played live — the clock running, for real — their inputs held to land no sooner
+     * than `minLagMs` (a lag-aware version's live floor): Laya corrected on the states it meets live, which a simulated lag
+     * does not make (there a decision's own time varies, and an action it decides a frame late can come too late). One game at a
+     * time: live games side by side slow each other. Each row keeps the lag its decision was made at.
+     */
+    live?: { minLagMs: number };
     workDir: string;
     signal?: AbortSignal;
     hooks?: { onLog?(line: string): void; onPhase?(detail: string): void; play?: PlayHooks };
@@ -754,20 +761,27 @@ export class Distiller {
             const visited: string = path.join(options.workDir, `student-r${round}.jsonl`);
             writeFileSync(visited, "");
             const seeds: number[] = Array.from({ length: options.studentGames }, (_: unknown, i: number): number => firstStudentSeed + (round - start) * 100 + i);
+            // Live, every game is (its rows keep the lag each decision was made at); else half are lagged, with a lag.
             const lags: Array<{ minMs: number; maxMs: number } | undefined> = seeds.map((_: number, i: number): { minMs: number; maxMs: number } | undefined =>
-                lag && laggedGame(round, i) ? lag : undefined
+                lag && !options.live && laggedGame(round, i) ? lag : undefined
             );
-            const played: PlayResult[] = await this.withStudent(game.id, checkpoint, options, (student: LayaEngine): Promise<PlayResult[]> => {
-                options.hooks?.onPhase?.(`round ${round}: Laya plays, the teacher labels what it saw`);
-                return Promise.all(
-                    seeds.map((s: number, i: number): Promise<PlayResult> =>
-                        this.play(game, learned, student, s, options, i === 0, (d: DecisionRecord): void => appendRow(visited, rowOf(d, lags[i])), lags[i])
-                    )
-                );
+            const live: { minLagMs: number } | undefined = options.live;
+            const played: PlayResult[] = await this.withStudent(game.id, checkpoint, options, async (student: LayaEngine): Promise<PlayResult[]> => {
+                options.hooks?.onPhase?.(`round ${round}: Laya plays${live ? " live" : ""}, the teacher labels what it saw`);
+                const one: (s: number, i: number) => Promise<PlayResult> = (s: number, i: number): Promise<PlayResult> =>
+                    this.play(game, learned, student, s, options, i === 0, (d: DecisionRecord): void => appendRow(visited, rowOf(d, lags[i])), lags[i], live?.minLagMs);
+                if (!live) {
+                    return Promise.all(seeds.map(one));
+                }
+                const results: PlayResult[] = [];
+                for (const [i, s] of seeds.entries()) {
+                    results.push(await one(s, i));
+                }
+                return results;
             });
             this.log(
                 options,
-                `  Laya games: ${played.map((r: PlayResult, i: number): string => `${r.episodes[0]?.score ?? "?"}${r.episodes[0]?.over ? "" : "*"}${lags[i] ? " (lagged)" : ""}`).join(", ")}`
+                `  Laya games${live ? " (live)" : ""}: ${played.map((r: PlayResult, i: number): string => `${r.episodes[0]?.score ?? "?"}${r.episodes[0]?.over ? "" : "*"}${lags[i] ? " (lagged)" : ""}`).join(", ")}`
             );
             const relabelled: Relabelled = await this.relabel(visited, daggerFile, label, options, skipped);
             this.log(options, `  the teacher labelled ${relabelled.added} states the student visited; it chose otherwise in ${relabelled.disagreed}`);
@@ -775,8 +789,9 @@ export class Distiller {
                 this.log(options, `  the teacher failed on ${relabelled.failed} more: left out (the first: ${relabelled.firstFailure})`);
             }
             const unlabelled: GameLabels | undefined = relabelled.lagged.find((g: GameLabels): boolean => g.failed * 2 > g.states);
-            if (lag && unlabelled) {
-                throw laggedUnlabelled(teacherLabel, `the student's lagged game ${unlabelled.seed ?? "?"}`, unlabelled, lag);
+            const playedLag: { minMs: number; maxMs: number } | undefined = live ? { minMs: live.minLagMs, maxMs: live.minLagMs } : lag;
+            if (playedLag && unlabelled) {
+                throw laggedUnlabelled(teacherLabel, `the student's ${live ? "live" : "lagged"} game ${unlabelled.seed ?? "?"}`, unlabelled, playedLag);
             }
             if (relabelled.added > 0 && relabelled.disagreed === 0) {
                 if (resumed && round === start && games > 0) {
@@ -1036,7 +1051,10 @@ export class Distiller {
         }
     }
 
-    /** One game on the paused clock; with `lag`, real time simulated on it (each decision lands that late, in game time). */
+    /**
+     * One game on the paused clock; with `lag`, real time simulated on it (each decision lands that late, in game time);
+     * with `liveMinLagMs`, live — the clock running, the inputs landing no sooner than that.
+     */
     private async play(
         game: GameDefinition,
         profile: Profile,
@@ -1045,7 +1063,8 @@ export class Distiller {
         options: DistillOptions,
         recorded: boolean,
         onDecision?: (d: DecisionRecord) => void,
-        lag?: { minMs: number; maxMs: number }
+        lag?: { minMs: number; maxMs: number },
+        liveMinLagMs?: number
     ): Promise<PlayResult> {
         const customScript: string | undefined = customScriptOf(this.deps.library, { game });
         const browser: GameBrowser = this.deps.openBrowser();
@@ -1056,8 +1075,8 @@ export class Distiller {
                 episodes: 1,
                 gameSeconds: options.gameSeconds,
                 seeds: [seed],
-                pace: Pace.TURN,
-                ...(lag ? { simulatedLag: lag } : {}),
+                pace: liveMinLagMs !== undefined ? Pace.REALTIME : Pace.TURN,
+                ...(liveMinLagMs !== undefined ? { minLagMs: liveMinLagMs } : lag ? { simulatedLag: lag } : {}),
                 ...(customScript ? { customScript } : {}),
                 ...(options.signal ? { signal: options.signal } : {}),
                 hooks: { ...(recorded ? options.hooks?.play : {}), ...(onDecision ? { onDecision } : {}) },

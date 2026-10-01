@@ -68,6 +68,19 @@ export interface RunRecord {
     savedVersions?: number[];
     /** Training and distillation: how far it has got (its stages, the current one's share, the time left). */
     progress?: RunProgress;
+    /** Train with something to check: the engine and clock, each check (before the fix, after it), the outcome and what was done. */
+    improve?: { engine: string; live: boolean; before?: CheckSummary; after?: CheckSummary; outcome?: string; done?: string[] };
+}
+
+/** A check as a run record keeps it: what it found, and the means per seed. */
+export interface CheckSummary {
+    verdict: string;
+    why: string;
+    version: number;
+    /** The engine's mean per seed, and the version's rules' on the same clock beside it. */
+    played: Record<string, number>;
+    rules?: Record<string, number>;
+    worseSeeds: number[];
 }
 
 /** A file's path in a run's directory, `/`-separated as the files route takes it; its name when the directory does not hold it. */

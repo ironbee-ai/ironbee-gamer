@@ -56,8 +56,8 @@ const PAUSE_ATTEMPTS: number = 4;
  * Every frozen game starts from the same wall-clock time (set just before its load: the page reads exactly
  * this as it loads). Timers that fire at fractional intervals (1000 / 60 ms) are summed onto the clock's
  * absolute time, and in floating point whether the 30th lands on 500 ms or just past it depended on the
- * time the page was opened at — a physics tick more or less in one run than the next (floppybird's bird,
- * a gravity step off). The session's first pause is at this moment too: a document's clock takes the first
+ * time the page was opened at — a physics tick more or less in one run than the next (a sprite a physics
+ * step off). The session's first pause is at this moment too: a document's clock takes the first
  * moment its log sets as its origin (`performance.timeOrigin`), so every session's is the same.
  */
 const GAME_EPOCH_MS: number = Date.UTC(2026, 0, 1);
@@ -539,7 +539,7 @@ async function _addGameScripts(page: Page, state: GamePageState, args: OpenReque
  * With the animation clock, the page's animation timeline is held still (DevTools: playback rate 0), so
  * an animation or transition the page starts does not move at all until game time moves it — else one
  * started inside a slice of game time ran in real time until it was taken over, and a short transition
- * could end there on a loaded machine and not on an idle one (floppybird's tilting bird). Without it,
+ * could end there on a loaded machine and not on an idle one (a sprite's tilt). Without it,
  * the timeline runs again.
  */
 async function _holdTimeline(page: Page, state: GamePageState, hold: boolean): Promise<void> {

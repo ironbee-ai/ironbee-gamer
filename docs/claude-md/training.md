@@ -24,11 +24,13 @@
   (`extractErrors`, the first in `firstExtractError`, both in the log and the evidence), not a failure —
   one read error per game once turned away a candidate playing 30 against 10; the prompts say so. This is the path to Laya: train
   with `rules`, then distil.
-  The UI trains with `rules` when Laya is the chosen engine, with `engine` when Jev is.
+  The UI trains with `rules` when Laya is the chosen engine, with `engine` when Jev is. The CLI's `train --no-check`
+  takes `--decider`; Train with something to check is docs/claude-md/improve.md.
 
-**For real-time play** (`realtime`, `latency`; CLI `--realtime --latency <ms | min-max>`; the UI's **For real
-time** box beside Train, and the add-a-game wizard's — Laya or Rules (code) only, refused for Jev, whose hundreds
-of ms no game is played live with): every game
+**For real-time play** (`realtime`, `latency`; CLI `train --no-check --realtime --latency <ms | min-max>`; the UI's
+Train with the clock running while the game is not played live yet — the setup checklist's **Train for real time**,
+and the add-a-game wizard's box — Laya or Rules (code) only, refused for Jev, whose hundreds of ms no game is played
+live with): every game
 is played with the clock never paused, the rules decider answering late as the engine that will play
 does. The UI trains simulated (below) at `LIVE_LATENCY` (45–60 ms: Laya's answer and the frame's step, held to
 its floor), from the active version — nobody picks a number. A range (`250-600` for a hosted engine) gives each game its own latency — from its seed — which
@@ -46,8 +48,12 @@ paused against 69.5 (measured in rows then, before the game's own points), the t
 lost the better live player. Training goes on from it, and a later candidate that plays both clocks
 well is kept and made active as ever. The live clock plays a live-only version (a built-in game's
 config pins it; a game with no configs earns it: docs/claude-md/adding-games.md), the active version
-the paused one; Distill teaches Laya the active version, the setup checklist's **⚡ Distill vN for live**
-the live one (`POST /api/runs` with `version`). Its `results` are the paused scores, with `results.realtime` beside them — the
+the paused one; a training for Laya teaches Laya the version kept — a live-only one with the lag —, the setup
+checklist's **⚡ Distill vN for live** the live one when it has no Laya yet (`POST /api/runs` with `version`).
+**For the engine chosen** (`trainFor`, src/train/train-for.ts; the UI's Train, `train --engine`): Jev — Jev
+deciding; Rules (code) — the rules deciding; Laya — the rules deciding, then a distillation of the version kept
+(none when training kept none); Laya with no model of the version it is to play (`layaToTeach`: the active one, for
+real time the one its live config pins) is taught that version alone, nothing trained. Its `results` are the paused scores, with `results.realtime` beside them — the
 unseen seeds' among them (`results.realtime.test`: training plays those in real time too, to decide) —
 and `results.test`, the unseen seeds with the clock paused, as every version has them: a kept version (and
 a starting one with no record yet) plays them once more paused, three quick games, for the record only
@@ -76,6 +82,13 @@ its own lag, `results.realtime.scores` hold a seed's mean over its points and `r
 points (ibgamer measure plays them again). Not with `--plan` (plans run on the wall clock). The tuner is told
 the lag the games are played at (`latency`, whatever decides) and that a decision comes every max(tickMs, lag):
 decideOn "change" and maxHoldMs count only with the clock paused.
+
+**Live, as played** (`live: { minLagMs, gamesPerSeed }`, with `realtime`, not `simulated`; Train's fix for the running
+clock — docs/claude-md/improve.md): every seed played `gamesPerSeed` times for real, one game at a time, the rules
+answering at once and the inputs held to `minLagMs` (the live floor) — as a live config plays them. A version loses
+live what simulated real time never shows (a decision's own time varies there); a version is measured over all those
+games (a seed's score their mean), the tuner told so (`realtimeRule`), the seeds it is never shown played paused (live
+games vary too much to hold a version to them) and recorded as `test`.
 
 **In plans** (`plan`; CLI `--plan <n>x<ms>`, with `--realtime`): the versions play in plan mode
 (docs/claude-md/playing.md) and keep `plan`; the rules answer each moment from its predicted state

@@ -519,21 +519,27 @@ function running() {
 }
 
 /**
- * The engine a training of the game shown is for: the one it was added for, else the one wanted for it (its config's,
- * or the one picked here; not a fallback the Engine select shows while that one cannot play), else the server's default.
+ * The engine a training of the game shown is for, as Play's: the one wanted for it — picked here, else the game's own (its
+ * config's, the one it was added for) —, not a fallback the Engine select shows while that one cannot play; else the
+ * server's default.
  */
 function trainEngine() {
-    return state.detail?.game?.preferredEngine || wantedEngine();
+    return wantedEngine();
+}
+
+/** Whether the clock chosen is the running one: Train checks and trains for it. */
+function liveChosen() {
+    return $("pace").value === "realtime";
 }
 
 /**
  * The engine a training is for, named while the Engine list shows another — a fallback, the one wanted not able to play —
- * for a game added for none (empty otherwise): picking the one shown (pickShown) trains for that one instead.
+ * (empty otherwise): picking the one shown (pickShown) trains for that one instead.
  */
 function trainNote() {
     const shown = $("engine").value;
     const engine = trainEngine();
-    if (state.detail?.game?.preferredEngine || !shown || !engine || engine === shown) {
+    if (!shown || !engine || engine === shown) {
         return "";
     }
     const whose = Object.hasOwn(state.status?.engines || {}, state.engineWanted ?? "") ? "the engine wanted here" : "the server's default engine";
@@ -541,11 +547,19 @@ function trainNote() {
 }
 
 /**
- * Why a training for `engine` cannot start, in words (empty: it can), from the status: the trainer rewrites the profile
- * (without its CLI every measuring game would be played, then each tuning fail); trained for Jev, Jev decides every
- * move — without it the training would run its setup, minutes of it, then fail every decision.
+ * Why a training for `engine` (`live`: with the clock running) cannot start, in words (empty: it can), from the status:
+ * the trainer rewrites the profile (without its CLI every measuring game would be played, then each tuning fail);
+ * trained for Jev, Jev decides every move — without it the training would run its setup, minutes of it, then fail every
+ * decision —, and never live: no game is played live with it.
  */
-function trainRefusal(engine) {
+function trainRefusal(engine, live = false) {
+    if (engine === "jev" && live) {
+        return "Jev is not played with the clock running: a decision takes it ~275 ms. Pick Laya or Rules (code) to train for real time.";
+    }
+    const python = state.status?.engines?.laya?.python;
+    if (engine === "laya" && python && !python.ok) {
+        return `Laya's Python is not ready (${python.detail}): a training for Laya teaches Laya on this machine.`;
+    }
     const trainer = state.status?.trainer;
     if (trainer && !trainer.ok) {
         return `The trainer is not ready (${trainer.detail}): a training has it rewrite the profile.`;
@@ -585,33 +599,19 @@ function playRefusal() {
 }
 
 const TRAIN_TITLE = $("train").title;
-const DISTILL_TITLE = $("distill").title;
-const TRAIN_LIVE_TITLE = $("train-live").closest("label").title;
-
-/** Whether Train trains for real time: asked for, and the training is not for Jev. */
-function liveTraining() {
-    return $("train-live").checked && !$("train-live").disabled;
-}
-
 function renderButtons() {
     const busy = running();
     const hasProfile = Boolean(state.detail?.active);
-    const refusal = trainRefusal(trainEngine());
+    // Train acts on the engine wanted and the clock chosen (Jev only paused).
+    const refusal = trainRefusal(trainEngine(), liveChosen());
     // Play asks for the engine chosen in the list: asked for none, the server would refuse the play.
     const noEngine = playRefusal();
-    const unready = hasProfile ? distillRefusal() : "";
     $("play").disabled = busy || !hasProfile || Boolean(noEngine);
     $("play").title = hasProfile ? noEngine : "";
     $("train").disabled = busy || !state.selected || Boolean(refusal);
     // Why not, else what a training does; and the engine it is for while the Engine list shows another.
     const note = trainNote();
     $("train").title = refusal ? [refusal, note].filter(Boolean).join(" ") : [note, TRAIN_TITLE].filter(Boolean).join(" ");
-    // Real time is trained for a fast engine (Laya, the rules): Jev answers in hundreds of ms, and no game is played live with it.
-    const jev = trainEngine() === "jev";
-    $("train-live").disabled = busy || !state.selected || jev;
-    $("train-live").closest("label").title = jev ? "A training for Jev: Jev answers in hundreds of ms, and no game is played live with it — pick Laya or Rules (code) to train for real time" : TRAIN_LIVE_TITLE;
-    $("distill").disabled = busy || !hasProfile || Boolean(unready);
-    $("distill").title = unready || DISTILL_TITLE;
     $("stop").hidden = !busy;
 }
 
@@ -633,9 +633,7 @@ function renderRun(run) {
     setPhase(`${run.gameName} — ${failure || run.phase}`, run.status === "running" ? "running" : run.status === "failed" ? "failed" : "");
     renderEpisodes(run);
     if (run.kind === "train" || run.kind === "distill") {
-        // A run that ended before its first line says why here too, not in the Episodes tab only.
-        const lines = [...(run.log || []), ...(run.status !== "running" && run.error ? [`✗ ${run.error}`] : [])];
-        $("train-log").textContent = lines.join("\n") || (run.status === "running" ? "Starting…" : run.phase);
+        $("train-log").textContent = trainLogText(run);
     }
     // Loading, the numbers of a game not shown yet stay out of the way; the first tick brings them.
     $("hud").hidden = run.status !== "running" || !$("screen-loading").hidden;
@@ -833,10 +831,10 @@ function connect() {
         const message = JSON.parse(event.data);
         if (message.type === "hello" || message.type === "run") {
             const hello = message.type === "hello";
-            // What the Laya server holds: a Laya play loads its checkpoint, a distillation stops the server; after a
-            // reconnect (the server may have restarted) it is asked again.
+            // What the Laya server holds: a Laya play loads its checkpoint, a distillation or a training (Laya taught, or its
+            // check played) stops the server; after a reconnect (the server may have restarted) it is asked again.
             const r = message.run;
-            if (r?.status === "running" && r.kind === "distill") {
+            if (r?.status === "running" && (r.kind === "distill" || r.kind === "train")) {
                 state.warmed = null;
             } else if (r?.status === "running" && r.kind === "play" && /^laya\b/.test(r.engine || "")) {
                 state.warmed = `${r.gameId}/${r.version ?? ""}`;
@@ -909,7 +907,7 @@ function connect() {
             onTick(message.tick);
         } else if (message.type === "log" && state.run?.id === message.id) {
             state.run.log = [...(state.run.log || []), message.line];
-            $("train-log").textContent = state.run.log.join("\n");
+            $("train-log").textContent = trainLogText(state.run);
             $("train-log").scrollTop = $("train-log").scrollHeight;
         } else if (message.type === "library") {
             loadGames().catch(() => {});
@@ -1010,6 +1008,8 @@ $("engine").addEventListener("keydown", (event) => {
 $("pace").addEventListener("change", () => {
     syncVersion();
     renderRules();
+    // Train acts on the clock chosen (Jev only paused).
+    renderButtons();
     // Another clock may pin another version, and so another checkpoint.
     warmLaya();
 });
@@ -1071,9 +1071,18 @@ function renderStarted(run) {
 $("train").addEventListener("click", async () => {
     // As Play: the engine wanted, never a fallback shown.
     rememberWanted();
-    // A game meant for Laya is trained with its rules deciding, even before it has a Laya model.
-    await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining(), trainerNotes());
+    await trainChosen();
 });
+
+/**
+ * Train with what is chosen above: the engine wanted, the clock, the version the Profile select plays (the engine shown
+ * being the one wanted: a fallback's is not its), Train iterations and the notes for the trainer.
+ */
+async function trainChosen() {
+    const engine = trainEngine();
+    const version = engine === $("engine").value ? Number($("version").value) || undefined : undefined;
+    await startTrain(engine, Number($("iterations").value) || 3, liveChosen(), trainerNotes(), version);
+}
 
 /** The notes for the trainer written beside Train: kept per game on this browser as they are typed. */
 function trainerNotes() {
@@ -1098,7 +1107,36 @@ $("iterations").addEventListener("keydown", (event) => {
     }
 });
 
-$("distill").addEventListener("click", () => startDistill());
+/**
+ * The Training tab's text for a run: a checked training's summary first (what it found and did), then the log — and a
+ * run that ended before its first line says why here too, not in the Episodes tab only.
+ */
+function trainLogText(run) {
+    const summary = run.improve ? [...checkSummary(run.improve), ""] : [];
+    const lines = [...summary, ...(run.log || []), ...(run.status !== "running" && run.error ? [`✗ ${run.error}`] : [])];
+    return lines.join("\n") || (run.status === "running" ? "Starting…" : run.phase);
+}
+
+/** A checked training in a few lines: each check (the engine's mean per seed, its rules' beside it), the outcome, what was done. */
+function checkSummary(improve) {
+    const seeds = (check) =>
+        Object.keys(check.played)
+            .map((s) => `${s}: ${check.played[s]}${check.rules?.[s] !== undefined ? ` (rules ${check.rules[s]})` : ""}`)
+            .join(", ");
+    const lines = [`Checked: ${improve.engine}, the clock ${improve.live ? "running" : "paused"}`];
+    if (improve.before) {
+        lines.push(
+            `  before (v${improve.before.version}): ${seeds(improve.before)} — ${improve.before.verdict === "nothing" ? "nothing played worse: trained for a higher score" : `to fix: ${improve.before.verdict === "rules" ? "the rules" : improve.engine}`}`
+        );
+    }
+    if (improve.after) {
+        lines.push(`  after (v${improve.after.version}): ${seeds(improve.after)}`);
+    }
+    if (improve.outcome) {
+        lines.push(`  ${improve.outcome}${improve.done?.length ? ` — ${improve.done.join("; ")}` : ""}`);
+    }
+    return lines;
+}
 
 /** A distillation of the game shown: of `version` (one the live clock plays), else of the active version. */
 async function startDistill(version) {
@@ -1762,7 +1800,7 @@ function renderProgress() {
     }
     const pct = Math.round(100 * (p.overall || 0));
     view.innerHTML = `
-        <div class="progress-head"><b>${run.kind === "train" ? "Training the rules" : "Teaching Laya"}</b>
+        <div class="progress-head"><b>${run.kind !== "train" ? "Teaching Laya" : run.improve ? `Training ${esc(engineLabel(run.improve.engine))}, the clock ${run.improve.live ? "running" : "paused"}` : /laya/.test(run.engine || "") ? "Training for Laya" : "Training the rules"}</b>
             <span class="muted">${run.status === "running" ? `${pct}%${p.eta ? ` · ${esc(p.eta)} left in this stage` : ""}` : esc(run.status)}</span></div>
         <div class="bar-track"><span style="width:${pct}%"></span></div>
         <ol class="stages">${p.stages
@@ -1797,10 +1835,10 @@ function renderSetup() {
     };
     // A training is not offered while the trainer, or Jev for one it decides, is not ready: the step says why instead —
     // and, as the Train button, the engine it is for while the Engine list shows another (trainNote).
-    const refusal = trainRefusal(engine);
+    const refusal = trainRefusal(engine, liveChosen());
     const trainWhy = [refusal, trainNote()].filter(Boolean).join(" ");
     if (run?.kind === "train") {
-        steps.push({ busy: true, text: `Training the rules · ${busyText(run)}`, progress: run.progress });
+        steps.push({ busy: true, text: `${run.improve ? "Training" : "Training the rules"} · ${busyText(run)}`, progress: run.progress });
     } else if (trained) {
         const a = d.active;
         steps.push({
@@ -1896,31 +1934,41 @@ $("setup").addEventListener("click", async (event) => {
         return;
     }
     if (button.dataset.setup === "train") {
-        // As the Train button: for the engine the game was added for, else the one chosen here — with its notes.
-        await startTrain(trainEngine(), Number($("iterations").value) || 3, liveTraining(), trainerNotes());
+        // As the Train button: the engine wanted, the clock and version chosen — with its notes.
+        rememberWanted();
+        await trainChosen();
     } else if (button.dataset.setup === "train-live") {
         await startTrain(trainEngine(), Number($("iterations").value) || 3, true, trainerNotes());
     } else if (button.dataset.setup === "distill-live") {
         await startDistill(offered("laya", true)?.version);
     } else if (button.dataset.setup === "distill") {
-        $("distill").click();
+        await startDistill();
     }
 });
 
 /**
- * A training for the game shown (`realtime`: for real time — the rules decide as Laya plays live; not for Jev, whose
- * hundreds of ms no game is played live with; `note`: told to the trainer in its every prompt).
+ * Train the game shown with `engine` (`live`: the clock running — not for Jev, whose hundreds of ms no game is played
+ * live with; `note`: told to the trainer in its every prompt; `version`: the one checked where no config pins one).
+ * With something to check the server checks it, fixes what loses (else trains for a higher score) and checks again;
+ * with nothing yet, it trains from there (a first version, Laya's first lesson of one, a first training for real time).
  */
-async function startTrain(engine, iterations, realtime = false, note = "") {
+async function startTrain(engine, iterations, live = false, note = "", version = undefined) {
     // Not offered while the trainer, or Jev for a training it decides, is not ready; the server refuses it too.
-    const refusal = trainRefusal(engine);
+    const refusal = trainRefusal(engine, live);
     if (refusal) {
         showError(new Error(refusal));
         return;
     }
     try {
-        const live = realtime && engine !== "jev" ? { realtime: true } : {};
-        const { run } = await api("POST", "/api/runs", { kind: "train", gameId: state.selected, iterations, engine, ...live, ...(note ? { note } : {}) });
+        const { run } = await api("POST", "/api/runs", {
+            kind: "train",
+            gameId: state.selected,
+            iterations,
+            engine,
+            live,
+            ...(version !== undefined ? { version } : {}),
+            ...(note ? { note } : {}),
+        });
         renderStarted(run);
         showTab("training");
     } catch (err) {

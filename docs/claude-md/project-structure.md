@@ -2,7 +2,7 @@
 
 ```
 src/
-  cli/main.ts               ibgamer: ui | play | train | probe | measure | check | library (list/show/activate/import/export/remove/games) | laya (setup/distill/eval/list/serve)
+  cli/main.ts               ibgamer: ui | play | train (--check-only, --no-check) | probe | measure | check | library (list/show/activate/import/export/remove/games) | laya (setup/distill/eval/list/serve)
   config/config.ts          env → GamerConfig (engine, daemon, UI 1986, ~/.ibgamer, trainer CLI); loadDotEnv
   engine/                   DecisionEngine interface; systemone.ts (the /v1/systemone client, retries), jev.ts, laya.ts
   net/http.ts               undici HTTP/2 keep-alive pool for the engine
@@ -28,6 +28,7 @@ src/
     sandbox.ts              Extractor / Predicate / Teacher in isolated V8 contexts
   train/
     trainer.ts              Trainer: setup (new game) + tuning iterations + windows + acceptance
+    train-for.ts            trainFor: a training for the engine chosen — Jev, the rules, or for Laya the rules then a distillation (layaToTeach: Laya alone when it has no model of its version)
     prompts.ts              setup and tune prompts
     regression.ts           offline regression tests over saved windows
     teacher-writer.ts       TeacherWriter: the trainer writes teach(state); checked (agreement, own play); saved as a version
@@ -37,6 +38,9 @@ src/
     teacher.ts              RulesTeacher: teach(state) standing where an engine stands (exploration, onLabel)
     laya-runtime.ts         the Python with Laya, checkpoints per game, serve.py / finetune.py processes
     laya-play.ts            LayaServers: one local server for the games played with Laya (UI, CLI)
+  improve/                  Train with something to check (docs/claude-md/improve.md)
+    check.ts                checkPlay: an engine on a clock beside its rules — the seeds each plays below its reference, the verdict, the divergences
+    improve.ts              Improver: check → the fix (Laya taught more, Jev's instructions or the rules trained; nothing losing: trained for a higher score) → check again → configs pinned, or undone; nothingToCheck: why a training starts there instead
   run/
     play.ts                 playGame (the custom perception script from the library)
     check.ts                checkReplay / firstDifference: a seed played twice, the first frame that differs (ibgamer check)

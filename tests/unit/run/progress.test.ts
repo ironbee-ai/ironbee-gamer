@@ -3,7 +3,7 @@
  * distiller print them.
  */
 
-import { ProgressTracker, RunProgress, StageState } from "../../../src/run/progress";
+import { ImproveTracker, LayaTrainingTracker, ProgressTracker, RunProgress, StageState } from "../../../src/run/progress";
 import { RunKind } from "../../../src/run/runs";
 
 function states(p: RunProgress): string {
@@ -156,5 +156,111 @@ describe("ProgressTracker", (): void => {
         t.onLog("v4-1a2b3c4d-r1 played better (mean 812.5): it stays, the new checkpoint is dropped");
         expect(states(t.progress)).toBe("dddsssc");
         expect(t.progress.results).toEqual(["v4-1a2b3c4d-r1 played better (mean 812.5): it stays, the new checkpoint is dropped"]);
+    });
+});
+
+describe("ImproveTracker", (): void => {
+    it("shows the check's games, the fix's own stages and the check after it, the bar never running back", (): void => {
+        let now: number = 0;
+        const tracker: ImproveTracker = new ImproveTracker((): number => now);
+        tracker.onCheckStart("before", 30);
+        for (let i: number = 0; i < 10; i++) {
+            now += 60_000;
+            tracker.onGame();
+        }
+        let p: RunProgress = tracker.progress;
+        expect(p.stages[0]).toEqual({ label: "Checking how it plays", state: StageState.CURRENT, detail: "10 of 30 games" });
+        expect(p.fraction).toBeCloseTo(1 / 3);
+        // Twenty games left at a minute each.
+        expect(p.eta).toBe("~20 min");
+        const atCheck: number = p.overall;
+
+        tracker.onCheck("before", "rules", "the rules play seed 202 below their record");
+        tracker.onPhase("training Infinite Mario v6 with its rules deciding for real time: the rules lose (4 iterations)");
+        tracker.onTrainPhase("measuring v6 on seeds 101, 202, 303");
+        p = tracker.progress;
+        expect(p.stages.map((s: { label: string }): string => s.label)).toEqual([
+            "Checking how it plays",
+            "Training: Measuring the profile",
+            "Training: Iteration 1/4",
+            "Training: Iteration 2/4",
+            "Training: Iteration 3/4",
+            "Training: Iteration 4/4",
+            "Checking again",
+        ]);
+        expect(p.stages[0].state).toBe(StageState.DONE);
+        expect(p.overall).toBeGreaterThanOrEqual(atCheck);
+        expect(p.results[0]).toBe("found: the rules play seed 202 below their record");
+
+        tracker.onCheckStart("after", 30);
+        p = tracker.progress;
+        expect(p.stages[p.stages.length - 1].state).toBe(StageState.CURRENT);
+        expect(p.overall).toBeGreaterThanOrEqual(0.8);
+
+        tracker.finish("improved");
+        p = tracker.progress;
+        expect(p.overall).toBe(1);
+        expect(p.results[p.results.length - 1]).toBe("improved");
+    });
+
+    it("with nothing playing worse, follows the training for a higher score; one that kept nothing has no check after it", (): void => {
+        const tracker: ImproveTracker = new ImproveTracker((): number => 0);
+        tracker.onCheckStart("before", 3);
+        tracker.onGame();
+        tracker.onGame();
+        tracker.onGame();
+        tracker.onCheck("before", "nothing", "");
+        tracker.onPhase("training Fake Runner v1 with its rules deciding: nothing plays worse, for a higher score (3 iterations)");
+        let p: RunProgress = tracker.progress;
+        expect(p.stages.map((s: { label: string }): string => s.label)).toContain("Training: Iteration 3/3");
+        expect(p.stages[p.stages.length - 1]).toEqual({ label: "Checking again", state: StageState.TODO });
+        expect(p.results).toEqual(["found: nothing played worse"]);
+        expect(p.overall).toBeLessThan(1);
+        tracker.finish("not improved");
+        p = tracker.progress;
+        expect(p.overall).toBe(1);
+        expect(p.stages[p.stages.length - 1]).toEqual({ label: "Checking again", state: StageState.SKIPPED, detail: "nothing new to check" });
+    });
+
+    it("follows a lesson's own stages when Laya is taught more", (): void => {
+        const tracker: ImproveTracker = new ImproveTracker((): number => 0);
+        tracker.onCheckStart("before", 6);
+        tracker.onCheck("before", "engine", "laya plays seed 101 below the rules");
+        tracker.onPhase("teaching Laya more live: 2 rounds where it plays and its rules say what they would do");
+        tracker.onDistillPhase("round 2: Laya plays, the teacher labels what it saw");
+        const p: RunProgress = tracker.progress;
+        expect(p.stages.some((s: { label: string; state: StageState }): boolean => s.label.startsWith("Laya: Laya plays, the teacher corrects") && s.state === StageState.CURRENT)).toBe(true);
+    });
+});
+
+describe("LayaTrainingTracker", (): void => {
+    it("shows the rules' training, then Laya's lesson of the version kept", (): void => {
+        const tracker: LayaTrainingTracker = new LayaTrainingTracker({ iterations: 2, alone: false }, (): number => 0);
+        tracker.onTrainPhase("measuring v6 on seeds 101, 202, 303");
+        let p: RunProgress = tracker.progress;
+        expect(p.stages.map((s: { label: string }): string => s.label)).toEqual([
+            "Training: Measuring the profile",
+            "Training: Iteration 1/2",
+            "Training: Iteration 2/2",
+            "Laya: learns the version kept",
+        ]);
+        expect(p.overall).toBeLessThan(0.6);
+        tracker.onTeach(1);
+        tracker.onDistillPhase("the teacher plays: 6000/12000 labelled states");
+        p = tracker.progress;
+        expect(p.stages.some((s: { label: string; state: StageState }): boolean => s.label === "Laya: The teacher plays" && s.state === StageState.CURRENT)).toBe(true);
+        expect(p.overall).toBeGreaterThanOrEqual(0.6);
+        tracker.finish();
+        expect(tracker.progress.overall).toBe(1);
+    });
+
+    it("says why Laya learnt nothing when no version was kept, and teaches alone when Laya has no model yet", (): void => {
+        const kept: LayaTrainingTracker = new LayaTrainingTracker({ iterations: 1, alone: false }, (): number => 0);
+        kept.finish("no version beat v6: Laya plays the version it learnt");
+        const last: { label: string; state: StageState; detail?: string } = kept.progress.stages[kept.progress.stages.length - 1];
+        expect(last).toEqual({ label: "Laya: learns the version kept", state: StageState.SKIPPED, detail: "no version beat v6: Laya plays the version it learnt" });
+
+        const alone: LayaTrainingTracker = new LayaTrainingTracker({ alone: true }, (): number => 0);
+        expect(alone.progress.stages.every((s: { label: string }): boolean => s.label.startsWith("Laya: "))).toBe(true);
     });
 });

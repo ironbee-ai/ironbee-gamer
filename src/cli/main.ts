@@ -12,12 +12,14 @@ import { DevtoolsClient, GameBrowser } from "../devtools/client";
 import { DaemonHandle, ensureDaemon, freePort } from "../devtools/daemon";
 import { Adapter, ProbeResult } from "../devtools/protocol";
 import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engine";
-import { LIVE_LATENCY, offeredConfig, playConfigs } from "../game/configs";
+import { LIVE_LATENCY, liveFloorMs, offeredConfig, playConfigs } from "../game/configs";
 import { GameDefinition, PlanConfig, PlayConfig, Profile, ProfileResults } from "../game/types";
 import { MAX_EPISODES } from "../game/validate";
+import { CheckGame, checkPlay, CheckReport, Divergence, LIVE_GAMES_PER_SEED, PAUSED_GAMES_PER_SEED, Verdict } from "../improve/check";
+import { ImproveEngines, ImproveResult, Improver, nothingToCheck } from "../improve/improve";
 import { defaultBuiltInDir, GameSummary, Library, ProfileSummary } from "../library/store";
 import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../play/player";
-import { Distiller, DistillResult, TeacherKind } from "../distill/distiller";
+import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../distill/distiller";
 import { RulesTeacher } from "../distill/teacher";
 import { askClaude, trainerHealth } from "../train/claude";
 import { MAX_USER_NOTE_CHARS } from "../train/prompts";
@@ -28,10 +30,11 @@ import { checkReplay, CheckResult } from "../run/check";
 import { measureVersion } from "../run/measure";
 import { customScriptOf, playGame } from "../run/play";
 import { startUiServer, UiServerHandle } from "../server/ui-server";
-import { Decider, Trainer, TrainResult } from "../train/trainer";
+import { trainFor, TrainForResult } from "../train/train-for";
+import { Decider, Trainer, TrainOptions, TrainResult } from "../train/trainer";
 
 import { ChildProcess, spawn } from "child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 
@@ -116,6 +119,12 @@ async function startDaemon(config: GamerConfig, headed: boolean | undefined): Pr
         headless: headed === true ? false : config.daemon.headless,
         ...(config.daemon.script ? { daemonScript: config.daemon.script } : {}),
     });
+}
+
+/** Laya's live config when it plays this version (or names none): another version's lag floor is not this one's. */
+function layaLiveConfigFor(game: GameDefinition, lib: Library, version: number): PlayConfig | undefined {
+    const config: PlayConfig | undefined = offeredConfig(playConfigs(game, lib.profiles(game.id)), EngineKind.LAYA, true);
+    return config && (config.version === undefined || config.version === version) ? config : undefined;
 }
 
 async function requireEngine(engine: DecisionEngine): Promise<void> {
@@ -263,123 +272,343 @@ program
         }
     );
 
-program
-    .command("train")
-    .description("Train a game's profile: play, let the trainer (Claude Code) rewrite it, keep a version only when it scores higher")
-    .argument("<game>", "game id")
-    .option("--iterations <n>", "tuning iterations", int("iterations", 1, 50), 3)
-    .option("--seconds <n>", "game time per training game", int("seconds", 1, 3_600))
-    .option("--seeds <list>", "comma-separated seeds every version is compared on")
-    .option("--sequential", "play an evaluation's games one after another (default: at once)")
-    .option("--decider <kind>", "what decides while training: engine (Jev reads the instructions) | rules (the profile's teach(state), instant; distil Laya afterwards)", "engine")
-    .option("--engine <kind>", `decision engine: ${Object.values(EngineKind).join(" | ")}`, engineKind)
-    .option("--work <dir>", "where the trainer's files go (default: a temporary directory)")
-    .option("--from <version>", "the version to start from (default: the active one; the versions kept are then not made active)", int("version", 1, 1_000_000))
-    .option("--realtime", "play every training game with the clock never paused, for real-time play (with --decider rules: the rules answer --latency late)")
-    .option(
-        "--latency <ms>",
-        `real time with --decider rules: how late the rules answer, as the engine that will play does — ms (35) or a range (250-600: each game somewhere in it, drifting) (default 30; --simulated: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, as Laya plays live)`,
-        latencyRange
-    )
-    .option(
-        "--simulated",
-        "with --realtime: simulate it on the paused clock — each decision lands --latency after its frame in game time — so every run gives the same result; over a range, each seed is played at its low end, middle and high end"
-    )
-    .option("--plan <n>x<ms>", "with --realtime, for a slow engine: one request decides the next n moments, ms apart (e.g. 8x50)", planConfig)
-    .option("--note <text>", `notes for the trainer — what you saw the game played do, or want it to do — told to it in every prompt (at most ${MAX_USER_NOTE_CHARS} characters; a version is still kept only on its scores)`, noteText)
-    .option("--headed", "show the browser windows")
-    .action(
-        async (
-            gameId: string,
-            opts: {
-                iterations: number;
-                note?: string;
-                seconds?: number;
-                seeds?: string;
-                sequential?: boolean;
-                decider: string;
-                engine?: EngineKind;
-                work?: string;
-                headed?: boolean;
-                realtime?: boolean;
-                latency?: { minMs: number; maxMs: number };
-                plan?: PlanConfig;
-                simulated?: boolean;
-                from?: number;
-            }
-        ): Promise<void> => {
-            const config: GamerConfig = loadConfig();
-            const lib: Library = library(config);
-            lib.game(gameId);
-            if (!Object.values(Decider).includes(opts.decider as Decider)) {
-                throw new Error(`--decider is ${Object.values(Decider).join(" or ")}`);
-            }
-            const decider: Decider = opts.decider as Decider;
-            if ((opts.engine ?? EngineKind.JEV) !== EngineKind.JEV) {
-                throw new Error("Training tunes the rules an engine reads (Jev), or the rules as code (--decider rules). Laya learns them with: ibgamer laya distill");
-            }
-            // Read before the daemon starts: a bad --seeds must not leave one behind (with its 6-hour checks).
-            const seeds: number[] | undefined = opts.seeds
-                ?.split(",")
-                .map((s: string): number => int("seed", 0, 2_147_483_646)(s.trim()));
-            // Without its CLI a training would play every measuring game (each move Jev's, unless the rules decide), then
-            // fail each tuning: refused before anything starts, as the UI refuses it.
-            const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
-            if (!trainer.ok) {
-                throw new Error(`The trainer is not ready: ${trainer.detail}`);
-            }
-            const engine: DecisionEngine = createEngine({ ...config.engine, kind: EngineKind.JEV });
-            if (decider === Decider.ENGINE) {
-                await requireEngine(engine);
-            }
-            const workDir: string = opts.work ? path.resolve(opts.work) : mkdtempSync(path.join(tmpdir(), `ibgamer-train-${gameId}-`));
-            const daemon: DaemonHandle = await startDaemon(config, opts.headed);
-            const browsers: DevtoolsClient[] = [];
-            const abort: AbortController = new AbortController();
-            process.once("SIGINT", (): void => abort.abort());
-            console.log(
-                `training ${gameId}: ${decider === Decider.RULES ? "the profile's rules (teach) play" : `${engine.label} plays`}${opts.realtime ? ", in real time" : ""}${opts.plan ? `, in plans of ${opts.plan.slots} × ${opts.plan.slotMs} ms` : ""}; trainer files in ${workDir}`
-            );
-            try {
-                const result: TrainResult = await new Trainer({
-                    library: lib,
-                    engine,
-                    openBrowser: (): GameBrowser => {
-                        const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: daemon.baseUrl });
-                        browsers.push(browser);
-                        return browser;
-                    },
-                    trainer: config.claude,
-                }).train({
-                    gameId,
+/** `ibgamer train`'s options. */
+interface TrainCliOptions {
+    engine?: EngineKind;
+    realtime?: boolean;
+    iterations?: number;
+    games?: number;
+    note?: string;
+    checkOnly?: boolean;
+    /** False with --no-check: the training alone, with the trainer's own options. */
+    check: boolean;
+    work?: string;
+    seconds?: number;
+    seeds?: string;
+    sequential?: boolean;
+    decider?: string;
+    from?: number;
+    latency?: { minMs: number; maxMs: number };
+    simulated?: boolean;
+    plan?: PlanConfig;
+    headed?: boolean;
+}
+
+/** The trainer's own options of `ibgamer train`, for a training without the check (--no-check) only. */
+const TRAINER_OPTIONS: Array<keyof TrainCliOptions> = ["seconds", "seeds", "sequential", "decider", "from", "latency", "simulated", "plan"];
+
+/** What teaching Laya needs from the CLI (src/train/train-for.ts, src/improve/): its rows, its port, its base model. */
+function distillBase(config: GamerConfig, game: GameDefinition, seconds: number | undefined): Omit<DistillOptions, "gameId" | "profileVersion" | "rounds" | "studentGames" | "resume" | "lag" | "live" | "workDir" | "signal" | "hooks"> {
+    return {
+        teacher: TeacherKind.RULES,
+        minRows: 12_000,
+        gameSeconds: seconds ?? game.budgets.trainSeconds ?? game.budgets.gameSeconds,
+        parallel: 2,
+        epochs: 1,
+        port: config.layaRuntime.port,
+        base: "multilingual",
+    };
+}
+
+/**
+ * A training without the check (src/train/train-for.ts): `--no-check`, with the trainer's own options — or, with nothing to
+ * check yet, Train's own (`forRealTime`: for real time as the UI trains for it, the rules LIVE_LATENCY late, simulated
+ * on the paused clock).
+ */
+async function trainUnchecked(config: GamerConfig, lib: Library, game: GameDefinition, kind: EngineKind, opts: TrainCliOptions, forRealTime: boolean): Promise<void> {
+    if (opts.decider !== undefined && !Object.values(Decider).includes(opts.decider as Decider)) {
+        throw new Error(`--decider is ${Object.values(Decider).join(" or ")}`);
+    }
+    // The engine it is trained for: Jev (its rules in words, or with --decider rules the rules as code), Rules (code),
+    // or Laya — the rules as code trained, then Laya taught the version kept.
+    const forLaya: boolean = kind === EngineKind.LAYA;
+    const decider: Decider = kind === EngineKind.JEV ? ((opts.decider ?? Decider.ENGINE) as Decider) : Decider.RULES;
+    if (forLaya) {
+        const python: { ok: boolean; detail: string } = await checkLayaPython(config.layaRuntime.python);
+        if (!python.ok) {
+            throw new Error(`${python.detail} (or point IBGAMER_LAYA_PYTHON at a Python that has it)`);
+        }
+    }
+    // Read before the daemon starts: a bad --seeds must not leave one behind (with its 6-hour checks).
+    const seeds: number[] | undefined = opts.seeds?.split(",").map((s: string): number => int("seed", 0, 2_147_483_646)(s.trim()));
+    // Without its CLI a training would play every measuring game (each move Jev's, unless the rules decide), then
+    // fail each tuning: refused before anything starts, as the UI refuses it.
+    const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
+    if (!trainer.ok) {
+        throw new Error(`The trainer is not ready: ${trainer.detail}`);
+    }
+    const engine: DecisionEngine = createEngine({ ...config.engine, kind: EngineKind.JEV });
+    if (decider === Decider.ENGINE) {
+        await requireEngine(engine);
+    }
+    const workDir: string = opts.work ? path.resolve(opts.work) : mkdtempSync(path.join(tmpdir(), `ibgamer-train-${game.id}-`));
+    const daemon: DaemonHandle = await startDaemon(config, opts.headed);
+    const browsers: DevtoolsClient[] = [];
+    const abort: AbortController = new AbortController();
+    process.once("SIGINT", (): void => abort.abort());
+    const realtime: boolean = forRealTime || opts.realtime === true;
+    console.log(
+        `training ${game.id}: ${decider === Decider.RULES ? "the profile's rules (teach) play" : `${engine.label} plays`}${realtime ? ", in real time" : ""}${opts.plan ? `, in plans of ${opts.plan.slots} × ${opts.plan.slotMs} ms` : ""}; trainer files in ${workDir}`
+    );
+    try {
+        const openBrowser: () => GameBrowser = (): GameBrowser => {
+            const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: daemon.baseUrl });
+            browsers.push(browser);
+            return browser;
+        };
+        const result: TrainForResult = await trainFor(
+            {
+                library: lib,
+                train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine, openBrowser, trainer: config.claude }).train(o),
+                distill: (o: DistillOptions): Promise<DistillResult> =>
+                    new Distiller({
+                        library: lib,
+                        ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, dir, signal),
+                        openBrowser,
+                        python: config.layaRuntime.python,
+                    }).distill(o),
+                distillDefaults: { ...distillBase(config, game, opts.seconds), rounds: 1, studentGames: 4 },
+            },
+            {
+                gameId: game.id,
+                engine: kind === EngineKind.JEV && decider === Decider.RULES ? EngineKind.RULES : kind,
+                iterations: opts.iterations ?? 3,
+                ...(forRealTime ? { realtime: true } : {}),
+                ...(opts.note ? { note: opts.note } : {}),
+                // The CLI's own: its real time as asked (the paused clock simulated, or the running one), seeds, plans, a start.
+                trainOptions: {
                     decider,
-                    iterations: opts.iterations,
                     ...(opts.seconds !== undefined ? { gameSeconds: opts.seconds } : {}),
                     ...(seeds ? { seeds } : {}),
                     parallel: !opts.sequential,
-                    ...(opts.realtime ? { realtime: true } : {}),
+                    ...(!forRealTime && opts.realtime ? { realtime: true } : {}),
                     ...(opts.latency !== undefined ? { latency: opts.latency } : {}),
                     ...(opts.plan ? { plan: opts.plan } : {}),
                     ...(opts.simulated ? { simulated: true } : {}),
                     ...(opts.from !== undefined ? { fromVersion: opts.from } : {}),
-                    ...(opts.note ? { note: opts.note } : {}),
-                    workDir,
-                    signal: abort.signal,
-                    hooks: {
-                        onLog: (line: string): void => console.log(line),
-                    },
-                });
-                console.log(
-                    result.savedVersions.length
-                        ? `saved ${result.savedVersions.map((v: number): string => `v${v}`).join(", ")}; best: v${result.bestVersion} (mean ${result.bestMean?.toFixed(1)}); active: v${lib.activeVersion(gameId)}`
-                        : `no new version beat v${result.bestVersion}`
-                );
-            } finally {
-                await Promise.all(browsers.map((b: DevtoolsClient): Promise<void> => b.close()));
-                await daemon.stop();
+                },
+                workDir,
+                signal: abort.signal,
+                hooks: {
+                    train: { onLog: (line: string): void => console.log(line) },
+                    distill: { onLog: (line: string): void => console.log(line), onPhase: (detail: string): void => console.log(`— ${detail}`) },
+                    onTeach: (version: number, alone: boolean): void => console.log(alone ? `Laya has no model of v${version} yet: it learns that version` : `Laya learns v${version}, the version kept`),
+                },
+            }
+        );
+        const trained: TrainResult | undefined = result.trained;
+        if (trained) {
+            console.log(
+                trained.savedVersions.length
+                    ? `saved ${trained.savedVersions.map((v: number): string => `v${v}`).join(", ")}; best: v${trained.bestVersion} (mean ${trained.bestMean?.toFixed(1)}); active: v${lib.activeVersion(game.id)}`
+                    : `no new version beat v${trained.bestVersion}`
+            );
+        }
+        if (result.taught) {
+            console.log(`Laya learnt v${result.taught.version}: ${result.taught.result.checkpoint}`);
+        } else if (result.untaught) {
+            console.log(`Laya: ${result.untaught}`);
+        }
+    } finally {
+        await Promise.all(browsers.map((b: DevtoolsClient): Promise<void> => b.close()));
+        await daemon.stop();
+    }
+}
+
+/**
+ * Train with something to check (src/improve/): checked; what loses fixed, else the version trained for a higher
+ * score; checked again, the change kept only if it plays better — or, --check-only, the check alone.
+ */
+async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinition, kind: EngineKind, live: boolean, opts: TrainCliOptions): Promise<void> {
+    // A fix may train (the trainer's CLI) or teach Laya (its Python): refused before anything starts, as the UI refuses it.
+    if (!opts.checkOnly) {
+        const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
+        if (!trainer.ok) {
+            throw new Error(`The trainer is not ready: ${trainer.detail}`);
+        }
+    }
+    if (kind === EngineKind.LAYA) {
+        const python: { ok: boolean; detail: string } = await checkLayaPython(config.layaRuntime.python);
+        if (!python.ok) {
+            throw new Error(`${python.detail} (or point IBGAMER_LAYA_PYTHON at a Python that has it)`);
+        }
+    }
+    const jev: DecisionEngine = createEngine({ ...config.engine, kind: EngineKind.JEV });
+    if (kind === EngineKind.JEV) {
+        await requireEngine(jev);
+    }
+    const layaServers: LayaServers | undefined = kind === EngineKind.LAYA ? new LayaServers(lib, config.layaRuntime.python, config.layaRuntime.port) : undefined;
+    const daemon: DaemonHandle = await startDaemon(config, opts.headed);
+    const browsers: DevtoolsClient[] = [];
+    const openBrowser: () => GameBrowser = (): GameBrowser => {
+        const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: daemon.baseUrl });
+        browsers.push(browser);
+        return browser;
+    };
+    const engines: ImproveEngines = {
+        engineFor: async (k: EngineKind, version: number | undefined): Promise<{ engine: DecisionEngine; profileVersion: number }> => {
+            if (k === EngineKind.LAYA && layaServers) {
+                const setup: LayaSetup = await layaServers.engineFor(game.id, version);
+                return { engine: setup.engine, profileVersion: setup.profileVersion };
+            }
+            const profile: Profile | undefined = lib.profile(game.id, version);
+            if (!profile) {
+                throw new Error(`${game.name} has no profile yet: ibgamer train ${game.id}`);
+            }
+            if (k === EngineKind.RULES && !profile.teacher) {
+                throw new Error(`${game.name} v${profile.version} has no rules as code`);
+            }
+            return { engine: k === EngineKind.RULES ? new RulesTeacher(profile) : jev, profileVersion: profile.version };
+        },
+        release: async (): Promise<void> => {
+            await layaServers?.stop();
+        },
+    };
+    const abort: AbortController = new AbortController();
+    process.once("SIGINT", (): void => abort.abort());
+    const printGame: (side: string, g: CheckGame) => void = (side: string, g: CheckGame): void => {
+        console.log(
+            `  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}, ${g.decisions} decisions` +
+                `${g.disagreements ? ` (${g.disagreements} otherwise than the rules)` : ""}`
+        );
+    };
+    const printWhere: (report: CheckReport) => void = (report: CheckReport): void => {
+        for (const g of report.played.games) {
+            if (g.divergences?.length) {
+                console.log(`  seed ${g.seed} (${g.score}): ${g.divergences.map((d: Divergence): string => `${d.atS} s${d.score !== undefined ? ` at ${d.score}` : ""} ${d.chose} (the rules: ${d.rules})`).join("; ")}`);
             }
         }
-    );
+    };
+    try {
+        if (opts.checkOnly) {
+            const played: PlayConfig | undefined = offeredConfig(playConfigs(game, lib.profiles(game.id)), kind, live);
+            const { engine, profileVersion }: { engine: DecisionEngine; profileVersion: number } = await engines.engineFor(kind, played?.version);
+            const profile: Profile = lib.profile(game.id, profileVersion) as Profile;
+            console.log(`${game.name} v${profile.version}, ${engine.label}, the clock ${live ? "running" : "paused"}:`);
+            const minLagMs: number | undefined = live ? liveFloorMs(profile, played?.version === profileVersion ? played : undefined) : undefined;
+            const report: CheckReport = await checkPlay(openBrowser, lib, {
+                game,
+                profile,
+                engine,
+                live,
+                ...(minLagMs !== undefined ? { minLagMs } : {}),
+                ...(opts.games !== undefined ? { gamesPerSeed: opts.games } : {}),
+                signal: abort.signal,
+                onGame: printGame,
+            });
+            console.log(`${report.verdict === Verdict.NOTHING ? "nothing plays worse" : `to fix: ${report.verdict === Verdict.RULES ? "the rules" : engine.label}`} — ${report.why}`);
+            printWhere(report);
+            return;
+        }
+        const say: (line: string) => void = (line: string): void => console.log(line);
+        // Beside the library, as the UI's runs are: Laya's checkpoint is kept aside there (a clone: the same volume), and
+        // moved back on an undo.
+        let workDir: string;
+        if (opts.work) {
+            workDir = path.resolve(opts.work);
+        } else {
+            mkdirSync(config.runsDir, { recursive: true });
+            workDir = mkdtempSync(path.join(config.runsDir, `train-${game.id}-`));
+        }
+        const result: ImproveResult = await new Improver({
+            library: lib,
+            openBrowser,
+            engines,
+            train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine: jev, openBrowser, trainer: config.claude }).train(o),
+            distill: (o: DistillOptions): Promise<DistillResult> =>
+                new Distiller({
+                    library: lib,
+                    ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, dir, signal),
+                    openBrowser,
+                    python: config.layaRuntime.python,
+                }).distill(o),
+            distillDefaults: distillBase(config, game, undefined),
+        }).improve({
+            gameId: game.id,
+            engine: kind,
+            live,
+            ...(opts.note ? { note: opts.note } : {}),
+            ...(opts.iterations !== undefined ? { iterations: opts.iterations } : {}),
+            ...(opts.games !== undefined ? { gamesPerSeed: opts.games } : {}),
+            workDir,
+            signal: abort.signal,
+            hooks: {
+                onLog: say,
+                onGame: printGame,
+                onCheck: (_when: "before" | "after", report: CheckReport): void => printWhere(report),
+                train: { onLog: say },
+                distill: { onLog: say, onPhase: (detail: string): void => say(`— ${detail}`) },
+            },
+        });
+        console.log(`${result.outcome}${result.done.length ? `:\n  ${result.done.join("\n  ")}` : ""}`);
+    } finally {
+        await Promise.all(browsers.map((b: DevtoolsClient): Promise<void> => b.close()));
+        await daemon.stop();
+        await layaServers?.stop();
+    }
+}
+
+program
+    .command("train")
+    .description(
+        "Make a game play better with an engine on a clock, as the UI's Train: it plays the game beside its rules, finds what loses — the engine or the rules — and fixes that (Laya taught more, Jev's instructions or the rules trained), else trains for a higher score; plays it again and keeps the change only if it plays better. With nothing to check yet (no version, Laya with no model of the version, a clock the game is not played on yet) it trains from there"
+    )
+    .argument("<game>", "game id")
+    .option("--engine <kind>", `the engine: ${Object.values(EngineKind).join(" | ")} (default: IBGAMER_ENGINE's)`, engineKind)
+    .option("--realtime", "with the clock running (default: paused); with --no-check, every training game played with the clock never paused")
+    .option("--iterations <n>", "the training's iterations (default 3; with something to check, 4 with the clock running, 2 for Jev)", int("iterations", 1, 50))
+    .option("--games <n>", `games a seed in a check (default: ${LIVE_GAMES_PER_SEED} with the clock running, ${PAUSED_GAMES_PER_SEED} paused)`, int("games", 1, 20))
+    .option("--note <text>", `notes for the trainer — what you saw the game played do, or want it to do — told to it in every prompt: the version is trained with them whatever the check finds (at most ${MAX_USER_NOTE_CHARS} characters; a version is still kept only on its scores)`, noteText)
+    .option("--check-only", "only the check: what loses, and where")
+    .option("--no-check", "only the training, no check before or after it: the trainer's own options below apply")
+    .option("--work <dir>", "where the training's files go (default: a temporary directory; with something to check, beside the runs)")
+    .option("--seconds <n>", "with --no-check: game time per training game", int("seconds", 1, 3_600))
+    .option("--seeds <list>", "with --no-check: comma-separated seeds every version is compared on")
+    .option("--sequential", "with --no-check: play an evaluation's games one after another (default: at once)")
+    .option("--decider <kind>", "with --no-check, for Jev: what decides while training: engine (Jev reads the instructions; default) | rules (the profile's teach(state), instant)")
+    .option("--from <version>", "with --no-check: the version to start from (default: the active one; the versions kept are then not made active)", int("version", 1, 1_000_000))
+    .option(
+        "--latency <ms>",
+        `with --no-check --realtime --decider rules: how late the rules answer, as the engine that will play does — ms (35) or a range (250-600: each game somewhere in it, drifting) (default 30; --simulated: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, as Laya plays live)`,
+        latencyRange
+    )
+    .option(
+        "--simulated",
+        "with --no-check --realtime: simulate it on the paused clock — each decision lands --latency after its frame in game time — so every run gives the same result; over a range, each seed is played at its low end, middle and high end"
+    )
+    .option("--plan <n>x<ms>", "with --no-check --realtime, for a slow engine: one request decides the next n moments, ms apart (e.g. 8x50)", planConfig)
+    .option("--headed", "show the browser windows")
+    .action(async (gameId: string, opts: TrainCliOptions): Promise<void> => {
+        const config: GamerConfig = loadConfig();
+        const lib: Library = library(config);
+        const game: GameDefinition = lib.game(gameId);
+        const kind: EngineKind = opts.engine ?? config.engine.kind;
+        if (!opts.check) {
+            if (opts.checkOnly || opts.games !== undefined) {
+                throw new Error(`--${opts.checkOnly ? "check-only" : "games"} is the check's: not with --no-check`);
+            }
+            await trainUnchecked(config, lib, game, kind, opts, false);
+            return;
+        }
+        const own: string[] = TRAINER_OPTIONS.filter((k: keyof TrainCliOptions): boolean => opts[k] !== undefined).map((k: keyof TrainCliOptions): string => `--${k}`);
+        if (own.length) {
+            throw new Error(`${own.join(", ")}: the trainer's own, for a training without the check (--no-check)`);
+        }
+        const live: boolean = opts.realtime === true;
+        if (live && kind === EngineKind.JEV) {
+            throw new Error("Jev is not played with the clock running: a decision takes it ~275 ms");
+        }
+        const nothingYet: string | undefined = nothingToCheck(lib, game, kind, live);
+        if (nothingYet !== undefined) {
+            if (opts.checkOnly) {
+                throw new Error(`Nothing to check yet: ${nothingYet}`);
+            }
+            console.log(`nothing to check yet (${nothingYet}): a training`);
+            await trainUnchecked(config, lib, game, kind, opts, live);
+            return;
+        }
+        await trainChecked(config, lib, game, kind, live, opts);
+    });
 
 program
     .command("probe")
@@ -494,6 +723,7 @@ layaCommand
         `for a lag-aware version: half the teacher's labelled states and half the student's games come from games simulating real time on the paused clock, each decision landing this late (ms, or a range 45-60) in game time; the profile's seeds are played paused, then once more with the lag (default for a lag-aware version: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, and with --resume the lag its checkpoint was distilled with; 0: none)`,
         latencyRange
     )
+    .option("--live", "the DAgger rounds' Laya games played live, the clock running, one at a time: Laya corrected on the states it meets in real time (its inputs held to the version's live lag)")
     .option("--work <dir>", "where the student's visited states go (default: a temporary directory)")
     .action(
         async (
@@ -513,6 +743,7 @@ layaCommand
                 device?: string;
                 pause: number;
                 lag?: { minMs: number; maxMs: number };
+                live?: boolean;
                 work?: string;
             }
         ): Promise<void> => {
@@ -575,6 +806,8 @@ layaCommand
                     // A version trained for real time learns its live states too, unless --lag says otherwise (0: none); a
                     // resume goes on with the lag its checkpoint was distilled with (the distiller reads its record).
                     ...(opts.lag ? { lag: opts.lag } : !opts.resume && learnt?.lagAware ? { lag: LIVE_LATENCY } : {}),
+                    // Live, the inputs held as Laya's live play holds them: its config's lag (a config for this version), else the version's floor.
+                    ...(opts.live && learnt ? { live: { minLagMs: liveFloorMs(learnt, layaLiveConfigFor(game, lib, learnt.version)) ?? 0 } } : {}),
                     workDir: opts.work ? path.resolve(opts.work) : mkdtempSync(path.join(tmpdir(), `ibgamer-distill-${gameId}-`)),
                     signal: abort.signal,
                     hooks: { onLog: (line: string): void => console.log(line), onPhase: (p: string): void => console.log(`— ${p}`) },

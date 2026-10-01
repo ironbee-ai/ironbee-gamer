@@ -68,7 +68,9 @@ into its weights through labelled states.
   `laya/finetune.py` from the base → DAgger rounds (the student plays `studentGames`, the teacher
   labels what it visited into `.dagger.jsonl`, fine-tuning CONTINUES from the previous round's
   checkpoint for `roundEpochs`; a student choice the teacher gives the highest probability is no
-  mistake, so a tie is not a hard row) → the student plays the profile's seeds one at a time (the
+  mistake, so a tie is not a hard row; `live` (`laya distill --live`, Train's fix for the running clock): every
+  round's student games played live, one at a time, the inputs held to the live floor, each row with the lag its
+  decision was made at — Laya corrected on the states it meets live, which a simulated lag does not make) → the student plays the profile's seeds one at a time (the
   decision time is a single game's), beside the profile's rules (its teacher, unless the engine taught
   it) and random play on the same games → `distill.json` beside the checkpoint `laya/v<N>-<hash>-r<k>`,
   with the rows the checkpoint was last fine-tuned on (`teacherRows`, `daggerRows`: the files' first
@@ -151,7 +153,8 @@ into its weights through labelled states.
 - **Distilling with a lag** (`lag`; CLI `laya distill --lag <ms | min-max>`, parsed as `play --lag`): for a
   lag-aware version, whose extractor computes time-critical features as of `info.lagMs` after the frame and
   whose inputs land live at the config's `lagMs` floor. A lag-aware version is distilled with
-  `LIVE_LATENCY` (45–60 ms) unless told otherwise — the UI's Distill always, the CLI when neither `--lag`
+  `LIVE_LATENCY` (45–60 ms) unless told otherwise — the UI's distillations (a training for Laya, the checklist's)
+  always, the CLI when neither `--lag`
   (`0`: none) nor `--resume` is given. A resume with no `--lag` goes on with the lag its checkpoint was
   distilled with (its record's `lag`), and the checkpoint it keeps records it — a plain `--resume` of Pac-Man's
   v4 once played its two rounds paused and saved a checkpoint with no lag. The 2026-09-30 Mario case below

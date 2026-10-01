@@ -3,7 +3,7 @@
  * first, on the window, capturing; the browser's own, not events the page dispatches itself): a step
  * waits until every input it sent has reached the page before it runs game time. The browser delivers
  * input on its own thread; on a loaded machine a key could arrive after the clock had run on, and the
- * same game started a frame later (floppybird's bird three pixels lower after the start).
+ * same game started a frame later (a sprite three pixels lower after the start).
  *
  * Pointer events, not mouse events: a page that cancels pointerdown gets no mousedown or mouseup. Each
  * document counts under its own id (`inputsDoc`): a page that loads another document counts from zero.

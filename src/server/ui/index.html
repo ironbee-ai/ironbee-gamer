@@ -44,12 +44,10 @@
                     </select>
                 </label>
                 <label>Train iterations <input id="iterations" type="number" min="1" max="20" value="3"></label>
-                <label class="check" title="For a game that does not wait: the rules decide as Laya plays live — each decision landing 45–60 ms after its frame, simulated on the paused clock, every seed played at 45, 53 and 60 ms — and a version is kept only if it plays no worse with the clock paused. Distill then teaches Laya its live states too, and the game is offered live once a version plays there nearly as well as paused. For Laya or Rules (code)."><input id="train-live" type="checkbox"> For real time</label>
-                <label class="note" title="Optional: what you saw it do, or want it to do. Told to the trainer in its every prompt, for Jev and Laya alike; a version is still kept only when it scores higher.">Notes for the trainer <textarea id="train-note" rows="2" maxlength="2000" placeholder="Optional — e.g. it never drops the long bar into the empty column on the right"></textarea></label>
+                <label class="note" title="Optional: what you saw it do, or want it to do. Told to the trainer in its every prompt, for Jev and Laya alike; a version is still kept only when it scores higher.">Notes for the trainer <textarea id="train-note" rows="2" maxlength="2000" placeholder="Optional — what you saw it do wrong, or want it to do"></textarea></label>
                 <div class="buttons">
                     <button type="submit" id="play">▶ Play</button>
-                    <button type="button" id="train" class="secondary" title="The trainer rewrites the profile from the games it plays; a version is kept only when it scores higher. Trained for the engine the game was added for, else the one wanted here: picked in the Engine list, not one the list shows while the one wanted cannot play (named first here then). For Jev, Jev plays them; for Laya or Rules (code), the profile's rules as code play them (fast), and Distill teaches Laya afterwards.">✦ Train</button>
-                    <button type="button" id="distill" class="secondary" title="The profile's rules as code teach, Laya learns (the trainer writes them first when the version has none): a local checkpoint that plays this game in tens of milliseconds">⚡ Distill to Laya</button>
+                    <button type="button" id="train" class="secondary" title="Make it play better with the engine and clock chosen above. It plays the game beside its rules and finds what loses — the engine or the rules — and fixes that: Laya taught more, Jev's instructions or the rules trained (the trainer, an LLM, rewrites them). With nothing losing, it trains for a higher score. Then it plays again and keeps the change only if it plays better. With nothing to play yet — a new game, Laya with no model of the version, a clock the game is not played on yet — it trains from there. Notes for the trainer, when written, are your own idea: the version is trained with them.">✦ Train</button>
                     <button type="button" id="stop" class="danger" hidden>■ Stop</button>
                 </div>
             </form>
@@ -165,7 +163,7 @@
                 <label class="field"><span>Id</span><input id="add-id" pattern="[a-z0-9][a-z0-9\-]*" placeholder="my-game"></label>
             </div>
             <label class="field"><span>How to play <small class="muted">the game's own instructions, as a player would read them: the trainer starts from these</small></span>
-                <textarea id="add-goal" rows="3" placeholder="Press Space to jump. Avoid the obstacles. Survive as long as possible."></textarea></label>
+                <textarea id="add-goal" rows="3" placeholder="The game's own words: its controls, its goal, what ends a game."></textarea></label>
             <div class="choices">
                 <label><input type="radio" name="add-score" value="state" checked> Let the trainer read the score and the end of a game from what it perceives</label>
                 <label><input type="radio" name="add-score" value="expression"> I know a page expression for it
