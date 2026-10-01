@@ -1,0 +1,181 @@
+{
+  "version": 6,
+  "createdAt": "2026-10-01T09:46:20.357Z",
+  "parent": 5,
+  "origin": "tuner",
+  "note": "Both losses (seed 303 at lag 45 and lag 60, score 8 at about 18.5 s) came from a bug in the extractor, not from the rules or the timing. The pipe that became the lead had the same gap as the pipe before it. The speed tracker matches pipes by gap only, so it treated the new lead as the old pipe and kept measuring from the old pipe's starting point. The speed it measured then crossed the 0.03 px/ms acceptance floor and was taken as the pipe speed, about 4x too slow. You can see it where msToPipe jumps 300 -> 1239 ms (lag 45) and 329 -> 1360 ms (lag 60) while pipeDx barely moves. The planner then thought the pipe was far away, dived, and hit its bottom lip. The lag-53 run had the same bad speed (0.06 px/ms) and got through by luck; every other game reached the 60 s cap with 38 points. The fix: the tracker now also remembers the lead pipe's position on the last frame. It treats the lead as the same pipe only if it moved left by a plausible step since then, and starts a new measurement otherwise. Nothing else changed. New tests check on both seed-303 death windows that msToPipe and msToClear match the distance at the game's real pipe speed.",
+  "extractor": "function extract(raw, memory, info) {\n  raw = raw || {}; memory = memory || {}; info = info || {};\n  var TICK = 16, G = 0.25, JUMP = -4.6, OFF = 12, PAD = 2, BIG = 1e9, DEAD = -1e9;\n  var H = 80, H_ANY = 60, CG = 190, S_UP = 1, S_DN = 1.2, SOFT = 10, SOFTPAD = 20, DISC = 0.05, AIM = 16, BUDGET = 30000, BUDGET_ANY = 20000;\n  var M_IN = 0.5, M_OUT = 0.5, WMIN = 17 - 4 * Math.sin(1);\n  var i, j, k, n;\n  function isNum(a) { return typeof a === 'number' && isFinite(a); }\n  function num(a, d) { return isNum(a) ? a : d; }\n  // running estimate that rises fast and falls slowly: about the 85th percentile of its samples\n  function upper(e, x) { return isNum(e) ? e + (x > e ? 0.3 : 0.05) * (x - e) : x; }\n  // tilted bird: [half height of the rotated box (ground test), half height and half width of the game's reduced hitbox (pipe test)]\n  function boxOf(v) {\n    var r = Math.abs(Math.min(v / 10 * 90, 90)), a = r * Math.PI / 180;\n    var bh = 34 * Math.sin(a) + 24 * Math.cos(a);\n    return [bh / 2, (24 + bh) / 4, 17 - 4 * Math.sin(r / 90)];\n  }\n  var screen = num(raw.screen, -1);\n  var ground = num(raw.ground, num(raw.height, 420));\n  var bird = raw.bird || {};\n  // the bird never moves sideways: average its centre to remove the rounding of its box\n  var cx = num(bird.x, 59) + num(bird.w, 36) / 2, cxm = memory.cxN >= 5 ? memory.cxS / memory.cxN : null;\n  if (screen === 1 && isNum(bird.x) && isNum(bird.w) && (cxm === null || Math.abs(cx - cxm) < 3)) {\n    memory.cxS = (memory.cxS || 0) + cx; memory.cxN = (memory.cxN || 0) + 1;\n    if (cxm !== null) cx = memory.cxS / memory.cxN;\n  }\n  var BL = cx - 17, BR = cx + 17;\n  var top = num(raw.top, num(bird.y, 200));\n  var v0 = num(raw.velocity, 0);\n  var lag = Math.max(0, num(info.lagMs, 0));\n  var now = isNum(info.nowMs) ? info.nowMs : (isNum(memory.lastNow) ? memory.lastNow + TICK : 0);\n  var live = screen === 1 && memory.lastScreen === 1 && isNum(memory.lastNow) && now > memory.lastNow;\n  // no game frame ran since the last frame shown (the game's 16.7 ms timer skips about one 16 ms tick in 25)\n  var skip = screen === 1 && memory.lastScreen === 1 && v0 === memory.lastV && top === memory.lastTop;\n\n  // game frame length: whole gravity steps (+0.25 each) over flap-free intervals, counting intervals with no frame\n  if (live && isNum(memory.lastV) && now - memory.lastNow <= 400) {\n    var frf = (v0 - memory.lastV) / G, fr = Math.round(frf);\n    if (memory.lastV > -3.5 && v0 > -4 && fr >= 0 && Math.abs(frf - fr) < 0.2) {\n      memory.fT = (memory.fT || 0) + now - memory.lastNow; memory.fN = (memory.fN || 0) + fr;\n    }\n  }\n  var FRAME = memory.fN >= 30 ? Math.min(18, Math.max(15, memory.fT / memory.fN)) : 1000 / 60;\n  // time to the next frame shown, measured apart after frames the engine was asked on (it flaps there and the next frame\n  // waits for it) and after frames it was not asked on (askWhen false: the next frame follows after one short step)\n  if (live) {\n    var dtD = Math.min(150, Math.max(4, now - memory.lastNow));\n    if (memory.lastAsk) memory.cA = upper(memory.cA, dtD); else memory.cU = upper(memory.cU, dtD);\n  }\n  var DECA = isNum(memory.cA) ? memory.cA : Math.max(TICK, lag);\n  var DECU = isNum(memory.cU) ? memory.cU : DECA;\n\n  var pipes = [], odd = [], list = Array.isArray(raw.pipes) ? raw.pipes : [];\n  for (i = 0; i < list.length; i++) {\n    var p = list[i];\n    if (!p || !isNum(p.x)) continue;\n    if (isNum(p.gapTop) && isNum(p.gapBottom)) pipes.push({ x: p.x, w: num(p.w, 52), gt: p.gapTop, gb: p.gapBottom });\n    else odd.push({ kind: 'pipe', x: p.x, y: num(p.y, 0), w: num(p.w, 52), h: num(p.h, ground) });\n  }\n  var known = { screen: 1, bird: 1, top: 1, velocity: 1, ground: 1, width: 1, height: 1, pipes: 1 };\n  for (var key in raw) {\n    if (known[key] || /cloud|star|score|digit|decor|sky|back|text|label|title|medal|best/i.test(key)) continue;\n    var val = raw[key], arr = Array.isArray(val) ? val : (val && typeof val === 'object' ? [val] : []);\n    for (i = 0; i < arr.length && i < 20; i++) {\n      var o = arr[i];\n      if (o && typeof o === 'object' && isNum(o.x)) odd.push({ kind: key, x: o.x, y: num(o.y, 0), w: num(o.w, num(o.width, 0)), h: num(o.h, num(o.height, 0)) });\n    }\n  }\n  var unk = null, unkN = 0;\n  for (i = 0; i < odd.length; i++) {\n    if (odd[i].x + odd[i].w < BL) continue;\n    unkN++;\n    if (!unk || odd[i].x < unk.x) unk = odd[i];\n  }\n  pipes.sort(function (a, b) { return a.x - b.x; });\n  // a pipe stays in play a little past the bird's tail: the game drops it only a frame after the bird has cleared it\n  var ahead = [];\n  for (i = 0; i < pipes.length; i++) if (pipes[i].x + pipes[i].w + 4 >= BL) ahead.push(pipes[i]);\n  var lead = ahead[0], sec = ahead[1];\n\n  // pipe speed (px/ms), measured on the leading pipe over the time since it became the lead. Consecutive pipes can share\n  // a gap: the lead counts as the same pipe only while it keeps moving left by a plausible step from the last frame\n  var speed = isNum(memory.speed) ? memory.speed : 1000 / 7500;\n  if (screen === 1 && lead) {\n    var tr = memory.track;\n    if (tr && tr.gt === lead.gt && tr.gb === lead.gb && isNum(tr.lx) && now >= tr.lt && lead.x <= tr.lx + 1 && tr.lx - lead.x <= 0.6 * (now - tr.lt) + 3) {\n      if (now - tr.t >= 200) { var sp = (tr.x - lead.x) / (now - tr.t); if (sp > 0.03 && sp < 0.6) speed = sp; }\n      memory.track = { gt: tr.gt, gb: tr.gb, x: tr.x, t: tr.t, lx: lead.x, lt: now };\n    } else memory.track = { gt: lead.gt, gb: lead.gb, x: lead.x, t: now, lx: lead.x, lt: now };\n  } else if (screen !== 1) memory.track = null;\n  memory.speed = speed;\n\n  // lookahead: memoised max-min search with alpha-beta bounds over the frames the flaps can land on\n  var hT = [], hB = [], nI = [], nO = [], sT = [], sB = [], tg = [], FA = [], EA = [], WA = [], FB = [], EB = [], WB = [];\n  var memoV = {}, memoT = {}, steps = 0, budget = BUDGET, enough = CG, hz = H, jit = false, gapA = 1, slot = [];\n  function clr(j, cy, e, fh, w) {\n    var c = ground - cy - fh;\n    if (c <= 0) return DEAD;\n    var bt = cy - e, bb = cy + e, x;\n    // the pipe is tested once the hitbox (half width w) reaches past its left edge, until a frame after it is past its right edge\n    if (hT[j] > -BIG && w > nI[j] && w >= nO[j]) {\n      x = bt - hT[j]; if (x <= 0) return DEAD; if (x < c) c = x;\n      x = hB[j] - bb; if (x <= 0) return DEAD; if (x < c) c = x;\n    }\n    x = Math.min(bt - sT[j], sB[j] - bb) + SOFTPAD;\n    if (x < c) c = x;\n    c += DISC * j;\n    return c > CG ? CG : (c < -150 ? -150 : c);\n  }\n  // best worst-case clearance from frame f + 1 on, exact inside (lo, hi), otherwise only a bound on that side\n  // (flap: a flap landed after frame f; else the bird coasts from now). The next flap can land after a slot frame c,\n  // at the earliest one engine time after the last flap. With jit it lands after c or after c + 1 and both must work,\n  // except with luck, where the better of the two counts\n  function run(f, y, flap, lo, hi, luck) {\n    var E = flap ? EB : EA, Fh = flap ? FB : FA, W = flap ? WB : WA, base = flap ? JUMP : v0;\n    var Y = [], M = [], cc = [], cs = [], ord = [], m = BIG, last = hz, minC = flap ? f + Math.max(1, gapA - 1) : f + 1;\n    var jj, nn, vv, c, a, r, x, fl, best;\n    for (jj = f + 1; jj <= hz; jj++) {\n      nn = flap ? jj - f : jj; vv = base + G * nn; y += vv; steps++;\n      c = clr(jj, y + OFF, E[nn], Fh[nn], W[nn]);\n      if (c === DEAD) { last = jj - 1; break; }\n      if (c < m) m = c;\n      if (y + OFF - E[nn] <= 0) y = 0;\n      Y[jj] = y; M[jj] = m;\n      if (slot[jj] === true && jj >= minC && jj < hz) { cc.push(jj); cs.push(Math.abs(y + OFF - tg[jj + 1] - AIM) + (vv < 0 ? 60 : 0)); }\n    }\n    best = last < hz ? last + 1 - 300 : (m >= BIG ? CG : m);\n    if (best >= hi || best >= enough) return best;\n    for (a = 0; a < cc.length; a++) ord.push(a);\n    ord.sort(function (p1, p2) { return cs[p1] - cs[p2]; });\n    for (a = 0; a < ord.length && steps <= budget; a++) {\n      c = cc[ord[a]]; fl = best > lo ? best : lo;\n      if (jit && !luck) {\n        // the worse of the two landing frames counts\n        if (c + 1 > last || M[c + 1] <= fl) continue;\n        r = V(c, Y[c], fl, M[c + 1]); if (r > M[c + 1]) r = M[c + 1];\n        if (r > fl) { x = V(c + 1, Y[c + 1], fl, r); if (x < r) r = x; }\n      } else {\n        // the flap lands after frame c (with luck: after c + 1 instead when that is better)\n        if (M[c] <= fl) continue;\n        r = V(c, Y[c], fl, M[c]); if (r > M[c]) r = M[c];\n        if (luck && c + 1 <= last && r < M[c + 1]) {\n          x = V(c + 1, Y[c + 1], r > fl ? r : fl, M[c + 1]); if (x > M[c + 1]) x = M[c + 1]; if (x > r) r = x;\n        }\n      }\n      if (r <= fl) continue;\n      best = r;\n      if (best >= hi || best >= enough) break;\n    }\n    return best;\n  }\n  function V(f, y, lo, hi) {\n    var mk = f * 4096 + Math.round(y) + 1024, t = memoT[mk], r;\n    if (t !== undefined) {\n      r = memoV[mk];\n      if (t === 0 || (t < 0 && r <= lo) || (t > 0 && r >= hi)) return r;\n    }\n    r = run(f, y, true, lo, hi, false);\n    if (r <= lo) { memoV[mk] = lo; memoT[mk] = -1; }\n    else { memoV[mk] = r; memoT[mk] = r >= hi ? 1 : 0; }\n    return r;\n  }\n  // frames 1..f0 run before this decision's flap can land, whatever is chosen now; returns\n  // [flap: worse landing, flap: better landing, wait, wait with the next flap on its better frame, clearance over frames 1..f0]\n  function roots(f0) {\n    var y = top, mPre = BIG, c, q, aE, aL, wR, wL, y1;\n    for (q = 1; q <= f0; q++) {\n      y += v0 + G * q;\n      c = clr(q, y + OFF, EA[q], FA[q], WA[q]);\n      if (c === DEAD) return [q - 300, q - 300, q - 300, q - 300, BIG];\n      if (c < mPre) mPre = c;\n      if (y + OFF - EA[q] <= 0) y = 0;\n    }\n    steps = 0; aE = V(f0, y, -BIG, BIG); aL = aE;\n    if (jit) {\n      // the flap may land a frame later: that frame still runs without it\n      q = f0 + 1; y1 = y + v0 + G * q;\n      c = clr(q, y1 + OFF, EA[q], FA[q], WA[q]);\n      if (c === DEAD) aL = q - 300;\n      else {\n        if (y1 + OFF - EA[q] <= 0) y1 = 0;\n        steps = 0; aL = Math.min(c, V(q, y1, -BIG, BIG));\n      }\n    }\n    steps = 0; wR = run(f0, y, false, -BIG, BIG, false); wL = wR;\n    if (jit && wR < -200) { steps = 0; wL = Math.max(wR, run(f0, y, false, -BIG, BIG, true)); }\n    return [Math.min(aE, aL), Math.max(aE, aL), wR, wL, mPre];\n  }\n  // one number per choice: sure (-150..190), a gamble on the landing frame (-199..-152), or a crash (-300 + its frame)\n  function score(rob, luc) {\n    if (rob > -200) return rob;\n    if (luc > -200) return -199 + (Math.min(36, luc) + 150) / 4;\n    return luc;\n  }\n\n  var sF = 0, sW = 0, pF = 0, pW = 0, dieF = false, dieW = false;\n  if (screen === 1) {\n    try {\n      var nA = Math.min(ahead.length, 4);\n      for (j = 0; j <= H; j++) {\n        // the game reads pipe positions from the last 16 ms page frame: entry is tested with the pipe half a frame on,\n        // removal with the pipe where it was one frame earlier (two after a skipped tick)\n        var tIn = (j - 0.5) * FRAME, tOut = ((j === 1 && skip) ? -2 : j - 2) * FRAME;\n        var ht = -BIG, hb = BIG, ni = BIG, no = BIG, st = -BIG, sb = BIG, first = true;\n        for (i = 0; i < nA; i++) {\n          var q = ahead[i], eOut = q.x - speed * tOut + q.w - PAD + M_OUT, eIn = q.x - speed * tIn - PAD - M_IN;\n          if (eOut < BL) continue;\n          if (first) {\n            first = false;\n            if (eIn < BR) { ht = q.gt; hb = q.gb; ni = eIn - cx; no = cx - eOut; if (ni < WMIN) continue; }\n          }\n          var d = Math.max(0, eIn - BR);\n          st = Math.max(st, q.gt - S_UP * d - SOFT);\n          sb = Math.min(sb, q.gb + S_DN * d + SOFT);\n        }\n        hT.push(ht); hB.push(hb); nI.push(ni); nO.push(no); sT.push(st); sB.push(sb);\n        tg.push(ht > -BIG ? (ht + hb) / 2 : (st > -BIG ? (Math.max(st, 40) + Math.min(sb, ground - 40)) / 2 : ground - 200));\n      }\n      for (n = 0; n <= H + 1; n++) {\n        var ba = boxOf(v0 + G * n), bf = boxOf(JUMP + G * n);\n        FA.push(ba[0]); EA.push(ba[1]); WA.push(ba[2]); FB.push(bf[0]); EB.push(bf[1]); WB.push(bf[2]);\n      }\n      // a flap lands lagMs after its frame: after frame floor(lag / FRAME) or one frame later, independently for every flap.\n      // Not flapping now leaves the next chance to the next frame shown (one short step on, as no decision is asked there)\n      // and to every frame after it; after a flap the next frame comes only one engine time later\n      var xL = lag / FRAME, dA = lag > 0 ? Math.max(1, DECA / FRAME) : 1, dU = lag > 0 ? Math.max(1, DECU / FRAME) : 1;\n      var f0 = Math.min(20, Math.floor(xL)), g, rr, mp;\n      jit = lag > 0; gapA = Math.max(1, Math.floor(dA + 0.2));\n      for (k = 1; k < 400; k++) {\n        g = Math.floor(xL + k * dU); if (g >= H) break;\n        // far flaps are replanned many times before they land: thin them out\n        if (g > f0 && (dU >= 2 || g <= 36 || (g <= 60 ? g % 2 === 0 : g % 3 === 0))) slot[g] = true;\n      }\n      rr = roots(f0); mp = rr[4];\n      sF = score(Math.min(mp, rr[0]), Math.min(mp, rr[1]));\n      sW = score(Math.min(mp, rr[2]), Math.min(mp, rr[3]));\n      // tie-break: the same ratings without the frames both choices share\n      pF = score(rr[0], rr[1]); pW = score(rr[2], rr[3]);\n      // a certain crash: no way through even if every later flap could land on any frame\n      dieF = sF < -200; dieW = sW < -200;\n      if (dieF || dieW) {\n        slot = [];\n        for (j = 1; j < H_ANY; j++) slot[j] = j <= 10 || (j <= 30 ? j % 2 === 0 : j % 3 === 0);\n        jit = false; gapA = 1; hz = H_ANY; budget = BUDGET_ANY; enough = -200; memoV = {}; memoT = {};\n        rr = roots(lag > 0 ? Math.min(20, Math.round(lag / FRAME)) : 0);\n        dieF = dieF && Math.min(rr[4], rr[0]) < -200; dieW = dieW && Math.min(rr[4], rr[2]) < -200;\n      }\n    } catch (err) { sF = 0; sW = 0; pF = 0; pW = 0; dieF = false; dieW = false; }\n  }\n\n  var b0 = boxOf(v0), cy0 = top + OFF, bt0 = cy0 - b0[1], bb0 = cy0 + b0[1];\n  var rF = Math.round(sF), rW = Math.round(sW), dl = pF - pW;\n  var effect = screen !== 1 ? 'same' : (rF > rW ? 'moreRoom' : (rF < rW ? 'lessRoom' : (dl > 0.5 ? 'moreRoom' : (dl < -0.5 ? 'lessRoom' : 'same'))));\n  memory.lastNow = now; memory.lastV = v0; memory.lastTop = top; memory.lastScreen = screen;\n  // the same test as askWhen: the engine is asked (and flaps) only on these frames\n  memory.lastAsk = screen !== 1 || effect === 'moreRoom';\n  return {\n    over: screen === 2,\n    playing: screen === 1,\n    birdY: Math.round(cy0),\n    vel: Math.round(v0 * 10) / 10,\n    roomToGround: Math.round(ground - cy0 - b0[0]),\n    pipeDx: lead ? Math.round(lead.x - BR) : null,\n    inPipe: lead ? lead.x - PAD < BR : false,\n    roomAbove: lead ? Math.round(bt0 - lead.gt) : null,\n    roomBelow: lead ? Math.round(lead.gb - bb0) : null,\n    msToPipe: lead ? Math.round(Math.max(0, lead.x - PAD - BR) / speed) : null,\n    msToClear: lead ? Math.round(Math.max(0, lead.x + lead.w - PAD - BL) / speed) : null,\n    nextGapShift: lead && sec ? Math.round((sec.gt + sec.gb - lead.gt - lead.gb) / 2) : null,\n    marginIfFlap: rF,\n    marginIfWait: rW,\n    flapEffect: effect,\n    crashIfFlap: screen === 1 && dieF,\n    crashIfWait: screen === 1 && dieW,\n    unknownThing: unk ? { kind: String(unk.kind).slice(0, 16), dx: Math.round(unk.x - BR), y: Math.round(unk.y), w: Math.round(unk.w), h: Math.round(unk.h), count: unkN } : null\n  };\n}",
+  "instructions": "Play the game well. Flappy Bird. Press Space (or click) to flap: the bird jumps up, then gravity pulls it down. Fly through the gaps between the pipes without touching a pipe or the ground. One point for every pipe passed.\nRule: if over is true: wait. If playing is false (splash screen): flap to start. Otherwise flap when flapEffect is \"moreRoom\", and wait when it is \"lessRoom\" or \"same\". On a tie waiting is better, because it keeps the chance to flap on the very next frame. You are asked only on frames where playing is false or flapEffect is \"moreRoom\"; on all other frames the game goes on without a flap.\nflapEffect compares marginIfFlap with marginIfWait: \"moreRoom\" when marginIfFlap is higher, \"lessRoom\" when it is lower. When the two are equal it compares the same ratings counted only from the frame this decision's flap could land (leaving out the frames both choices share), and it is \"same\" only when those agree too.\nmarginIfFlap and marginIfWait rate flapping now and not flapping now over the next ~1.3 s (80 frames). The game does not wait for decisions. A flap chosen now lands about lagMs later (3-4 frames), on one of two consecutive frames that cannot be told apart in advance. Not flapping now leaves the next chance to the next frame shown. Because no decision is asked on that frame, it comes after one short step (measured, usually about one game frame). After a flap, the next frame comes only after the decision time (another 3-4 frames). Later flaps are timed as well as possible on those frames, and each must work on both of its possible landing frames. Each rating falls in one of three bands, and a higher band always wins:\n- -150 to 190 (sure): the bird gets through whichever of its two frames every flap lands on. The number is the smallest clearance in px it can guarantee. Clearance is measured to the gap edges while the game tests a pipe (from when the bird's tilted hitbox reaches the pipe's left edge until one frame after it is past the right edge), to the ground, and to a guide band around the upcoming gaps that widens with distance. A negative value only means outside the guide band. Capped at 190.\n- -199 to -152 (gamble): the bird gets through only if the first flap lands on the better of its two frames (for marginIfFlap this decision's flap, for marginIfWait the next one). Higher means more room in that lucky case.\n- below -200 (crash): a crash even with that luck; less negative means the crash comes later.\ncrashIfFlap / crashIfWait are true only when the crash could not be avoided even if every later flap could land on any frame (a certain crash).\nThe other fields are context. birdY is the bird's centre (px, y down). vel is px per 60 Hz frame (+ is down). roomToGround is the px left above the ground. pipeDx / msToPipe are the distance and time (at the pipe speed measured on the leading pipe) until the bird's front enters the next pipe (inPipe is true while inside it). msToClear is the time until the bird is past that pipe. roomAbove / roomBelow are the px between the bird's hitbox and that gap's top and bottom edges. nextGapShift is how much lower (+) or higher (-) the following gap is. unknownThing is an unrecognised object ahead; treat it as an obstacle.",
+  "actions": [
+    {
+      "id": "flap",
+      "description": "Click once: the bird jumps (velocity set to -4.6 px/frame, rising about 40 px over the next 0.3 s before falling again). The flap lands 3-4 frames after the frame it was decided on, on one of two consecutive frames. On the splash screen this starts the game.",
+      "click": true
+    },
+    {
+      "id": "wait",
+      "description": "Do nothing now. Gravity keeps pulling the bird down (+0.25 px/frame each frame); the next chance to flap comes with the next frame shown.",
+      "keys": []
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 16,
+  "maxHoldMs": 200,
+  "askWhen": "!state.playing || state.flapEffect === 'moreRoom'",
+  "teacher": "function teach(state) {\n  if (!state || state.over) return 'wait';\n  if (!state.playing) return 'flap';\n  return state.flapEffect === 'moreRoom' ? 'flap' : 'wait';\n}",
+  "lagAware": true,
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": [
+        62,
+        63,
+        64
+      ],
+      "expect": "state.crashIfWait === false || state.crashIfFlap === false",
+      "why": "Frames around v1 t=98-100: the bird is high after the 92-182 gap and the 212-302 gap is 0.6-0.75 s away. It can survive by diving and then flapping at the right frame, but the 6-frame planner reported a certain crash with both actions. Frame-level planning must find a way through."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": [
+        57,
+        58,
+        59
+      ],
+      "expect": "state.crashIfWait === false || state.crashIfFlap === false",
+      "why": "Frames around v1 t=129-131: dropping into the 156-246 gap is possible if the flap comes at the right frame (~frame 18). v1 flickered between crash and alive here. The new planner must see that the bird can survive."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": [
+        64,
+        65,
+        66
+      ],
+      "expect": "state.crashIfWait === false",
+      "why": "Frames around v1 t=601-603, inside the 241-331 gap: holding off and flapping a few frames later keeps 5-10 px of clearance. v1's 6-frame grid called waiting a crash, and the game was lost two ticks later."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || (state.flapEffect === 'moreRoom' ? state.marginIfFlap >= state.marginIfWait : state.flapEffect === 'lessRoom' ? state.marginIfFlap <= state.marginIfWait : state.flapEffect === 'same')",
+      "why": "The categorical flapEffect field that the rule reads must always exist and agree with the two margins."
+    },
+    {
+      "window": "v2-seed202",
+      "ticks": "all",
+      "expect": "!(state.playing && state.inPipe && state.vel >= 4.6 && state.vel <= 4.8 && state.roomBelow >= 3 && state.roomBelow <= 6 && state.pipeDx <= -80) || state.marginIfWait <= 2",
+      "why": "v2 t=1549-1550: the bird falls at 4.7 px/frame, 5 px above the bottom lip, and its front is about 83 px past the pipe. The pipe is geometrically cleared, but the game still tests it on the next frame because it removes a passed pipe only after the collision check. The game ended there, while v2 reported marginIfWait 29. Not flapping must show no real clearance."
+    },
+    {
+      "window": "v2-seed202",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || (state.flapEffect === 'moreRoom' ? state.marginIfFlap >= state.marginIfWait : state.flapEffect === 'lessRoom' ? state.marginIfFlap <= state.marginIfWait : state.flapEffect === 'same')",
+      "why": "The rule reads only flapEffect, so it must always agree with the two margins, including during the tight pipe exit where the new pipe-removal model changes them."
+    },
+    {
+      "window": "v3-seed101",
+      "ticks": "all",
+      "expect": "!(state.playing && !state.inPipe && state.pipeDx >= 30 && state.pipeDx <= 40 && state.vel >= 4.5 && state.roomBelow >= -2 && state.roomBelow <= 5) || state.flapEffect === 'moreRoom'",
+      "why": "v3 t=240: the bird falls at 4.9 px/frame, 2 px above the next gap's bottom edge, 35 px before the pipe. v3 assumed a flap could land one frame later, so it waited and hit the lip. After waiting, the next flap can land only one decision later (~frame 6-7), which is too low to enter the gap, so flapping now must score higher."
+    },
+    {
+      "window": "v3-seed303",
+      "ticks": "all",
+      "expect": "!(state.playing && !state.inPipe && state.pipeDx >= 25 && state.pipeDx <= 32 && state.vel <= -3.5 && state.roomBelow <= -50) || state.marginIfWait < -150",
+      "why": "v3 t=160: the bird is 52 px below the next gap's bottom edge, rising at 3.8, ~13 frames from the pipe. v3 reported wait = flap = 4, waited, and died. With flaps landing only once per decision (~3 frames) and the later of the two possible landing frames, waiting cannot climb 50 px in time, so the realistic wait margin must show a crash."
+    },
+    {
+      "window": "v3-seed202",
+      "ticks": "all",
+      "expect": "!(state.playing && !state.inPipe && state.pipeDx >= 14 && state.pipeDx <= 20 && state.vel >= 6.5 && state.roomBelow >= 25 && state.roomBelow <= 35 && state.roomAbove >= 20) || state.flapEffect === 'moreRoom'",
+      "why": "v3 t=205: diving at 6.7 px/frame, 30 px above the next gap's bottom edge, 17 px before the pipe. v3 scored wait 16 vs flap 10 because it assumed a flap could land a frame later, waited, and hit the lip at the next decision. The next flap after waiting lands ~7 frames later and ~55 px lower, so flapping now must score higher."
+    },
+    {
+      "window": "v3-seed303",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || ((!state.crashIfWait || state.marginIfWait < -200) && (!state.crashIfFlap || state.marginIfFlap < -200))",
+      "why": "crashIfWait / crashIfFlap now mean a certain crash (no way through even with frame-exact later flaps). They must only be true when the realistic margin for the same action also shows a crash, so the context flags never contradict the margins the rule reads."
+    },
+    {
+      "window": "v4-seed101",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || (state.flapEffect === 'moreRoom' ? state.marginIfFlap >= state.marginIfWait : state.flapEffect === 'lessRoom' ? state.marginIfFlap <= state.marginIfWait : state.flapEffect === 'same')",
+      "why": "askWhen now asks the engine only on frames where flapEffect is 'moreRoom', so that one field alone decides when a flap can happen. Through v4's seed101 final dive (a pipe exit into a gap 74 px lower) it must always agree with the two margins it summarises."
+    },
+    {
+      "window": "v4-seed303",
+      "ticks": "all",
+      "expect": "state.over || !state.playing || ((!state.crashIfWait || state.marginIfWait < -200) && (!state.crashIfFlap || state.marginIfFlap < -200))",
+      "why": "The crash flags are context for the margins. The margins now use v5's per-flap landing jitter, the gamble band and a decision cadence measured separately after asked and skipped frames. On v4's seed303 death window a flag may be true only when the realistic margin for the same action also shows a crash."
+    },
+    {
+      "window": "v4-seed303",
+      "ticks": "all",
+      "expect": "!(state.playing && state.inPipe && state.msToClear >= 250 && state.vel <= -2.8 && state.roomAbove <= 8) || (state.marginIfFlap < -200 && state.marginIfWait < -200)",
+      "why": "v4 seed303 t=401-404: the bird flapped into the pipe and rose into the top lip. When it is inside a pipe, rising at 2.8 px/frame or more, with 8 px or less above its hitbox and at least 250 ms to go, it keeps rising at least 11 px before it stops, even after the hitbox levels out. A flap only makes that worse. Both ratings must show a crash, so the new denser search cannot report an escape that does not exist."
+    },
+    {
+      "window": "v5-seed303",
+      "ticks": "all",
+      "expect": "!state.playing || state.over || state.pipeDx === null || ((state.msToClear < 150 || (state.pipeDx + 84 >= 0.09 * state.msToClear && state.pipeDx + 84 <= 0.2 * state.msToClear)) && (state.inPipe || state.msToPipe < 150 || (state.pipeDx - 2 >= 0.09 * state.msToPipe && state.pipeDx - 2 <= 0.2 * state.msToPipe)))",
+      "why": "v5 seed303 (died at lag 45 and at lag 60 in the same place, score 8, ~18.5 s): the new lead pipe had the same gap as the one before it. The speed tracker took it for the old pipe and measured from the old pipe's starting point, so the speed it used dropped from 0.133 to about 0.03 px/ms (msToPipe jumped 300 -> 1239 ms at the same ~40 px). The planner saw the pipe about 4x farther away, dived, and hit its bottom lip. msToPipe and msToClear must always match the lead pipe's distance (pipeDx - 2 and pipeDx + 84 px) at the game's real pipe speed (~0.133 px/ms)."
+    },
+    {
+      "window": "v5-seed303-2",
+      "ticks": "all",
+      "expect": "!state.playing || state.over || state.pipeDx === null || ((state.msToClear < 150 || (state.pipeDx + 84 >= 0.09 * state.msToClear && state.pipeDx + 84 <= 0.2 * state.msToClear)) && (state.inPipe || state.msToPipe < 150 || (state.pipeDx - 2 >= 0.09 * state.msToPipe && state.pipeDx - 2 <= 0.2 * state.msToPipe)))",
+      "why": "The other seed-303 death (msToPipe jumped 329 -> 1360 ms at ~43 px when two consecutive pipes shared a gap and the speed tracker confused them). With the continuity check, the lead counts as the same pipe only while it moves left by a plausible step each frame, so the measured pipe speed stays ~0.133 px/ms. The time fields must stay consistent with the distances."
+    }
+  ],
+  "results": {
+    "mean": 38,
+    "scores": [
+      38,
+      38,
+      38
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 60,
+    "measuredAt": "2026-10-01T09:55:27.031Z",
+    "realtime": {
+      "mean": 38,
+      "scores": [
+        38,
+        38,
+        38
+      ],
+      "lagMs": 53,
+      "lagPoints": [
+        45,
+        53,
+        60
+      ],
+      "test": {
+        "mean": 35.44,
+        "scores": [
+          38,
+          30.33,
+          38
+        ],
+        "seeds": [
+          1001,
+          2002,
+          3003
+        ]
+      }
+    },
+    "random": {
+      "mean": 3.33,
+      "scores": [
+        5,
+        0,
+        5
+      ]
+    }
+  }
+}

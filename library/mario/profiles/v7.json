@@ -1,0 +1,273 @@
+{
+  "version": 7,
+  "createdAt": "2026-10-01T10:17:25.696Z",
+  "parent": 6,
+  "origin": "tuner",
+  "note": "Both v6 deaths had the same cause. In each, Mario was on the ground and the jump was due by the next decision: seed 202 at t=28 with a green koopa ahead, and seed 101 at t=139 at the 3-wide pit near tile 234. The same thing happened at the seed 303 two-tile wall at t=90. Each time jev ignored the hop rule and chose run, and the extractor had assumed the jump was pressed, so on the next frame it reported S as still held (jumpKey wait) and blocked the jump that could still have saved him. Fixes: (1) when a jump expected from 'start' did not happen, the extractor now treats S as released, and only assumes S is stuck after three misses in a row; (2) a non-jump plan that needs its jump at the very next decision now has its gain counted 0.8 lower, so 'highest gain' gives the same answer as the old hop rule, and the hop field is gone; (3) the rules are now a short first-match list using a precomputed jumpEdge and plain jump triggers: no safe non-jump, stuck, wallAhead ≤ 3, pitAhead ≤ 2, or jumpEdge > 0.3. As the trainer asked, rule 5c says when to jump a wall (once it is 3 tiles or less ahead) and how (the best safe jump action, then hold S through the boost). New tests pin this on the seed 101 and 202 windows.",
+  "extractor": "function extract(raw, memory, info) { info = info || {}; var ab = Math.abs, fl = Math.floor; function rd(v) { return Math.round(v * 10) / 10; } var lag = (typeof info.lagMs === 'number' && info.lagMs > 0) ? info.lagMs : 0; var prevT = memory.t; var now = (typeof info.nowMs === 'number') ? info.nowMs : ((typeof prevT === 'number') ? prevT + 96 : 0); memory.t = now; if (!raw || !raw.mario) { memory.x = null; memory.y = null; memory.boosting = false; memory.stall = 0; memory.sHeld = true; memory.pv = null; memory.pk = null; memory.jm = 0; return { status: 'none' }; } var m = raw.mario; if (m.dying || m.winning) { memory.x = null; memory.y = null; memory.boosting = false; memory.stall = 0; memory.sHeld = false; memory.pv = null; memory.pk = null; memory.jm = 0; return { status: m.dying ? 'dying' : 'won', big: !!m.large, fire: !!m.fire }; } var dt = (typeof prevT === 'number' && now > prevT) ? now - prevT : 0; if (dt > 0 && dt < 400) memory.fdt = memory.fdt ? memory.fdt * 0.8 + dt * 0.2 : dt; var fdt = memory.fdt || 96; var mx = +m.x || 0, my = +m.y || 0, mxa = +m.xa || 0, mya = +m.ya || 0, og = !!m.onGround, big = !!m.large; var mh = (m.large && !m.ducking) ? 24 : 12; var things = Array.isArray(raw.things) ? raw.things : []; var i, j, r, t, th, walk = []; for (i = 0; i < things.length; i++) { th = things[i]; if (!th || th.dead) continue; var kd = String(th.kind || ''); if ((kd === 'goomba' || kd === 'redKoopa' || kd === 'greenKoopa' || kd === 'spiky') && ab(th.xa) > 1.3 && ab(th.xa) < 1.8) walk.push({ k: kd, x: mx + (+th.dx || 0), y: my + (+th.dy || 0), s: th.xa > 0 ? 1 : -1 }); } if (dt > 0 && dt < 400) { var est = []; if (memory.x != null && og && memory.og && ab(mxa) > 2 && ab(mxa - memory.xa) < 0.2 && mxa * memory.xa > 0) { var tk = ab(mx - memory.x) / (ab(mxa) / 0.89); if (tk >= 1) est.push(dt / tk); } var pw = memory.walk || []; for (i = 0; i < walk.length; i++) { var w = walk[i], bd = 1e9; for (j = 0; j < pw.length; j++) { var pv = pw[j]; if (pv.k !== w.k || pv.s !== w.s || ab(pv.y - w.y) > 1) continue; var dd = (w.x - pv.x) * w.s; if (dd > 0 && dd < bd && dd < dt * 0.22 + 2) bd = dd; } if (bd < 1e9 && bd >= 1.75) est.push(dt * 1.75 / bd); } for (i = 0; i < est.length; i++) if (est[i] > 8 && est[i] < 80) memory.mpt = memory.mpt ? memory.mpt * 0.85 + est[i] * 0.15 : est[i]; } memory.walk = walk; var mpt = memory.mpt || 1000 / 30; var tl = raw.tiles || {}, rows = Array.isArray(tl.rows) ? tl.rows : []; var NR = rows.length || 15, x0 = typeof tl.x0 === 'number' ? tl.x0 : 0, W = 0; for (r = 0; r < rows.length; r++) if (rows[r] && rows[r].length > W) W = rows[r].length; var g = [], unk = null, unkD = 1e9, mcol = fl(mx / 16), mrow = fl(my / 16); for (r = 0; r < NR; r++) { var row = String(rows[r] || ''); for (i = 0; i < W; i++) { var ch = row.charAt(i) || '.', v = 0; if (ch === '#' || ch === '?' || ch === 'B') v = 1; else if (ch === '=') v = 2; else if (ch !== '.' && ch !== 'c') { v = 1; var ud = ab(x0 + i - mcol) + ab(r - mrow); if (ud < unkD) { unkD = ud; unk = { tile: ch, dx: x0 + i - mcol, dy: r - mrow }; } } g[r * W + i] = v; } } var fillRow = NR - 1; for (i = W - 1; i >= 0; i--) if (g[(NR - 1) * W + i] === 1) { r = NR - 1; while (r > 0 && g[(r - 1) * W + i] === 1) r--; fillRow = r; break; } if (fillRow < mrow + 1) fillRow = Math.min(NR - 1, mrow + 1); var LW = +raw.levelWidth || 100000; function G(c, rr) { if (rr < 0) return 0; if (rr >= NR) rr = NR - 1; if (!W) return rr === NR - 1 ? 1 : 0; if (c >= LW) c = LW - 1; var ii = c - x0; if (ii < 0) ii = 0; else if (ii >= W) return rr >= fillRow ? 1 : 0; return g[rr * W + ii]; } function stand(c, rr) { return G(c, rr) > 0; } var jt0 = 0; if (!og && mya < 2) { var qq = (3 - mya) / 1.615, nq = Math.round(qq); if (nq >= 1 && nq <= 8 && ab(qq - nq) < 0.05) jt0 = nq - 1; if (jt0 === 6 && dt > 0 && dt < 400 && memory.og === true && typeof memory.y === 'number' && memory.y - my > 6 && memory.y - my < 20) jt0 = 7; } if (!og && memory.og === true && mya < -3 && jt0 === 0) memory.bfail = (memory.bfail || 0) + 1; var wasB = memory.boosting === true, boosting = jt0 > 0; if (memory.bfail >= 2) { boosting = !og && mya < 0 && (wasB || memory.og === true); jt0 = boosting ? 3 : 0; } memory.boosting = boosting; memory.stall = (og && memory.x != null && ab(mx - memory.x) < 0.5) ? (memory.stall || 0) + 1 : 0; var stuck = og && memory.stall >= 4; var lr = lag / mpt, Lt = Math.round(lr), Ls = [Lt]; if (lag > 0) { var La = lr < Lt ? Lt - 1 : Lt + 1, Lf = lr < Lt ? Lt + 1 : Lt - 1, Lx = Math.ceil(lr) + 1; if (La >= 0) Ls.push(La); if (Lf >= 1) Ls.push(Lf); if (Ls.indexOf(Lx) < 0) Ls.push(Lx); } var K = Math.max(1, Math.min(8, Math.round(fdt / mpt))); var pv0 = (dt > 0 && dt < 400) ? memory.pv : null, sPrev = memory.sHeld === true; var miss = !!(og && pv0 && pv0.k && pv0.k.s && pv0.jk === 'start' && Lt + 1 <= K); memory.jm = miss ? (memory.jm || 0) + 1 : 0; if (miss) { if (memory.jm >= 3) memory.jm = 0; else { sPrev = false; pv0.k.s = false; } } var jumpHeld = boosting || sPrev; var jumpReady = og && !jumpHeld; var lk = { l: false, r: false, run: false, s: jumpHeld }; if (ab(mxa) > 0.5 && !(typeof memory.xa === 'number' && ab(mxa) < ab(memory.xa) - 0.3)) { lk.r = mxa > 0; lk.l = mxa < 0; lk.run = ab(mxa) > 5.2; } var pkk = (dt > 0 && dt < 400) ? memory.pk : null; if (pkk) { if (typeof pkk.l === 'boolean') lk.l = pkk.l; if (typeof pkk.r === 'boolean') lk.r = pkk.r; if (typeof pkk.run === 'boolean') lk.run = pkk.run; } var ogB = true; if (og && Lt === 0) { var pq = pv0; if (pq && pq.k) { var rs = { x: pq.x, y: pq.y, xa: pq.xa, ya: (pq.og && pq.ya < 0.01) ? 0.01 : pq.ya, og: pq.og, wog: pq.og, mj: pq.mj, jt: pq.jt, h: pq.h, js: 0 }, bE = 1e9, bO = true, wo, er, nn; for (nn = 1; nn <= 8; nn++) { wo = rs.og; step(rs, pq.k, nn); if (!rs.og) continue; er = ab(rs.y - my) + ab(rs.ya - mya) + ab(rs.x - mx) / 8; if (er < bE) { bE = er; bO = wo; } } ogB = bE < 2 ? bO : (pq.og === true || mya < 2.5); } else ogB = mya < 2.5; } var mj0 = jumpReady && ogB; var H = Math.max(12, Math.min(45, Math.round(900 / mpt))), END = Lt + H, T = END + 24, J = Math.max(0, Math.min(10, fl((H - 1) / K))); var ens = [], pirs = [], unkThing = null, pm = memory.pir || (memory.pir = {}); for (i = 0; i < things.length && ens.length + pirs.length < 12; i++) { th = things[i]; if (!th || th.dead) continue; var kind = String(th.kind || 'unknown'), wing = kind.indexOf('Winged') >= 0, base = kind.replace('Winged', ''); if (base === 'fireball' || base === 'mushroom' || base === 'fireFlower') continue; var ex = mx + (+th.dx || 0), ey = my + (+th.dy || 0), exa = +th.xa || 0, eya = +th.ya || 0; if (base === 'piranha') { var key = 'k' + Math.round(ex), P = pm[key]; if (!P) P = pm[key] = { my: ey, out: false, hs: null }; P.seen = now; if (ey > P.my) P.my = ey; if (ab(eya - 0.1) < 0.005) P.rest = ey; var yS = P.my; if (typeof P.rest === 'number') yS = P.rest; else { var pc = fl(ex / 16), pr = fl(ey / 16), top = -1; if (G(pc, pr) === 1) { top = pr; while (top > 0 && G(pc, top - 1) === 1) top--; } else { for (r = pr + 1; r < NR; r++) if (G(pc, r) === 1) { top = r; break; } } if (top >= 0 && top * 16 + 24 > yS) yS = top * 16 + 24; } var hid = ey >= yS - 0.5; if (hid) { if (P.hs == null) P.hs = P.out ? now : now - 5000; } else { P.hs = null; P.out = true; } pirs.push({ kind: kind, x: ex, y: ey, ya: eya, yS: yS, jt: hid ? (now - P.hs) / mpt : 0 }); continue; } var e = { kind: kind, w: wing, x: ex, y: ey, vx: exa, ya: eya, xr: 12, h: 12, st: true, fly: false, avoid: false, rest: false, X: [ex], Y: [ey] }; if (base === 'goomba') e.vx = exa / 0.89; else if (base === 'redKoopa' || base === 'greenKoopa') { e.h = 24; e.vx = exa / 0.89; e.avoid = base === 'redKoopa' && !wing; } else if (base === 'spiky') { e.st = false; e.vx = exa / 0.89; } else if (base === 'shell') { e.xr = 16; e.vx = exa / 0.89; e.rest = ab(exa) < 0.5; } else if (base === 'bulletBill') { e.xr = 16; e.fly = true; e.ya = 0; } else { e.st = false; e.h = 16; e.fly = true; if (!unkThing) unkThing = { kind: kind, dx: rd((ex - mx) / 16), dy: rd((ey - my) / 16), w: 1, h: 1 }; } var gone = false; for (t = 1; t <= T; t++) { if (!gone) { if (e.fly) { e.x += e.vx; e.y += e.ya; } else { if (e.vx) { var sg = e.vx > 0 ? 1 : -1, nx = e.x + e.vx, fc = fl((nx + sg * 4) / 16), bl = G(fc, fl((e.y - 1) / 16)) === 1 || (e.h > 12 && G(fc, fl((e.y - e.h + 2) / 16)) === 1); if (!bl && e.avoid && stand(fl(e.x / 16), fl((e.y + 2) / 16)) && !stand(fc, fl((e.y + 2) / 16))) bl = true; if (bl) e.vx = -e.vx; else e.x = nx; } var ecl = fl((e.x - 4) / 16), ecr = fl((e.x + 4) / 16), R = Math.round((e.y + 1) / 16), grd = e.ya >= 0 && ab(e.y + 1 - R * 16) < 1.5 && (stand(ecl, R) || stand(ecr, R)); if (grd) { e.y = R * 16 - 1; e.ya = e.w ? -10 : 0; } if (!grd || e.w) { var ny = e.y + e.ya, landed = false; if (e.ya > 0) { for (var RR = Math.ceil((e.y + 1) / 16 - 0.01); RR <= fl((ny + 1) / 16); RR++) if (stand(ecl, RR) || stand(ecr, RR)) { ny = RR * 16 - 1; landed = true; break; } } e.y = ny; if (landed) e.ya = e.w ? -10 : 0; else e.ya = e.ya * (e.w ? 0.95 : 0.85) + (e.w ? 0.6 : 2); } } if (e.y > NR * 16 + 32 || e.x < mx - 400 || e.x > mx + 800) gone = true; } e.X[t] = gone ? NaN : e.x; e.Y[t] = e.y; } ens.push(e); } for (var pk in pm) if (now - pm[pk].seen > 5000 || ab(+pk.slice(1) - mx) > 600) delete pm[pk]; function blk(s, px, py, ya) { var c = fl(px / 16), rr = fl(py / 16); if (c === fl(s.x / 16) && rr === fl(s.y / 16)) return false; var vv = G(c, rr); return vv === 1 || (vv === 2 && ya > 0); } function mv(s, xa, ya) { while (xa > 8) { if (!mv(s, 8, 0)) return false; xa -= 8; } while (xa < -8) { if (!mv(s, -8, 0)) return false; xa += 8; } while (ya > 8) { if (!mv(s, 0, 8)) return false; ya -= 8; } while (ya < -8) { if (!mv(s, 0, -8)) return false; ya += 8; } var h = s.h, nx = s.x + xa, ny = s.y + ya, c = false; if (ya > 0 && (blk(s, nx - 4, ny, 0) || blk(s, nx + 4, ny, 0) || blk(s, nx - 4, ny + 1, ya) || blk(s, nx + 4, ny + 1, ya))) c = true; if (ya < 0 && (blk(s, nx, ny - h, ya) || blk(s, nx - 4, ny - h, ya) || blk(s, nx + 4, ny - h, ya))) c = true; if (xa > 0 && (blk(s, nx + 4, ny - h, ya) || blk(s, nx + 4, ny - h / 2, ya) || blk(s, nx + 4, ny, ya))) c = true; if (xa < 0 && (blk(s, nx - 4, ny - h, ya) || blk(s, nx - 4, ny - h / 2, ya) || blk(s, nx - 4, ny, ya))) c = true; if (!c) { s.x = nx; s.y = ny; return true; } if (xa < 0) { s.x = fl((s.x - 4) / 16) * 16 + 4; s.xa = 0; } if (xa > 0) { s.x = fl((s.x + 4) / 16 + 1) * 16 - 5; s.xa = 0; } if (ya < 0) { s.y = fl((s.y - h) / 16) * 16 + h; s.jt = 0; s.ya = 0; } if (ya > 0) { s.y = fl((s.y - 1) / 16 + 1) * 16 - 1; s.og = true; } return false; } function step(s, k, tk2) { var sp = k.run ? 1.2 : 0.6; s.wog = s.og; if (k.s) { if (s.og && s.mj) { s.jt = 7; s.ya = -13.3; s.og = false; s.js = tk2; } else if (s.jt > 0) { s.ya = s.jt * -1.9; s.jt--; } } else s.jt = 0; if (k.l) s.xa -= sp; if (k.r) s.xa += sp; s.mj = s.og && !k.s; if (ab(s.xa) < 0.5) s.xa = 0; s.og = false; mv(s, s.xa, 0); mv(s, 0, s.ya); if (s.x < 0) { s.x = 0; s.xa = 0; } if (s.x > LW * 16) { s.x = LW * 16; s.xa = 0; } s.ya *= 0.85; s.xa *= 0.89; if (!s.og) s.ya += 3; } function ms10(q) { return Math.round(q * mpt / 10) * 10; } function bad(q) { return q.fate === 'pit' || q.fate === 'hurt'; } var landing = false; function sim(A, jj, L, D) { var E = L + H, TT = E + 20, s = { x: mx, y: my, xa: mxa, ya: (og && mya < 0.01) ? 0.01 : mya, og: og, wog: og, mj: mj0, jt: jt0, h: mh, js: 0 }; var P = [], gn = [], stomped = false, sum = 0, n = 0, tp = jj ? L + jj * K + 1 : -1, fb = (jj - 1) * K, bF = false, k = { l: false, r: false, run: false, s: false }, a, e, p, ix; for (a = 0; a < pirs.length; a++) P.push({ x: pirs[a].x, y: pirs[a].y, ya: pirs[a].ya, yS: pirs[a].yS, jt: pirs[a].jt }); for (var t = 1; t <= TT; t++) { var ti = t - 1; if (ti < L) { k.l = lk.l; k.r = lk.r; k.run = lk.run; k.s = lk.s; } else { k.l = A.l; k.r = A.r; k.run = A.run; k.s = ti < L + K ? A.s : (!s.og && s.jt > 0); } if (t === tp) { if (!s.og || !s.mj || bF || (jj === 1 && A.s)) return null; k.s = true; } step(s, k, t); if (jj > 1 && t === fb) bF = !s.og && s.jt > 0; if (s.y > NR * 16 + 16) return { fate: 'pit', t: ms10(t), js: s.js }; if (t > E) { if (s.og) break; continue; } if (t > L) { sum += s.x - mx; n++; } ix = t + D; if (ix < 0) ix = 0; else if (ix > T) ix = T; for (a = 0; a < ens.length; a++) { e = ens[a]; var ex = e.X[ix]; if (gn[a] || ex !== ex) continue; var xd = s.x - ex, yd = s.y - e.Y[ix]; if (xd > -e.xr && xd < e.xr && yd > -e.h && yd < s.h) { if (e.rest) { gn[a] = 1; continue; } if (e.st && s.ya > 0 && yd <= 0 && (!s.og || !s.wog)) { s.y = e.Y[ix] - e.h / 2; s.jt = 8; s.ya = -15.2; s.og = false; gn[a] = 1; stomped = true; continue; } return { fate: 'hurt', t: ms10(t), js: s.js }; } } for (a = 0; a < P.length; a++) { p = P[a]; if (p.y >= p.yS) { p.y = p.yS; p.jt++; p.ya = (p.jt > 40 && ab(s.x - p.x) > 24) ? -8 : 0; } else p.jt = 0; p.y += p.ya; p.ya = p.ya * 0.9 + 0.1; var qx = s.x - p.x, qy = s.y - p.y; if (qx > -8 && qx < 8 && qy > -12 && qy < s.h) return { fate: 'hurt', t: ms10(t), js: s.js }; } } return { fate: stomped ? 'stomp' : 'safe', gain: n ? rd(sum / n / 16) : 0, js: s.js }; } function sc(q) { return (q.t || 0) + (q.fate === 'hurt' && big ? 5000 : 0); } var ACTS = [['idle', 0, 0, 0, 0], ['left', 1, 0, 0, 0], ['right', 0, 1, 0, 0], ['run', 0, 1, 1, 0], ['jump', 0, 0, 0, 1], ['jumpRight', 0, 1, 0, 1], ['runJumpRight', 0, 1, 1, 1]]; if (!og && !boosting) { var q0 = sim({ l: false, r: true, run: true, s: true }, 0, Lt, 0); landing = !!q0 && q0.js === Lt + 1; } var jumpKey = og ? (mj0 ? 'start' : 'wait') : (boosting ? 'boost' : (landing ? 'landing' : 'wait')); var plans = [], RL = 0, ac, A, o, vq, qi, jj, list, VR = []; for (qi = 1; qi < Ls.length; qi++) VR.push([Ls[qi], 0]); if (ens.length) { VR.push([Lt, -2]); VR.push([Lt, 2]); } for (i = 0; i < ACTS.length; i++) { ac = ACTS[i]; A = { l: !!ac[1], r: !!ac[2], run: !!ac[3], s: !!ac[4] }; list = []; for (jj = 0; jj <= J; jj++) { o = sim(A, jj, Lt, 0); if (!o) continue; o.j = jj; o.rl = 0; o.fail = null; if (!bad(o)) { o.rl = 1; for (qi = 0; qi < VR.length; qi++) { vq = sim(A, jj, VR[qi][0], VR[qi][1]); if (!vq || bad(vq)) { o.fail = vq; break; } o.rl++; } } if (o.rl > RL && !(A.s && jumpKey === 'wait')) RL = o.rl; list.push(o); } plans.push(list); } var HN = (jumpKey === 'start' || jumpKey === 'landing') ? 0.8 : 0; var outcome = {}; for (i = 0; i < ACTS.length; i++) { ac = ACTS[i]; var res = [], bg = -1e9, hp = null, bo = null; for (j = 0; j < plans[i].length; j++) { o = plans[i][j]; if (bad(o) || o.rl >= RL) res.push(o); else if (o.fail) res.push({ fate: o.fail.fate, t: o.fail.t, j: o.j }); } if (!res.length && plans[i].length) res.push(plans[i][0]); for (j = 0; j < res.length; j++) { o = res[j]; if (bad(o)) continue; o.eg = rd(o.gain - (o.j === 1 ? HN : 0)); if (o.eg > bg) bg = o.eg; } if (bg > -1e9) { for (j = 0; j < res.length; j++) { o = res[j]; if (bad(o) || o.eg < bg - 0.1001) continue; if (!hp || (hp.j !== 0 && (o.j === 0 || o.j > hp.j))) hp = o; } outcome[ac[0]] = { fate: hp.fate, gain: hp.eg }; } else { for (j = 0; j < res.length; j++) if (!bo || sc(res[j]) > sc(bo)) bo = res[j]; outcome[ac[0]] = bo ? { fate: bo.fate, t: bo.t } : { fate: 'pit', t: 0 }; } } var WB = null, JB = null; for (i = 0; i < ACTS.length; i++) { var oa = outcome[ACTS[i][0]]; if (!oa || (oa.fate !== 'safe' && oa.fate !== 'stomp')) continue; if (ACTS[i][4]) { if (jumpKey !== 'wait' && (JB === null || oa.gain > JB)) JB = oa.gain; } else if (WB === null || oa.gain > WB) WB = oa.gain; } var jumpEdge = (JB !== null && WB !== null) ? rd(JB - WB) : null; var xL = mx + mxa / 0.89 * Lt, fr0 = fl(my / 16), fx = xL + 4, mc = fl(fx / 16), pitAhead = null, pitWidth = 0, wallAhead = null, wallHeight = 0; for (var c = mc; c <= mc + 12 && (pitAhead === null || wallAhead === null); c++) { if (wallAhead === null && c > mc && G(c, fr0) === 1) { var tq = fr0; while (tq > 0 && G(c, tq - 1) === 1) tq--; wallAhead = rd((c * 16 - fx) / 16); wallHeight = fr0 - tq + 1; } if (pitAhead === null && wallAhead === null) { var cc = c; while (cc < c + 12) { var has = false; for (r = fr0 + 1; r < NR; r++) if (stand(cc, r)) { has = true; break; } if (has) break; cc++; } if (cc > c) { pitAhead = rd((c * 16 - fx) / 16); pitWidth = cc - c; } } } var threat = null, best = 1e9, tt = Math.min(Lt, T); for (i = 0; i < ens.length; i++) { var en = ens[i], tx = en.X[tt]; if (en.rest || tx !== tx) continue; var ddx = tx - xL, ddy = en.Y[tt] - my, dist = ab(ddx) + ab(ddy); if (ddx > -24 && dist < best) { best = dist; threat = { kind: en.kind, dx: rd(ddx / 16), dy: rd(ddy / 16) }; } } for (i = 0; i < pirs.length; i++) { var pp = pirs[i], pdx = pp.x - xL, pdy = pp.y - my, pd = ab(pdx) + ab(pdy); if (pdx > -24 && pd < best) { best = pd; threat = { kind: pp.y >= pp.yS - 0.5 ? 'piranha(hidden)' : 'piranha', dx: rd(pdx / 16), dy: rd(pdy / 16) }; } } function picks(sv) { var o = sv.outcome, jk = sv.jumpKey, ids = ['idle', 'left', 'right', 'run', 'jump', 'jumpRight', 'runJumpRight'], S = { jump: 1, jumpRight: 1, runJumpRight: 1 }, c = [], i, a; for (i = 0; i < ids.length; i++) { a = ids[i]; if (!o[a]) continue; if (S[a] === 1 && jk === 'wait') continue; c.push(a); } if (!c.length) return ['run']; function gv(x) { return typeof o[x].gain === 'number' ? o[x].gain : -99; } function tv(x) { return o[x].t || 0; } function top(list, f, tol) { var b = -1e9, k, out = []; for (k = 0; k < list.length; k++) if (f(list[k]) > b) b = f(list[k]); for (k = 0; k < list.length; k++) if (f(list[k]) >= b - tol - 1e-6) out.push(list[k]); return out; } var ok = c.filter(function (x) { return o[x].fate === 'safe' || o[x].fate === 'stomp'; }); if (!ok.length) { var hu = sv.big ? c.filter(function (x) { return o[x].fate === 'hurt'; }) : []; return top(hu.length ? hu : c, tv, 20); } var oj = ok.filter(function (x) { return S[x] === 1; }), on = ok.filter(function (x) { return S[x] !== 1; }); if (jk === 'boost' && oj.length) return top(oj, gv, 0.1); if ((jk === 'start' || jk === 'landing') && oj.length) { if (!on.length || sv.stuck === true || (typeof sv.wallAhead === 'number' && sv.wallAhead <= 3) || (typeof sv.pitAhead === 'number' && sv.pitAhead <= 2) || (typeof sv.jumpEdge === 'number' && sv.jumpEdge > 0.3)) return top(oj, gv, 0.1); return top(on, gv, 0.1); } return top(ok, gv, 0.1); } memory.x = mx; memory.y = my; memory.xa = mxa; memory.og = og; var st = { status: 'playing', big: big, fire: !!m.fire, onGround: og, jumpKey: jumpKey, jumpHeld: jumpHeld, stuck: stuck, vx: rd(mxa), wallAhead: wallAhead, wallHeight: wallHeight, pitAhead: pitAhead, pitWidth: pitWidth, threat: threat, jumpEdge: jumpEdge, outcome: outcome }; if (unk) st.unknownTile = unk; if (unkThing) st.unknownThing = unkThing; var dec = picks(st), sh = false; for (i = 0; i < dec.length; i++) if (dec[i] === 'jump' || dec[i] === 'jumpRight' || dec[i] === 'runJumpRight') sh = true; memory.sHeld = sh; var d0 = dec[0]; memory.pv = { x: mx, y: my, xa: mxa, ya: mya, og: og, jt: jt0, mj: mj0, h: mh, jk: jumpKey, k: { l: d0 === 'left', r: d0 === 'right' || d0 === 'run' || d0 === 'jumpRight' || d0 === 'runJumpRight', run: d0 === 'run' || d0 === 'runJumpRight', s: sh } }; var KL = { left: 1 }, KR = { right: 1, run: 1, jumpRight: 1, runJumpRight: 1 }, KA = { run: 1, runJumpRight: 1 }; function agr(M) { var v0 = null, q, b; for (q = 0; q < dec.length; q++) { b = M[dec[q]] === 1; if (v0 === null) v0 = b; else if (v0 !== b) return null; } return v0; } memory.pk = { l: agr(KL), r: agr(KR), run: agr(KA) }; return st; }",
+  "instructions": "Infinite Mario: get Mario as far to the right as possible without dying. The state already holds everything you need; decide only by comparing its fields as the rules below say.\nFIELDS\n- status: playing; none (no level on screen); dying; won.\n- jumpKey: what pressing S (the jump actions jump, jumpRight, runJumpRight) does now. start = Mario is on the ground and a jump starts. landing = Mario is in the air but touches down just before the press takes effect, so the jump starts as he lands. boost = Mario is rising in a jump and holding S lifts him higher. wait = pressing S now starts nothing and only blocks the next jump.\n- outcome[action]: a physics lookahead of the next 0.9 s if that action is chosen now (level, enemies and input delay are simulated; the plan may jump again later where that helps; plans that only survive with perfect timing count as failures). fate: safe; stomp (lands on an enemy, which is fine); hurt (touches an enemy, piranha or bullet: small Mario dies); pit (falls to his death). gain (given when safe or stomp): tiles of progress to the right, higher is better. When jumpKey is start or landing, a non-jump action whose plan needs its jump at the very next decision is already counted 0.8 lower, because that late jump can miss. t (given when hurt or pit): ms until the harm.\n- jumpEdge: the highest gain of a safe-or-stomp jump action minus the highest gain of a safe-or-stomp non-jump action; null when either group has none or jumpKey is wait.\n- wallAhead / wallHeight: tiles from Mario's front to the next solid wall at his feet, and how many tiles tall it is (null / 0 when there is none within 12 tiles). Running into a wall only stops Mario; a jump is the only way over it.\n- pitAhead / pitWidth: tiles from Mario's front to the next pit (0 or less = his front is already over it) and its width (null / 0 when none).\n- stuck: true when Mario has stood on the ground without moving for about 0.4 s. jumpHeld: S is still held from the last decision. big: big Mario survives one hit. threat: the nearest enemy, for information.\nRULES - go down the list and apply the first rule that fits.\n1. status none: choose jump or idle. status dying or won: choose idle.\n2. When jumpKey is wait, jump, jumpRight and runJumpRight are not allowed. An allowed action is good when its fate is safe or stomp.\n3. No allowed action is good: if big is true and an allowed action has fate hurt, choose the hurt action with the largest t; otherwise choose the allowed action with the largest t.\n4. jumpKey is boost and a jump action is good: choose the good jump action with the highest gain (keep S held so the jump reaches full height).\n5. jumpKey is start or landing and a jump action is good. JUMP NOW - choose the good jump action with the highest gain (runJumpRight on a tie) - when ANY of these is true:\n a) no non-jump action is good;\n b) stuck is true;\n c) a wall is close: wallAhead is not null and wallAhead is 3 or less. This is how to clear a wall: jump as soon as it is 3 tiles or less ahead, then rule 4 keeps S held while Mario rises, and the right key carries him onto the top;\n d) a pit is close: pitAhead is not null and pitAhead is 2 or less;\n e) jumpEdge is greater than 0.3.\n If none of a) to e) is true, do not jump: choose the good non-jump action (idle, left, right or run) with the highest gain (run on a tie).\n6. Otherwise choose the good action with the highest gain (run on a tie).",
+  "actions": [
+    {
+      "id": "idle",
+      "description": "release every key: slow down and wait",
+      "keys": []
+    },
+    {
+      "id": "left",
+      "description": "walk left, back off",
+      "keys": [
+        "ArrowLeft"
+      ]
+    },
+    {
+      "id": "right",
+      "description": "walk right",
+      "keys": [
+        "ArrowRight"
+      ]
+    },
+    {
+      "id": "run",
+      "description": "run right with A held (fire Mario throws a fireball each time A is pressed again)",
+      "keys": [
+        "ArrowRight",
+        "a"
+      ]
+    },
+    {
+      "id": "jump",
+      "description": "jump straight up, or keep holding jump to rise higher",
+      "keys": [
+        "s"
+      ]
+    },
+    {
+      "id": "jumpRight",
+      "description": "jump while walking right, or keep holding jump",
+      "keys": [
+        "ArrowRight",
+        "s"
+      ]
+    },
+    {
+      "id": "runJumpRight",
+      "description": "jump while running right, or keep holding jump",
+      "keys": [
+        "ArrowRight",
+        "a",
+        "s"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 96,
+  "maxHoldMs": 300,
+  "lagAware": true,
+  "tests": [
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (['start','boost','landing','wait'].indexOf(state.jumpKey) >= 0 && ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ['safe','stomp','hurt','pit'].indexOf(o.fate) >= 0 && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : typeof o.t === 'number'); }))",
+      "why": "Every playing frame carries the new jumpKey and a complete outcome per action (gain when survivable, t when not), which the rules rely on."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'landing' || ['idle','left','right','run'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Seed 101 fell into a pit because Mario, about to land at the edge, could only survive by pressing jump just before touching down, and the old rule forbade jumping in the air."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'landing' || ['idle','left','right','run'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Seed 202 ran into a green koopa when a jump pressed just before landing was the only escape and the old rule did not allow it."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'wait' || ['jump','jumpRight','runJumpRight'].indexOf(choice) < 0",
+      "why": "S is pressed only when it starts or extends a jump; holding it through a landing would block the next jump and the extractor would misjudge the held keys."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'start' || typeof choice !== 'string' || !state.outcome[choice] || state.outcome[choice].hop !== 'next' || !['jump','jumpRight','runJumpRight'].some(function (a) { var o = state.outcome[a]; return (o.fate === 'safe' || o.fate === 'stomp') && o.gain >= state.outcome[choice].gain; })",
+      "why": "Seed 303 stood 88 s at a wall because running with a jump planned for the next decision tied with jumping now and the tie always went to not jumping; a plan that needs its jump next must jump now."
+    },
+    {
+      "window": "v2-seed101",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (typeof state.stuck === 'boolean' && ['start','boost','landing','wait'].indexOf(state.jumpKey) >= 0 && ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ['safe','stomp','hurt','pit'].indexOf(o.fate) >= 0 && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : typeof o.t === 'number'); }))",
+      "why": "Every playing frame carries the new stuck flag and a complete outcome for each action. Plans are now replayed under three input timings, and an action whose surviving plans are all dropped must still report a fate and t."
+    },
+    {
+      "window": "v2-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || typeof choice !== 'string' || !state.outcome[choice] || state.outcome[choice].hop !== 'next' || !['jump','jumpRight','runJumpRight'].some(function (a) { var o = state.outcome[a]; return (o.fate === 'safe' || o.fate === 'stomp') && o.gain >= state.outcome[choice].gain - 0.4; })",
+      "why": "Seed 101 died because Mario kept running with the pit jump planned for the next decision, which scored only 0.4 above jumping now; that input landed a tick late and he ran off the edge. A jump within 0.5 of a plan that needs its jump next is made now. A much worse jump is still not forced: that forcing rule killed the unkept version."
+    },
+    {
+      "window": "v2-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.stuck !== true || state.jumpKey !== 'start' || typeof choice !== 'string' || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0 || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; })",
+      "why": "Seed 303 stood 88 s at a 3-tile wall. When Mario has stood on the ground without moving for about 0.4 s and a jump is safe, he jumps, whatever small gain differences the lookahead reports."
+    },
+    {
+      "window": "v3-seed303",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || state.onGround !== true || state.jumpHeld !== false || state.jumpKey === 'start' || Math.abs(state.vx) < 0.5 || (state.pitAhead !== null && state.pitAhead < 1)",
+      "why": "The touch-down check (no jump on the tick right after touching down) applies only when there is no input lag. In real time the lag ticks with S released give Mario a tick on the ground first, so on the ground with S released a jump pressed now must start. The previous attempt reported wait here and failed on seeds 101 and 202."
+    },
+    {
+      "window": "v3-seed101",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (typeof state.jumpHeld === 'boolean' && (state.jumpKey !== 'start' || (state.onGround === true && state.jumpHeld === false)))",
+      "why": "A jump is offered as start only on the ground with S released. Pressing S while it is still held starts nothing and keeps the next jump blocked, which is how v3 lost seed 101 and how a paused game would lose a whole decision."
+    },
+    {
+      "window": "v2-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.onGround !== true || state.jumpHeld !== true || ['jump','jumpRight','runJumpRight'].indexOf(choice) < 0",
+      "why": "On the ground with S still held from the last decision, choosing a jump action starts nothing and keeps S held, so the next jump stays blocked; S must be released first."
+    },
+    {
+      "window": "v4-seed303-3",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || ((state.threat === null || (typeof state.threat.kind === 'string' && typeof state.threat.dx === 'number' && typeof state.threat.dy === 'number')) && ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : ((o.fate === 'hurt' || o.fate === 'pit') && typeof o.t === 'number')); }))",
+      "why": "Seed 303 at 60 ms died beside a goomba falling into a notch, after the lookahead had misjudged the keys held during the input lag. Now the lookahead keeps the last decision's keys through the lag, and enemies step off a ledge only once both feet are past it. Every playing frame of that game must still give a threat that is either null or fully placed, and a complete outcome for each action: a gain when the action is survivable, a t when it is not."
+    },
+    {
+      "window": "v4-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'wait' || ['jump','jumpRight','runJumpRight'].indexOf(choice) < 0",
+      "why": "Seed 202 at 45 ms died when a jump planned for the next decision landed a tick late. Plans at 45 ms are now also replayed one tick after the lag rounded up, so more plans fail and their actions are reported as failures. S must still never be pressed while jumpKey is wait, because a press that starts nothing keeps the next jump blocked."
+    },
+    {
+      "window": "v4-seed101",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : ((o.fate === 'hurt' || o.fate === 'pit') && typeof o.t === 'number')); })",
+      "why": "Seed 101 was won at every lag. With the extra delay replay and the last decision's keys used through the lag, every action must still get a complete outcome on each playing frame of that game."
+    },
+    {
+      "window": "v5-seed101-2",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || ((state.threat === null || (typeof state.threat.kind === 'string' && typeof state.threat.dx === 'number' && typeof state.threat.dy === 'number')) && ['idle','left','right','run','jump','jumpRight','runJumpRight'].every(function (a) { var o = state.outcome[a]; return !!o && ((o.fate === 'safe' || o.fate === 'stomp') ? typeof o.gain === 'number' : ((o.fate === 'hurt' || o.fate === 'pit') && typeof o.t === 'number')); }))",
+      "why": "Seed 101 at 53 ms ended when Mario jumped up into a goomba stepping off a hill ledge. The plan was reported safe but cleared the goomba by only a pixel or two. Plans are now also replayed with the enemies two ticks behind and two ticks ahead of their predicted paths. Every playing frame of the seed 101 games must still carry a complete outcome per action: a gain when the action survives, a t when it does not."
+    },
+    {
+      "window": "v5-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || typeof choice !== 'string' || !state.outcome[choice] || state.outcome[choice].fate === 'safe' || state.outcome[choice].fate === 'stomp' || !['idle','left','right','run','jump','jumpRight','runJumpRight'].some(function (a) { var o = state.outcome[a]; return !!o && (o.fate === 'safe' || o.fate === 'stomp') && (state.jumpKey !== 'wait' || ['jump','jumpRight','runJumpRight'].indexOf(a) < 0); })",
+      "why": "Plans that pass enemies by only a pixel or two are now reported as failures whenever a plan with more margin exists. Mario must then take an action reported safe or stomp whenever an allowed one exists, and never the one reported hurt."
+    },
+    {
+      "window": "v5-seed101-3",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || state.jumpKey !== 'wait' || ['jump','jumpRight','runJumpRight'].indexOf(choice) < 0",
+      "why": "The jump boost is now read correctly on the frame right after a jump starts (7 ticks left, not 6). S must still never be pressed while jumpKey is wait, because a press that starts nothing keeps the next jump blocked."
+    },
+    {
+      "window": "v6-seed202-4",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (function () { var o = state.outcome, W = null, J = null; function g(q) { return !!q && (q.fate === 'safe' || q.fate === 'stomp'); } ['idle','left','right','run'].forEach(function (a) { if (g(o[a]) && (W === null || o[a].gain > W)) W = o[a].gain; }); if (state.jumpKey !== 'wait') { ['jump','jumpRight','runJumpRight'].forEach(function (a) { if (g(o[a]) && (J === null || o[a].gain > J)) J = o[a].gain; }); } return (W === null || J === null) ? state.jumpEdge === null : (typeof state.jumpEdge === 'number' && Math.abs(state.jumpEdge - (J - W)) < 0.051); })()",
+      "why": "Seed 202 died at a green koopa because jev chose run (gain 9.0, jump planned for the next decision) over runJumpRight (9.0). The rules now compare the jump and non-jump groups through jumpEdge. On every playing frame it must equal the best safe-or-stomp jump gain minus the best safe-or-stomp non-jump gain, and be null when either group is empty or jumpKey is wait."
+    },
+    {
+      "window": "v6-seed101",
+      "ticks": "all",
+      "expect": "state.status !== 'playing' || (function () { var o = state.outcome, W = null, J = null; function g(q) { return !!q && (q.fate === 'safe' || q.fate === 'stomp'); } ['idle','left','right','run'].forEach(function (a) { if (g(o[a]) && (W === null || o[a].gain > W)) W = o[a].gain; }); if (state.jumpKey !== 'wait') { ['jump','jumpRight','runJumpRight'].forEach(function (a) { if (g(o[a]) && (J === null || o[a].gain > J)) J = o[a].gain; }); } return (W === null || J === null) ? state.jumpEdge === null : (typeof state.jumpEdge === 'number' && Math.abs(state.jumpEdge - (J - W)) < 0.051); })()",
+      "why": "Seed 101 fell into the 3-wide pit near tile 234 after the same mistake: run with its jump due next decision (7.1) was picked over jumping now (6.8). That run plan is now counted 0.8 lower, and jumpEdge must match the outcomes on every frame."
+    },
+    {
+      "window": "v6-seed202-4",
+      "ticks": [
+        27,
+        28,
+        29
+      ],
+      "expect": "state.status !== 'playing' || state.onGround !== true || state.jumpHeld === false",
+      "why": "At the seed 202 koopa the extractor assumed the jump it expected had been pressed, so on the next frame it reported S held (jumpKey wait) and blocked the only escape. A jump expected from start that does not happen is now read as S released, so these on-ground frames must show jumpHeld false."
+    },
+    {
+      "window": "v6-seed202-4",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || (function () { var o = state.outcome, JA = ['jump','jumpRight','runJumpRight']; function g(a) { return o[a].fate === 'safe' || o[a].fate === 'stomp'; } if (!JA.some(g)) return true; var must = state.stuck === true || !['idle','left','right','run'].some(g) || (state.wallAhead !== null && state.wallAhead <= 3) || (state.pitAhead !== null && state.pitAhead <= 2) || (state.jumpEdge !== null && state.jumpEdge > 0.3); return !must || JA.indexOf(choice) >= 0; })()",
+      "why": "Rule 5: when a jump can start and is safe, Mario jumps if no non-jump action is safe, if he is stuck, if a wall is 3 tiles or less ahead, if a pit is 2 tiles or less ahead, or if jumpEdge is above 0.3. Jev skipped this jump before the green koopa that ended seed 202."
+    },
+    {
+      "window": "v6-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || (function () { var o = state.outcome, JA = ['jump','jumpRight','runJumpRight']; function g(a) { return o[a].fate === 'safe' || o[a].fate === 'stomp'; } if (!JA.some(g)) return true; var must = state.stuck === true || !['idle','left','right','run'].some(g) || (state.wallAhead !== null && state.wallAhead <= 3) || (state.pitAhead !== null && state.pitAhead <= 2) || (state.jumpEdge !== null && state.jumpEdge > 0.3); return !must || JA.indexOf(choice) >= 0; })()",
+      "why": "On seed 101, Mario was 1.6 tiles from the pit near tile 234 with a safe jump available and still ran. Rule 5 must make him jump there, and wherever else its triggers hold."
+    },
+    {
+      "window": "v6-seed101-2",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || state.wallAhead === null || state.wallAhead > 3 || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "The trainer saw Mario walk into a two-tile wall on seed 101 (tiles 234-239) and once stand against it until time ran out. When a jump can start, a wall is 3 tiles or less ahead and a jump is safe, Mario must jump it."
+    },
+    {
+      "window": "v6-seed101-3",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || state.wallAhead === null || state.wallAhead > 3 || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Same wall rule on another seed 101 game: with a wall 3 tiles or less ahead and a safe jump available, Mario jumps instead of running into the wall."
+    },
+    {
+      "window": "v6-seed101-4",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "state.status !== 'playing' || (state.jumpKey !== 'start' && state.jumpKey !== 'landing') || state.wallAhead === null || state.wallAhead > 3 || !['jump','jumpRight','runJumpRight'].some(function (a) { var f = state.outcome[a].fate; return f === 'safe' || f === 'stomp'; }) || ['jump','jumpRight','runJumpRight'].indexOf(choice) >= 0",
+      "why": "Same wall rule on a third seed 101 game, so Mario never stands at a wall he could safely jump."
+    }
+  ],
+  "results": {
+    "mean": 1266.33,
+    "scores": [
+      1267,
+      1264,
+      1268
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-10-01T10:23:53.221Z",
+    "test": {
+      "mean": 1268,
+      "scores": [
+        1270,
+        1272,
+        1262
+      ],
+      "seeds": [
+        1001,
+        2002,
+        3003
+      ]
+    },
+    "random": {
+      "mean": 21.67,
+      "scores": [
+        17,
+        14,
+        34
+      ]
+    }
+  }
+}

@@ -67,6 +67,19 @@ describe("Library", (): void => {
         expect(readdirSync(path.join(user, "fake-runner", "profiles")).sort()).toEqual(["v3.json", "v4.json"]);
     });
 
+    it("never makes a version kept for real time only active by being the newest: with none set, the newest that is not", (): void => {
+        writeJson(path.join(builtIn, "fake-runner", "profiles", "v3.json"), fakeProfile({ version: 3, liveOnly: true }));
+        expect(library.activeVersion("fake-runner")).toBe(2);
+        expect(library.list()[0]).toMatchObject({ activeVersion: 2 });
+        // A training saves another without making it active (no state file yet): still v2.
+        const { version: _, ...draft } = fakeProfile({ origin: "tuner", liveOnly: true });
+        library.saveProfile("fake-runner", draft, { activate: false });
+        expect(library.profiles("fake-runner").map((p: { version: number; active: boolean }): string => `${p.version}${p.active ? "*" : ""}`)).toEqual(["4", "3", "2*", "1"]);
+        // One the user sets plays, kept for real time only or not.
+        library.setActive("fake-runner", 4);
+        expect(library.profile("fake-runner")?.version).toBe(4);
+    });
+
     it("says which versions carry their rules as code (what the rules engine can play)", (): void => {
         library.saveProfile("fake-runner", { ...fakeProfile({ teacher: "function teach() { return 'NOOP'; }" }) } as never);
         const summaries: Array<{ version: number; hasTeacher: boolean }> = library.profiles("fake-runner");

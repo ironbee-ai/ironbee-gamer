@@ -85,6 +85,15 @@ function readJson(file: string): unknown {
     return JSON.parse(readFileSync(file, "utf-8"));
 }
 
+/** Whether a profile file holds a version kept for real time only (`Profile.liveOnly`); one that cannot be read does not: opening it says why. */
+function keptForRealTimeOnly(file: string): boolean {
+    try {
+        return (readJson(file) as { liveOnly?: unknown }).liveOnly === true;
+    } catch {
+        return false;
+    }
+}
+
 /** Writes through a temporary file: a reader never sees half a file. */
 function writeJson(file: string, value: unknown): void {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -298,24 +307,29 @@ export class Library {
         return out;
     }
 
-    /** The active version: the one the user set, else the newest. */
+    /** The active version: the one the user set, else the newest not kept for real time only (else the newest). */
     activeVersion(id: string): number | undefined {
-        const versions: number[] = [...this.versionFiles(id).keys()];
-        if (versions.length === 0) {
+        const newestFirst: Array<[number, { file: string; source: GameSource }]> = [...this.versionFiles(id).entries()].sort(
+            (a: [number, unknown], b: [number, unknown]): number => b[0] - a[0],
+        );
+        if (newestFirst.length === 0) {
             return undefined;
         }
         const stateFile: string = path.join(this.userDir, id, "state.json");
         if (existsSync(stateFile)) {
             try {
                 const active: unknown = (readJson(stateFile) as { active?: unknown }).active;
-                if (typeof active === "number" && versions.includes(active)) {
+                if (typeof active === "number" && newestFirst.some(([version]: [number, unknown]): boolean => version === active)) {
                     return active;
                 }
             } catch {
-                // an unreadable state file: the newest version
+                // an unreadable state file: as if none were set
             }
         }
-        return Math.max(...versions);
+        // A training saves a version for real time only without making it active: with none set (a fresh library,
+        // a built-in game), being the newest must not make it active all the same.
+        const playable: [number, unknown] | undefined = newestFirst.find(([, entry]: [number, { file: string }]): boolean => !keptForRealTimeOnly(entry.file));
+        return (playable ?? newestFirst[0])[0];
     }
 
     setActive(id: string, version: number): void {

@@ -1,0 +1,256 @@
+{
+  "version": 11,
+  "createdAt": "2026-10-01T09:41:13.647Z",
+  "parent": 10,
+  "origin": "tuner",
+  "note": "Seed 303 died at every lag, and seed 202 died at lag 60, in fast chains of close obstacles at 0.69–0.73 px/ms: small cactus, small cactus, low bird in one; small, small, large cactus group in the other. v10 jumped each obstacle in the middle of its clear window, so it landed 100–180 ms later than it had to. It then jumped the next obstacle late and came down too late for the third, which was often not on screen when the first jump was decided. The previous attempt's fast drop failed the v4 hold-while-rising test because it pressed DOWN while the dino was still going up. Changes: (1) above 0.55 px/ms, jumpTiming aims about 56 ms after the earliest safe start; below that speed it stays centred as in v10, so the low-speed v4 tests still hold. (2) rising is now judged at the moment the decision takes effect, and DUCK (fast drop) is chosen only after that point, only when it is safe and clearly faster than a normal fall, and never right before a bird to duck under. (3) JUMP is pressed while still falling when the dino will surely be on the ground before the press lands (landsBeforeInput), which saves up to one decision of reaction time.",
+  "extractor": "function extract(frame, memory, info) {\n  memory = memory || {};\n  info = info || {};\n  var lag = typeof info.lagMs === 'number' && info.lagMs > 0 ? info.lagMs : 0;\n  var now = typeof info.nowMs === 'number' ? info.nowMs : null;\n  var P = null, G = null, obs = [], over = false;\n  for (var i = 0; i < frame.length; i++) {\n    var d = frame[i];\n    if (d.k === 'text') { if (/game\\s*over/i.test(d.t || '')) over = true; continue; }\n    if (d.k === 'rect') { if (d.w > 0 && d.h > 0 && d.w < 300 && d.h < 100) obs.push({ kind: 'unknown', x: d.x, y: d.y, w: d.w, h: d.h }); continue; }\n    if (d.k !== 'img') continue;\n    var m = /:([^,]*),([^,]*),([^,]*),([^,]*)$/.exec(d.s || '');\n    var sx = m ? +m[1] : NaN, sy = m ? +m[2] : NaN;\n    if (sy >= 50 || d.w >= 300) { if (d.w >= 300 && G === null) G = d.y + d.h + 1; continue; }\n    if (d.w === 10 && d.h === 13 && d.y < 40) continue; // score digits\n    if (sx >= 645 && sx < 655 && d.w <= 10) continue; // night-mode stars (sky decoration)\n    if (sy === 15 && sx >= 655) { over = true; continue; }\n    if (sx === 2 && sy === 2) { over = true; continue; }\n    if (sx >= 848 && sy <= 2 && d.h >= 20) {\n      var st = (sx >= 1112 || d.w > 50) ? 'duck' : sx === 1068 ? 'crashed' : sx === 848 ? 'jump' : 'run';\n      if (st === 'crashed') over = true;\n      P = { x: d.x, y: d.y, w: d.w, h: d.h, state: st };\n      continue;\n    }\n    if (sy === 2 && (sx === 86 || (sx >= 484 && sx < 655))) continue; // clouds, moon\n    var kind = sy !== 2 ? 'unknown' : (sx >= 228 && sx < 332) ? 'cactus_small' : (sx >= 332 && sx < 484) ? 'cactus_large' : (sx >= 134 && sx < 228) ? 'bird' : 'unknown';\n    obs.push({ kind: kind, x: d.x, y: d.y, w: d.w, h: d.h });\n  }\n  if (over) { memory.v = null; memory.live = null; memory.liveNow = null; memory.prevAlt = null; memory.prevAltNow = null; memory.apex = null; memory.dropOn = false; }\n  // on a key press the game redraws the dino alone (no ground line, no obstacles): keep the last ground line\n  var redraw = G === null && P !== null && obs.length === 0;\n  if (G !== null) memory.G = G;\n  else if (typeof memory.G === 'number') G = memory.G;\n  else { G = P ? P.y + P.h : 0; for (var j = 0; j < obs.length; j++) G = Math.max(G, obs[j].y + obs[j].h); }\n  var pl = P ? P.x : 0;\n  var live = obs.filter(function (o) { return o.x + o.w > pl && (o.kind === 'bird' || G - o.y - o.h < 60); }).sort(function (a, b) { return a.x - b.x; });\n  if (typeof memory.v !== 'number') memory.v = 0.36;\n  if (typeof memory.P !== 'number') memory.P = 50;\n  // decision period (game ms between frames we are asked about)\n  var dt = (now !== null && typeof memory.lastNow === 'number') ? now - memory.lastNow : null;\n  if (dt !== null && dt > 0 && dt < 400) memory.P = memory.P * 0.7 + dt * 0.3;\n  memory.lastNow = now;\n  // el: game ms since the last frame that showed the obstacles\n  var prev = memory.live || [], el = (now !== null && typeof memory.liveNow === 'number') ? now - memory.liveNow : 0;\n  var fresh = true;\n  if (!over && live.length === 0 && prev.length > 0 && el >= 0 && el < 400) {\n    // the dino drawn alone: move the last frame's obstacles on at their speed\n    var pred = [];\n    for (var c = 0; c < prev.length; c++) {\n      var po = prev[c], px = po.x - (po.kind === 'bird' && po.v ? po.v : memory.v) * el;\n      if (px + po.w > pl) pred.push({ kind: po.kind, x: px, y: po.y, w: po.w, h: po.h, v: po.v });\n    }\n    if (pred.length > 0) { live = pred; fresh = false; }\n  }\n  if (fresh) {\n    // speed (px per game ms): follow each obstacle from where it was first seen\n    var best = null, maxSh = el > 0 ? el * 1.2 + 12 : 60;\n    for (var a = 0; a < live.length; a++) {\n      var o = live[a], mt = null;\n      for (var b = 0; b < prev.length; b++) {\n        var p = prev[b], sh = p.x - o.x;\n        if (p.kind === o.kind && p.w === o.w && Math.abs(p.y - o.y) <= 2 && sh >= 0 && sh <= maxSh && (mt === null || sh < mt.x - o.x)) mt = p;\n      }\n      o.x0 = mt ? mt.x0 : o.x; o.t0 = mt ? mt.t0 : now;\n      if (now !== null && o.t0 !== null && now - o.t0 >= 100 && o.x0 > o.x) {\n        o.v = (o.x0 - o.x) / (now - o.t0);\n        if (o.kind !== 'bird' && (best === null || o.t0 < best.t0)) best = o;\n      }\n    }\n    if (best) memory.v = Math.max(0.3, Math.min(1, memory.v * 0.5 + best.v * 0.5));\n    memory.live = live.map(function (o) { return { kind: o.kind, x: o.x, y: o.y, w: o.w, h: o.h, x0: o.x0, t0: o.t0, v: o.v }; });\n    memory.liveNow = now;\n  }\n  var v = memory.v, Pd = memory.P, S = lag + 8, M = 20;\n  // full jump (key held while rising), simulated per 16ms frame with the game's physics\n  var traj = [], ja = 0, ju = 10 + v / 0.6, up = false, apexI = 0;\n  for (var f = 0; f < 90; f++) {\n    ja += Math.round(ju * 0.96); ju -= 0.576;\n    if (ja > 30) up = true;\n    if (up && ja > 63 && ju > 5) ju = 5;\n    if (ja <= 0) break;\n    traj.push(ja);\n    if (ja > traj[apexI]) apexI = traj.length - 1;\n  }\n  var AIR = (traj.length + 1) * 16;\n  // fast drop (DOWN in the air): altitude lost after 1, 2, 3... frames\n  var DROP = [], dv = 1, dc = 0;\n  for (var g = 0; g < 40; g++) { dc += Math.round(dv * 2.88); dv += 0.576; DROP.push(dc); }\n  // normal fall from rest at altitude h (the game lands once the altitude goes below 0)\n  function fallFrom(h) {\n    var sq = [], y = h, u = 0;\n    for (var n = 0; n < 80; n++) { y += Math.round(u * 0.96); u -= 0.576; if (y < 0) break; sq.push(y); }\n    return sq;\n  }\n  function win(h) {\n    var lo = null, hi = null;\n    for (var k = 0; k < traj.length; k++) if (traj[k] >= h) { if (lo === null) lo = (k + 1) * 16; hi = (k + 1) * 16; }\n    return lo === null ? null : [lo, hi];\n  }\n  // tIn/tOut: ms from now until the obstacle enters/leaves the dino's body columns\n  // E/L: earliest/latest jump start (ms from now) that clears it\n  var list = live.map(function (o) {\n    var bird = o.kind === 'bird', bottom = Math.round(G - o.y - o.h), top = Math.round(G - o.y);\n    var ov = bird && o.v ? Math.max(0.2, Math.min(1.2, o.v)) : v;\n    var e = { kind: o.kind, dx: Math.round(o.x - pl - 44), top: top, bottom: bottom, overhead: bird && bottom >= 45, duckable: bird && bottom >= 18 && bottom < 45, tIn: (o.x - pl - (bird ? 40 : 34)) / ov, tOut: (o.x + o.w - pl - 2) / ov, H: top - 4 };\n    var w = win(e.H);\n    e.E = w ? e.tOut - w[1] + M : Infinity;\n    e.L = w ? e.tIn - w[0] - M : -Infinity;\n    return e;\n  });\n  // a trajectory (altitude per 16ms frame from now, on the ground after it ends) against one obstacle:\n  // 'ground' = down before it arrives, 'hit' = meets it, 'clear' = passes it\n  function stat(tr, o) {\n    if (!o.overhead && (tr.length + 1) * 16 <= o.tIn - M) return 'ground';\n    for (var n = Math.max(1, Math.ceil((o.tIn - M) / 16)); n * 16 <= o.tOut + M; n++) {\n      var y = n <= tr.length ? tr[n - 1] : 0;\n      if (y < o.H && y + 36 > o.bottom) return 'hit';\n    }\n    return 'clear';\n  }\n  // a high bird passing over the dino while it is in the air hits its head: keep the jump clear of each one\n  function clearOfBirds(E, L) {\n    for (var r = 0; r < list.length; r++) {\n      var bd = list[r];\n      if (!bd.overhead || bd.tOut <= 0) continue;\n      var wb = win(Math.max(1, bd.bottom - 36));\n      if (!wb) continue;\n      var a1 = bd.tIn - wb[1] - M, a2 = bd.tOut - wb[0] + M;\n      if (L < a1 || E > a2) continue;\n      if (a1 >= Math.max(E, S)) L = a1;\n      else if (a2 <= L) E = a2;\n    }\n    return [E, L];\n  }\n  var th = null, nx = null;\n  for (var q = 0; q < list.length; q++) {\n    if (list[q].overhead || list[q].tOut <= S) continue;\n    if (th === null) th = list[q]; else { nx = list[q]; break; }\n  }\n  var threat = null;\n  if (th) {\n    threat = { kind: th.kind, dx: th.dx, top: th.top, bottom: th.bottom, duckable: th.duckable, contact: th.tIn <= S ? 'overlapping' : th.tIn <= S + Pd + 40 ? 'near' : 'far', jumpTiming: null };\n    if (!th.duckable) {\n      var E = th.E, L = th.L;\n      if (nx && nx.duckable) L = Math.min(L, Math.max(E, nx.tIn - AIR - Pd - S));\n      else if (nx) {\n        // one jump over both, or jump early enough to land and jump again\n        var Lc = nx.L - AIR - Pd - S, w2 = win(Math.max(th.H, nx.H));\n        var Eb = w2 ? nx.tOut - w2[1] + M : Infinity, Lb = w2 ? th.tIn - w2[0] - M : -Infinity;\n        if (Lb >= Eb && (Lc < E || Lb - Eb >= 40)) { E = Eb; L = Lb; }\n        else L = Math.min(L, Math.max(E, Lc));\n      }\n      var cb = clearOfBirds(E, L); E = cb[0]; L = cb[1];\n      var Lown = clearOfBirds(th.E, th.L)[1];\n      // target start: the middle of the clear window at low speed; at high speed (an obstacle not yet in view\n      // can follow closely) shortly after the earliest safe start, so the dino is back on the ground sooner\n      var bias = Math.max(0, Math.min(1, (v - 0.55) / 0.1));\n      var T = L >= E ? (1 - bias) * (E + L) / 2 + bias * (E + Math.min(56, (L - E) / 2)) : E, Lx = Math.max(L, E);\n      if (S > Lown) threat.jumpTiming = 'late';\n      else if (S < E) threat.jumpTiming = (S + Pd > Lx && E - S <= S + Pd - Lx) ? 'ok' : 'early';\n      else if (S > L) threat.jumpTiming = 'late';\n      else threat.jumpTiming = (S + Pd > L || S >= T - Pd / 2) ? 'ok' : 'early';\n    }\n  }\n  // the dino: altitude, and where it is on its jump\n  var alt = P ? Math.max(0, Math.round(G - P.y - P.h)) : 0;\n  var air = !!P && P.state !== 'duck' && (alt > 1 || P.state === 'jump');\n  // the redraw on a jump press shows the dino at the start of a new jump\n  var start = air && redraw && P.state === 'jump' && alt <= 1;\n  var pa = start ? null : (typeof memory.prevAlt === 'number' ? memory.prevAlt : null);\n  var nF = (now !== null && typeof memory.prevAltNow === 'number' && now > memory.prevAltNow) ? Math.min(20, Math.max(1, Math.round((now - memory.prevAltNow) / 16))) : 1;\n  var goingUp = air && (pa === null || alt >= pa);\n  var apex = air ? Math.max(alt, !start && typeof memory.apex === 'number' ? memory.apex : 0) : 0;\n  // fD: frames until a decision made now reaches the game\n  var fD = Math.max(1, Math.ceil(lag / 16));\n  var rising = false, dropSafe = false, landsBeforeInput = false;\n  if (air) {\n    var cont, dropA = null, dropping = false, s, nLand;\n    if (goingUp) {\n      // place on the full jump; rising = still going up when a decision made now takes effect\n      var kk = -1;\n      while (kk + 1 <= apexI && traj[kk + 1] <= alt) kk++;\n      rising = kk + fD <= apexI;\n      cont = traj.slice(kk + 1);\n    } else {\n      var fsA = fallFrom(apex);\n      if (pa !== null && pa > alt) {\n        // falling faster than gravity alone allows from this jump's top: a fast drop is under way\n        s = 0;\n        while (s < fsA.length && fsA[s] > pa) s++;\n        dropping = alt < (s + nF < fsA.length ? fsA[s + nF] : 0) - 3;\n      }\n      if (dropping) {\n        var sB = nF, eB = Infinity;\n        for (s = nF; s < DROP.length; s++) {\n          var e1 = Math.abs(DROP[s - 1] - (s - 1 - nF >= 0 ? DROP[s - 1 - nF] : 0) - (pa - alt));\n          if (e1 < eB) { eB = e1; sB = s; }\n        }\n        cont = [];\n        for (s = sB; s < DROP.length && alt - (DROP[s] - DROP[sB - 1]) >= 0; s++) cont.push(alt - (DROP[s] - DROP[sB - 1]));\n        nLand = cont.length + 2; // one frame of margin on the fitted phase\n      } else {\n        // normal fall from the highest point seen (never predicts the landing too early)\n        s = fsA.length - 1;\n        while (s > 0 && fsA[s] < alt) s--;\n        cont = fsA.slice(s + 1);\n        nLand = cont.length + 1;\n      }\n      // on the ground at least a frame before a decision made now reaches the game\n      landsBeforeInput = lag > 16 * nLand + 16;\n    }\n    // dropA: altitude per frame from now if DOWN reaches the game after fD frames (a drop under way goes on)\n    if (dropping) dropA = cont;\n    else if (cont.length >= fD) {\n      dropA = cont.slice(0, fD - 1);\n      var base = fD > 1 ? cont[fD - 2] : alt;\n      for (s = 0; s < DROP.length && base - DROP[s] >= 0; s++) dropA.push(base - DROP[s]);\n    }\n    if (!rising && !landsBeforeInput && dropA && (dropping || memory.dropOn === true || (cont.length >= fD + 2 && cont.length - dropA.length >= 2))) {\n      dropSafe = true;\n      var firstGround = null;\n      for (var r3 = 0; r3 < list.length; r3++) {\n        var o3 = list[r3];\n        if (o3.tOut + M <= 16) continue;\n        var sc = stat(cont, o3), sd = stat(dropA, o3);\n        if (sd === 'hit' || (sc === 'clear' && sd !== 'clear')) { dropSafe = false; break; }\n        if (sd === 'ground' && !o3.overhead && firstGround === null) firstGround = o3;\n      }\n      // DOWN is still held on landing, so no fresh press could duck under a bird met first\n      if (firstGround !== null && firstGround.duckable) dropSafe = false;\n    }\n  }\n  memory.prevAlt = air ? alt : 0;\n  memory.prevAltNow = now;\n  memory.apex = air ? apex : 0;\n  memory.dropOn = !!(dropSafe && threat && !threat.duckable);\n  return {\n    over: over,\n    player: P ? { air: air, rising: rising, ducking: P.state === 'duck', landsBeforeInput: landsBeforeInput, dropSafe: dropSafe } : null,\n    threat: threat,\n    obstacles: list.slice(0, 3).map(function (e) { return { kind: e.kind, dx: e.dx, top: e.top, bottom: e.bottom }; })\n  };\n}",
+  "instructions": "Apply these rules in order and pick the first that matches.\n1. If over is true: choose JUMP (restarts the game).\n2. If player.air is true (the dino is off the ground):\n  a. If threat is null: choose NOOP.\n  b. If player.rising is true: choose JUMP, unless threat.duckable is true (then NOOP). Keep the key held while the dino rises so the jump reaches full height. Releasing it early cuts the jump to about 60px and the dino lands on the cactus.\n  c. If threat.duckable is true: choose NOOP.\n  d. If player.landsBeforeInput is true: choose JUMP if threat.jumpTiming is \"ok\" or \"late\", otherwise NOOP. The dino is back on the ground before this decision reaches the game, so the press is a fresh jump from the ground.\n  e. If player.dropSafe is true: choose DUCK. DOWN in the air is a fast drop: the dino falls much faster and is back on the ground sooner for the next obstacle. Keep choosing DUCK while dropSafe stays true.\n  f. Otherwise choose NOOP. The key must be released while falling so the next jump is a fresh press.\n3. If threat is null: choose NOOP.\n4. If threat.duckable is true: choose DUCK if threat.contact is \"near\" or \"overlapping\", otherwise choose NOOP. Keep choosing DUCK until the bird has passed.\n5. If threat.jumpTiming is \"ok\" or \"late\": choose JUMP.\n6. Otherwise (threat.jumpTiming is \"early\"): choose NOOP and wait.\nNotes:\n- threat is the nearest obstacle that can still hit the dino once a decision made now takes effect. Birds high enough to run under, stars and the moon are already excluded. On the frame right after a key press, the game draws only the dino. The state then carries the obstacles forward from the last full frame.\n- duckable means a bird at head height that a ducking dino passes under. contact is \"far\" when the obstacle reaches the dino only after the next decision could act, \"near\" when it arrives before then, and \"overlapping\" when it is already in the dino's space.\n- jumpTiming comes from simulating the game's jump at the measured speed, starting when a decision made now takes effect. \"early\" means a jump now would come down on the obstacle or meet a high bird passing overhead, or a later decision is closer to the target moment. \"ok\" means now is the moment. At low speed the target is the middle of the safe window. At high speed, where an obstacle not yet in view can follow closely, the target is shortly after the earliest safe jump, so the dino lands as soon as possible. The target is earlier when a following obstacle in view needs it, or when one jump can clear both close obstacles. \"late\" means the target has passed, so jump immediately.\n- player.rising is true while the dino will still be going up when a decision made now takes effect. Until then, releasing the key would cut the jump.\n- player.landsBeforeInput is true while falling when the dino will be on the ground at least one frame before a decision made now takes effect.\n- player.dropSafe can be true only after the top of the jump. It means a fast drop started now (or one already under way) hits nothing and gives up no obstacle this jump still clears. A new drop must also land clearly sooner than a normal fall, and the first obstacle met after landing must not be a bird to duck under.\n- player.ducking is true while the dino is ducking on the ground.",
+  "actions": [
+    {
+      "id": "NOOP",
+      "description": "Keep running; release all keys (stands up from a duck, lets go of the jump key)",
+      "keys": []
+    },
+    {
+      "id": "JUMP",
+      "description": "Jump (only from the ground with a fresh press; holding it while rising gives the full-height jump), or restart the game",
+      "keys": [
+        "ArrowUp"
+      ]
+    },
+    {
+      "id": "DUCK",
+      "description": "On the ground: duck under birds at head height (hold while the bird passes). In the air: fast drop back to the ground (hold until it lands)",
+      "keys": [
+        "ArrowDown"
+      ]
+    }
+  ],
+  "decideOn": "tick",
+  "tickMs": 16,
+  "maxHoldMs": 200,
+  "teacher": "function teach(state) {\n  if (!state) return 'NOOP';\n  // 1. Game over -> JUMP restarts\n  if (state.over === true) return 'JUMP';\n  var p = state.player || {}, t = state.threat;\n  // 2. In the air\n  if (p.air === true) {\n    if (!t) return 'NOOP';\n    // hold JUMP while the dino is still going up (full-height jump)\n    if (p.rising === true) return t.duckable === true ? 'NOOP' : 'JUMP';\n    if (t.duckable === true) return 'NOOP';\n    // back on the ground before the press lands: a fresh jump from the ground\n    if (p.landsBeforeInput === true) return (t.jumpTiming === 'ok' || t.jumpTiming === 'late') ? 'JUMP' : 'NOOP';\n    // past the top: fast drop when it is safe and lands sooner\n    if (p.dropSafe === true) return 'DUCK';\n    return 'NOOP';\n  }\n  // 3. No threat -> NOOP\n  if (!t) return 'NOOP';\n  // 4. Bird at head height -> DUCK once it is near\n  if (t.duckable === true) return t.contact === 'far' ? 'NOOP' : 'DUCK';\n  // 5. Jump timing ok or late -> JUMP\n  if (t.jumpTiming === 'ok' || t.jumpTiming === 'late') return 'JUMP';\n  // 6. Otherwise (early) -> wait\n  return 'NOOP';\n}",
+  "lagAware": true,
+  "tests": [
+    {
+      "window": "v1-seed101",
+      "ticks": "all",
+      "expect": "state.obstacles.every(function (o) { return o.kind === 'bird' || o.bottom < 60; })",
+      "why": "Night-mode stars (9x9 sprites high in the sky) must never show up as obstacles."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": "all",
+      "expect": "state.threat === null || state.threat.bottom < 60",
+      "why": "A sky decoration must never become the threat that triggers a jump."
+    },
+    {
+      "window": "v1-seed303",
+      "ticks": "all",
+      "expect": "state.threat === null || state.threat.kind !== 'unknown' || state.threat.bottom < 60",
+      "why": "The star that caused the mistimed jump before the small cactus must be filtered out."
+    },
+    {
+      "window": "v1-seed202",
+      "ticks": [
+        49,
+        68
+      ],
+      "needsChoice": true,
+      "expect": "choice === 'NOOP'",
+      "why": "With only a star and an overhead bird ahead, the dino must stay on the ground instead of jumping into the bird."
+    },
+    {
+      "window": "v1-seed101",
+      "ticks": [
+        51
+      ],
+      "expect": "state.threat !== null && state.threat.kind === 'cactus_large'",
+      "why": "When the dino lands before the large cactus, the threat must be the cactus rather than a star, so the jump is timed to the cactus."
+    },
+    {
+      "window": "v4-seed101",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "!(state.player && state.player.air === true && state.player.rising === true && state.threat !== null && state.threat.duckable !== true) || choice === 'JUMP'",
+      "why": "Releasing ArrowUp right after takeoff cut the jump to about 61px and the dino landed on the double small cactus. The key must stay held while the dino rises over a cactus."
+    },
+    {
+      "window": "v4-seed202",
+      "ticks": "all",
+      "expect": "!(state.threat && state.threat.kind === 'cactus_large' && state.threat.dx >= 160) || state.threat.jumpTiming === 'early'",
+      "why": "At the real early-game speed (~0.37 px/ms, not the 0.7 a fixed 30ms tick gave), a large cactus 160px or more ahead is too far: a jump now comes down on it (v4 jumped at dx 171 and died)."
+    },
+    {
+      "window": "v4-seed303",
+      "ticks": "all",
+      "expect": "!(state.threat && state.threat.kind === 'cactus_small' && state.threat.dx >= 150) || state.threat.jumpTiming === 'early'",
+      "why": "At the measured speed, including the input delay, a small cactus 150px or more ahead must wait (v4 jumped at dx 139-145 and landed on it)."
+    },
+    {
+      "window": "v9-seed202",
+      "ticks": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63
+      ],
+      "expect": "state.threat !== null && state.threat.kind === 'cactus_large'",
+      "why": "The frame after the jump press shows only the dino, because the game redraws it alone on a key press. v9 saw no obstacles there, so threat went null. The large cactus must stay the threat through that frame."
+    },
+    {
+      "window": "v9-seed202",
+      "ticks": [
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63
+      ],
+      "needsChoice": true,
+      "expect": "!(state.player && state.player.air === true && state.player.rising === true) || choice === 'JUMP'",
+      "why": "v9 released ArrowUp on the dino-only frame right after takeoff. The jump peaked at about 60px and the dino landed on the large cactus. The key must stay held while the dino rises."
+    },
+    {
+      "window": "v9-seed101",
+      "ticks": [
+        50,
+        51,
+        63,
+        64
+      ],
+      "expect": "state.threat !== null",
+      "why": "Both jumps over the last large cacti were followed by a dino-only frame with no obstacles. The cactus being jumped must still be reported as the threat there."
+    },
+    {
+      "window": "v9-seed101",
+      "ticks": [
+        50,
+        51,
+        52,
+        63,
+        64,
+        65
+      ],
+      "needsChoice": true,
+      "expect": "!(state.player && state.player.air === true && state.player.rising === true) || choice === 'JUMP'",
+      "why": "The fatal jump was cut short because ArrowUp was released one decision after takeoff. JUMP must stay chosen while the dino rises over the cactus."
+    },
+    {
+      "window": "v9-seed303",
+      "ticks": [
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68
+      ],
+      "expect": "state.threat !== null && state.threat.kind === 'bird' && state.threat.duckable === true",
+      "why": "After the DUCK press, the game drew only the ducking dino, so the head-height bird vanished from the state. The bird must stay the threat until it has passed."
+    },
+    {
+      "window": "v9-seed303",
+      "ticks": [
+        67,
+        68
+      ],
+      "needsChoice": true,
+      "expect": "choice === 'DUCK'",
+      "why": "v9 released the duck for one decision when the bird disappeared on the dino-only frame, and the bird hit the standing dino. DUCK must stay held while the bird passes."
+    },
+    {
+      "window": "v10-seed303",
+      "ticks": "all",
+      "expect": "state.player === null || state.player.air === true || (state.player.dropSafe === false && state.player.landsBeforeInput === false && state.player.rising === false)",
+      "why": "rising, landsBeforeInput and dropSafe describe a jump in progress. On the ground they must all be false, or a model trained on the state could learn to drop or press early from the ground."
+    },
+    {
+      "window": "v10-seed202",
+      "ticks": "all",
+      "expect": "!(state.player && state.player.rising === true) || (state.player.dropSafe === false && state.player.landsBeforeInput === false)",
+      "why": "While the dino will still be rising when the decision lands, ArrowUp must stay held (v4 died from a cut jump). A fast drop or an early press must never be offered then; the previous attempt failed by pressing DOWN while rising."
+    },
+    {
+      "window": "v10-seed303",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "!(state.over !== true && state.player && state.player.air === true && state.player.rising !== true && state.player.dropSafe === true && state.threat && state.threat.duckable !== true) || choice === 'DUCK'",
+      "why": "v10 jumped a small cactus late, fell at normal speed, and was hit in the air by the low bird that followed. Once past the top of the jump, with a fast drop safe and clearly faster, DOWN must be pressed so the dino lands sooner."
+    },
+    {
+      "window": "v10-seed202",
+      "ticks": "all",
+      "needsChoice": true,
+      "expect": "!(state.over !== true && state.player && state.player.air === true && state.player.landsBeforeInput === true && state.threat && state.threat.duckable !== true && (state.threat.jumpTiming === 'ok' || state.threat.jumpTiming === 'late')) || choice === 'JUMP'",
+      "why": "At lag 60, v10 waited for a frame showing the dino on the ground before pressing JUMP. That cost up to a whole decision, and the dino came down in front of the large cactus group with no time left. When the dino will have landed before the press reaches the game and the timing is ok or late, JUMP must be pressed now."
+    }
+  ],
+  "results": {
+    "mean": 1485,
+    "scores": [
+      1485,
+      1485,
+      1485
+    ],
+    "seeds": [
+      101,
+      202,
+      303
+    ],
+    "gameSeconds": 90,
+    "measuredAt": "2026-10-01T09:43:40.229Z",
+    "realtime": {
+      "mean": 1485.56,
+      "scores": [
+        1485.67,
+        1485.33,
+        1485.67
+      ],
+      "lagMs": 53,
+      "lagPoints": [
+        45,
+        53,
+        60
+      ],
+      "test": {
+        "mean": 1485.33,
+        "scores": [
+          1485.33,
+          1485.67,
+          1485
+        ],
+        "seeds": [
+          1001,
+          2002,
+          3003
+        ]
+      }
+    },
+    "random": {
+      "mean": 51,
+      "scores": [
+        55,
+        44,
+        54
+      ]
+    }
+  }
+}

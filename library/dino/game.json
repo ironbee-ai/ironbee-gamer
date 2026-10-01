@@ -53,7 +53,7 @@
     {
       "engine": "laya",
       "live": true,
-      "version": 10,
+      "version": 11,
       "lagMs": 50
     },
     {
@@ -62,7 +62,7 @@
     {
       "engine": "rules",
       "live": true,
-      "version": 10,
+      "version": 11,
       "lagMs": 50
     },
     {
