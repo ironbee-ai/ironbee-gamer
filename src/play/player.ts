@@ -399,8 +399,11 @@ export class Player {
         const budgetMs: number = options.gameSeconds * 1000;
         const watch: boolean = options.pace === Pace.WATCH;
         const realtime: boolean = options.pace === Pace.REALTIME;
-        /** REALTIME and an extractor that makes up for the lag: inputs are held to land at it (a jitter buffer). */
-        const holdInputs: boolean = realtime && profile.lagAware === true;
+        /**
+         * REALTIME and an extractor that makes up for the lag — or a floor asked for, as late as a slower engine (or a busy
+         * machine's) lands a version's inputs: inputs are held to land at it (a jitter buffer).
+         */
+        const holdInputs: boolean = realtime && (profile.lagAware === true || (options.minLagMs ?? 0) > 0);
         /** How late held inputs land at the soonest: the lag the version was trained at, where its timing holds. */
         const floorMs: number = holdInputs ? (options.minLagMs ?? liveFloorMs(profile) ?? 0) : 0;
 

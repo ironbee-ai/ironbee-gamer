@@ -257,7 +257,7 @@ describe("Improver", (): void => {
         // Its games' floors spread up to as late as a busy machine lands a fast engine's inputs.
         expect(trains).toEqual([expect.objectContaining({ decider: "rules", realtime: true, live: { minLagMs: 0, maxLagMs: 90, gamesPerSeed: 1 }, note: "jump earlier" })]);
         expect(trains[0].simulated).toBeUndefined();
-    }, 30_000);
+    }, 60_000);
 
     it("trains for a higher score where nothing plays worse, with the iterations asked for, and keeps a version only if it plays better", async (): Promise<void> => {
         const result: ImproveResult = await improver().improve({ gameId: "fake-runner", engine: EngineKind.RULES, live: false, iterations: 5, workDir: path.join(root, "work") });
@@ -311,6 +311,7 @@ describe("playsBetter", (): void => {
             verdict: worseSeeds.length ? Verdict.ENGINE : Verdict.NOTHING,
             why: "",
             rulesWorse: [],
+            slowWorse: [],
             engineWorse: worseSeeds,
             worseSeeds,
             stopped: false,
@@ -320,6 +321,16 @@ describe("playsBetter", (): void => {
     it("the same version, held to the same rules: fewer seeds below them with the mean no lower", (): void => {
         expect(playsBetter(report(6, { 1: 1000, 2: 1200 }, [1]), report(6, { 1: 1200, 2: 1200 }, []))).toBe(true);
         expect(playsBetter(report(6, { 1: 1000, 2: 1200 }, [1]), report(6, { 1: 990, 2: 1200 }, []))).toBe(false);
+    });
+
+    it("a new version whose rules lost at the slow end: kept when they play better there, its engine at the soonest no worse than live games vary", (): void => {
+        const slow = (r: CheckReport, means: Record<number, number>, worse: number[]): CheckReport => ({ ...r, slow: { label: "rules", games: [], means }, slowWorse: worse });
+        const before: CheckReport = slow(report(6, { 1: 1000, 2: 1000 }, []), { 1: 500, 2: 1000 }, [1]);
+        expect(playsBetter(before, slow(report(7, { 1: 990, 2: 990 }, []), { 1: 1000, 2: 1000 }, []))).toBe(true);
+        // Its engine at the soonest lower than live games vary: not kept.
+        expect(playsBetter(before, slow(report(7, { 1: 900, 2: 900 }, []), { 1: 1000, 2: 1000 }, []))).toBe(false);
+        // No better at the slow end: not kept either.
+        expect(playsBetter(before, slow(report(7, { 1: 990, 2: 990 }, []), { 1: 500, 2: 1000 }, [1]))).toBe(false);
     });
 
     it("a new version, held to its own fresh record: only an engine that plays better outright", (): void => {

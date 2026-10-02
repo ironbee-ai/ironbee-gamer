@@ -1121,7 +1121,10 @@ function trainLogText(run) {
 function checkSummary(improve) {
     const seeds = (check) =>
         Object.keys(check.played)
-            .map((s) => `${s}: ${check.played[s]}${check.rules?.[s] !== undefined ? ` (rules ${check.rules[s]})` : ""}`)
+            .map(
+                (s) =>
+                    `${s}: ${check.played[s]}${check.rules?.[s] !== undefined ? ` (rules ${check.rules[s]}${check.slow?.[s] !== undefined ? `, at the slow end ${check.slow[s]}` : ""})` : ""}`
+            )
             .join(", ");
     const lines = [`Checked: ${improve.engine}, the clock ${improve.live ? "running" : "paused"}`];
     if (improve.before) {

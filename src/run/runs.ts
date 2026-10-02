@@ -76,6 +76,8 @@ export interface RunRecord {
 export interface CheckSummary {
     verdict: string;
     why: string;
+    /** Live: the rules' means per seed with their inputs held to the slow end. */
+    slow?: Record<number, number>;
     version: number;
     /** The engine's mean per seed, and the version's rules' on the same clock beside it. */
     played: Record<string, number>;

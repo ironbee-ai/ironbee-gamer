@@ -279,7 +279,8 @@ describe("Player in real time", (): void => {
         const base: Profile = fakeProfile();
         const telling: Profile = { ...base, extractor: `function (raw, memory, info) { var s = (${base.extractor})(raw, memory); s.lag = info.lagMs; return s; }` };
         const lags = (ticks: TickEvent[]): number[] => ticks.filter((t: TickEvent): boolean => t.asked).map((t: TickEvent): number => (t.state as { lag: number }).lag);
-        const run = async (profile: Profile, minLagMs: number | undefined = 60): Promise<{ gaps: number[]; told: number[] }> => {
+        /** `minLagMs` null: no floor given. */
+        const run = async (profile: Profile, minLagMs: number | null = 60): Promise<{ gaps: number[]; told: number[] }> => {
             const browser: Timed = new Timed();
             const ticks: TickEvent[] = [];
             // A fast engine: a few ms a decision.
@@ -289,7 +290,7 @@ describe("Player in real time", (): void => {
                 episodes: 1,
                 gameSeconds: 1.5,
                 pace: Pace.REALTIME,
-                ...(minLagMs !== undefined ? { minLagMs } : {}),
+                ...(minLagMs !== null ? { minLagMs } : {}),
                 hooks: { onTick: (t: TickEvent): number => ticks.push(t) },
             });
             return { gaps: browser.gaps.slice(2), told: lags(ticks) };
@@ -299,14 +300,18 @@ describe("Player in real time", (): void => {
         expect(Math.min(...floored.told)).toBeGreaterThanOrEqual(60);
         // No floor given: a lag-aware version's own, the lag training measured it at.
         const measuredAt60: Profile["results"] = { mean: 1, scores: [1], gameSeconds: 1, measuredAt: "2026-09-30T00:00:00.000Z", realtime: { mean: 1, scores: [1], lagMs: 60 } };
-        const own: { gaps: number[]; told: number[] } = await run({ ...telling, lagAware: true, results: measuredAt60 }, undefined);
+        const own: { gaps: number[]; told: number[] } = await run({ ...telling, lagAware: true, results: measuredAt60 }, null);
         expect(Math.min(...own.gaps)).toBeGreaterThanOrEqual(50);
         expect(Math.min(...own.told)).toBeGreaterThanOrEqual(60);
-        // A profile that does not make up for the lag is not held: the floor is not its lag.
-        const asap: { gaps: number[]; told: number[] } = await run(telling);
+        // A profile that does not make up for the lag has no floor of its own: not held.
+        const asap: { gaps: number[]; told: number[] } = await run(telling, null);
         expect(Math.min(...asap.gaps)).toBeLessThan(20);
         expect(Math.max(...asap.told)).toBeLessThan(60);
-    });
+        // Given one, it is held to it as any version is: as late as a slower engine, or a busy machine, lands its inputs.
+        const slowed: { gaps: number[]; told: number[] } = await run(telling);
+        expect(Math.min(...slowed.gaps)).toBeGreaterThanOrEqual(50);
+        expect(Math.min(...slowed.told)).toBeGreaterThanOrEqual(60);
+    }, 20_000);
 
     describe("in plan mode", (): void => {
         /** The runner's features now and, when a plan is asked for, at each of its moments (the obstacle runs 0.3 px/ms, a jump lasts 400 ms). */

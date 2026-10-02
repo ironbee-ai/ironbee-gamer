@@ -959,6 +959,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 version: report.version,
                 played: report.played.means,
                 ...(report.rules ? { rules: report.rules.means } : {}),
+                ...(report.slow ? { slow: report.slow.means } : {}),
                 worseSeeds: report.worseSeeds,
             });
             try {

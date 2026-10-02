@@ -61,7 +61,9 @@
   which a lag-aware extractor makes up for (Pop the Lock v5 with Laya: 59, never missed, from dead on
   the first dot). `train --realtime` has the rules answer that late and the tuner write that extractor;
   a version is kept only if it plays as well with the clock paused. Holding the inputs of a profile that
-  does not make up for the lag only delays them (Flappy: 34 → 27), so only `lagAware` ones are held.
+  does not make up for the lag only delays them (Flappy: 34 → 27), so only `lagAware` ones are held on their own —
+  but a floor asked for (`minLagMs` > 0) holds any version's, as late as a slower engine or a busy machine lands its
+  inputs: Train's check at the slow end, live training's and live DAgger's games spread to 90 ms.
   A live config can set a floor (`lagMs` → `minLagMs`): a lag-aware version's inputs then land no sooner
   than that, however fast the engine answers — the lag it was trained at, where its extractor's timing
   holds. With no floor given, a lag-aware version has its own (`liveFloorMs`, src/game/configs.ts): the lag

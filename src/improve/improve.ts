@@ -28,7 +28,7 @@ import { TickEvent } from "../play/player";
 import { profileHash } from "../run/decision-log";
 import { layaToTeach } from "../train/train-for";
 import { Decider, TrainHooks, TrainOptions, TrainResult } from "../train/trainer";
-import { CheckGame, checkPlay, CheckReport, LIVE_GAMES_PER_SEED, Verdict } from "./check";
+import { CheckGame, checkPlay, CheckReport, CheckSide, LIVE_GAMES_PER_SEED, Verdict } from "./check";
 
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "fs";
 import path from "path";
@@ -40,6 +40,8 @@ const LAYA_ROUNDS: number = 2;
 const LAYA_STUDENT_GAMES: { paused: number; live: number } = { paused: 8, live: 6 };
 /** How much higher the mean must be for a fix to play better where no fewer seeds play below their reference (playsBetter). */
 const MEAN_RISES: number = 1.01;
+/** A version trained for the slow end may play lower at the soonest by this much — as much as live games vary — and still be kept. */
+const SLOW_FIX_TOLERANCE: number = 0.03;
 
 /**
  * How Laya is taught more, in turn, until a lesson plays better (each one undone when it does not): more DAgger rounds
@@ -124,14 +126,21 @@ interface Lessons {
 }
 
 function meanOf(report: CheckReport): number {
-    const means: number[] = Object.values(report.played.means);
+    return sideMean(report.played);
+}
+
+function sideMean(side: CheckSide): number {
+    const means: number[] = Object.values(side.means);
     return means.length ? means.reduce((a: number, b: number): number => a + b, 0) / means.length : 0;
 }
 
 /**
  * Whether `after` plays better than `before`. The same version (Laya taught more) is held to the same rules: fewer seeds
  * below their reference with the mean no lower, or as few and the mean higher by more than MEAN_RISES. A new version is
- * held to its own, fresh record — its rules can no longer be below it —, so its engine must play better outright.
+ * held to its own, fresh record — its rules can no longer be below it —, so its engine must play better outright; or, its
+ * rules having lost at the slow end before (`slowWorse`), its rules there must play better by more than MEAN_RISES with
+ * its engine at the soonest no worse than live games vary (SLOW_FIX_TOLERANCE): a version trained to hold when a busy
+ * machine slows the engine, as well as it played where it does not.
  */
 export function playsBetter(before: CheckReport, after: CheckReport): boolean {
     if (after.stopped) {
@@ -142,7 +151,17 @@ export function playsBetter(before: CheckReport, after: CheckReport): boolean {
     if (after.version === before.version && after.worseSeeds.length < before.worseSeeds.length) {
         return now >= was;
     }
-    return (after.version !== before.version || after.worseSeeds.length <= before.worseSeeds.length) && now > was * MEAN_RISES;
+    if ((after.version !== before.version || after.worseSeeds.length <= before.worseSeeds.length) && now > was * MEAN_RISES) {
+        return true;
+    }
+    return (
+        after.version !== before.version &&
+        before.slowWorse.length > 0 &&
+        before.slow !== undefined &&
+        after.slow !== undefined &&
+        sideMean(after.slow) > sideMean(before.slow) * MEAN_RISES &&
+        now >= was * (1 - SLOW_FIX_TOLERANCE)
+    );
 }
 
 /**
@@ -239,6 +258,8 @@ export class Improver {
             engine,
             live: options.live,
             ...(minLagMs !== undefined ? { minLagMs } : {}),
+            // The rules at the slow end too: as late as a busy machine lands a fast engine's inputs.
+            ...(options.live ? { slowMs: LIVE_LATENCY.maxMs } : {}),
             ...(options.gamesPerSeed !== undefined ? { gamesPerSeed: options.gamesPerSeed } : {}),
             ...(options.signal ? { signal: options.signal } : {}),
             onStart: (games: number): void => options.hooks?.onCheckStart?.(when, games),

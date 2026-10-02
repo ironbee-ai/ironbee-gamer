@@ -492,6 +492,8 @@ async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinit
                 engine,
                 live,
                 ...(minLagMs !== undefined ? { minLagMs } : {}),
+                // The rules at the slow end too, as Train's check plays them.
+                ...(live ? { slowMs: LIVE_LATENCY.maxMs } : {}),
                 ...(opts.games !== undefined ? { gamesPerSeed: opts.games } : {}),
                 signal: abort.signal,
                 onGame: printGame,

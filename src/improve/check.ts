@@ -88,6 +88,13 @@ export interface CheckReport {
     why: string;
     /** Seeds the rules play below their record on this clock. */
     rulesWorse: number[];
+    /**
+     * Real time, the version's rules once more with their inputs held to `slowMs` (as late as a busy machine lands a fast
+     * engine's: LIVE_LATENCY's slow end) — and the seeds they play below their own play at the soonest there: a version to
+     * train across the range, or Laya, which learns from them, cannot hold there either.
+     */
+    slow?: CheckSide;
+    slowWorse: number[];
     /** Seeds the engine plays below the rules on the same clock (or, a version without rules, below its record). */
     engineWorse: number[];
     /** Every seed played below its reference, the rules' and the engine's: what a fix must lessen. */
@@ -110,6 +117,8 @@ export interface CheckOptions {
     live: boolean;
     /** Real time: how late a lag-aware version's inputs land at the soonest (its config's lagMs). */
     minLagMs?: number;
+    /** Real time: the rules are played once more with their inputs held to this lag (`slow`); none: not. */
+    slowMs?: number;
     /** Default: the seeds the version was measured on. */
     seeds?: number[];
     /** Default: LIVE_GAMES_PER_SEED with the clock running, PAUSED_GAMES_PER_SEED paused. */
@@ -207,10 +216,11 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
     /** The engine's decisions per game it played, labelled by the rules: kept until the reference says which games went wrong. */
     const askedOf: Map<CheckGame, Asked[]> = new Map();
 
-    const playSide: (side: DecisionEngine, label: string, labelByRules: boolean) => Promise<CheckSide> = async (
+    const playSide: (side: DecisionEngine, label: string, labelByRules: boolean, floorMs?: number) => Promise<CheckSide> = async (
         side: DecisionEngine,
         label: string,
-        labelByRules: boolean
+        labelByRules: boolean,
+        floorMs: number | undefined = options.minLagMs
     ): Promise<CheckSide> => {
         const games: CheckGame[] = [];
         for (const seed of seeds) {
@@ -226,7 +236,7 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
                         gameSeconds,
                         seeds: [seed],
                         pace: live ? Pace.REALTIME : Pace.TURN,
-                        ...(live && options.minLagMs !== undefined ? { minLagMs: options.minLagMs } : {}),
+                        ...(live && floorMs !== undefined ? { minLagMs: floorMs } : {}),
                         ...(options.signal ? { signal: options.signal } : {}),
                         hooks: {
                             onTick: (t: TickEvent): void => {
@@ -274,9 +284,13 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         return { label, games, means: meansOf(games) };
     };
 
-    options.onStart?.(seeds.length * perSeed * (!checkingRules && teacher ? 2 : 1));
+    // Real time, the rules once more at the slow end — the version's own (an engine checked plays them beside it).
+    const slowMs: number | undefined = live && teacher && options.slowMs !== undefined && options.slowMs > (options.minLagMs ?? 0) ? options.slowMs : undefined;
+    options.onStart?.(seeds.length * perSeed * ((!checkingRules && teacher ? 2 : 1) + (slowMs !== undefined ? 1 : 0)));
     const played: CheckSide = await playSide(engine, engine.label, !checkingRules && teacher !== undefined);
     const rules: CheckSide | undefined = !checkingRules && teacher && !stopped ? await playSide(teacher, teacher.label, false) : undefined;
+    const slow: CheckSide | undefined =
+        slowMs !== undefined && teacher && !stopped ? await playSide(teacher, `${teacher.label}, inputs at ${slowMs} ms`, false, slowMs) : undefined;
     const record: Record<number, number> | undefined = recordOf(profile, live);
     const clock: string = live ? "with the clock running" : "with the clock paused";
     const labelled: number = played.games.reduce((n: number, g: CheckGame): number => n + (askedOf.has(g) ? g.decisions : 0), 0);
@@ -284,20 +298,21 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
     const same: CheckGame[] = (rules ?? played).games;
     const sameGames: boolean =
         !live && seeds.length > 1 && same.length > 1 && same.every((g: CheckGame): boolean => g.score === same[0].score && g.decisions === same[0].decisions);
-    const base: Omit<CheckReport, "verdict" | "why" | "rulesWorse" | "engineWorse" | "worseSeeds"> = {
+    const base: Omit<CheckReport, "verdict" | "why" | "rulesWorse" | "slowWorse" | "engineWorse" | "worseSeeds"> = {
         gameId: game.id,
         version: profile.version,
         engine: engine.kind,
         live,
         played,
         ...(rules ? { rules } : {}),
+        ...(slow ? { slow } : {}),
         ...(record ? { record } : {}),
         ...(labelled > 0 ? { disagreement: Number((disagreed / labelled).toFixed(3)) } : {}),
         ...(sameGames ? { sameGames: true } : {}),
         stopped,
     };
     if (stopped) {
-        return { ...base, verdict: Verdict.NOTHING, why: "stopped before every game was played: nothing concluded", rulesWorse: [], engineWorse: [], worseSeeds: [] };
+        return { ...base, verdict: Verdict.NOTHING, why: "stopped before every game was played: nothing concluded", rulesWorse: [], slowWorse: [], engineWorse: [], worseSeeds: [] };
     }
 
     const seedsText: (worseOnes: number[]) => string = (worseOnes: number[]): string => (worseOnes.length === 1 ? `seed ${worseOnes[0]}` : `seeds ${worseOnes.join(", ")}`);
@@ -309,6 +324,15 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         findings.push(
             `the rules play ${seedsText(rulesWorse)} ${clock} below their record: ${list(rulesWorse, rulesSide.means)} against ${list(rulesWorse, record)}` +
                 `${live && profile.results?.realtime ? " (measured with the lag simulated)" : ""}`
+        );
+    }
+    // The rules at the slow end below their own play at the soonest: as late as a busy machine lands a fast engine's inputs,
+    // the version breaks — and Laya, which learns from them, with it. The version is what to fix: trained across the range.
+    const slowWorse: number[] = slow && rulesSide ? seeds.filter((s: number): boolean => worse(slow.means[s], rulesSide.means[s], share)) : [];
+    if (slow && rulesSide && slowWorse.length > 0) {
+        findings.push(
+            `the rules play ${seedsText(slowWorse)} with their inputs held to ${slowMs} ms below their play at the soonest: ` +
+                `${list(slowWorse, slow.means)} against ${list(slowWorse, rulesSide.means)} — as late as a busy machine lands a fast engine's`
         );
     }
     // The engine below the rules on the same clock — or, a version without rules (one trained for Jev), below its record.
@@ -351,21 +375,24 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
                 (evidence.length ? `; before the end it went otherwise than the rules — ${evidence.join("; ")}` : "")
         );
     }
-    // What to fix first: the rules (the engine learns from them), then the engine.
-    const verdict: Verdict = rulesWorse.length > 0 ? Verdict.RULES : engineWorse.length > 0 ? Verdict.ENGINE : Verdict.NOTHING;
+    // What to fix first: the rules (the engine learns from them) — at the soonest, or at the slow end —, then the engine.
+    const verdict: Verdict = rulesWorse.length > 0 || slowWorse.length > 0 ? Verdict.RULES : engineWorse.length > 0 ? Verdict.ENGINE : Verdict.NOTHING;
     if (verdict !== Verdict.NOTHING) {
-        const worseSeeds: number[] = [...new Set([...rulesWorse, ...engineWorse])].sort((a: number, b: number): number => a - b);
-        return { ...base, verdict, rulesWorse, engineWorse, worseSeeds, why: findings.join("; and ") };
+        const worseSeeds: number[] = [...new Set([...rulesWorse, ...slowWorse, ...engineWorse])].sort((a: number, b: number): number => a - b);
+        return { ...base, verdict, rulesWorse, slowWorse, engineWorse, worseSeeds, why: findings.join("; and ") };
     }
     const against: Record<number, number> | undefined = checkingRules ? record : (rules?.means ?? record);
     return {
         ...base,
         verdict: Verdict.NOTHING,
         rulesWorse: [],
+        slowWorse: [],
         engineWorse: [],
         worseSeeds: [],
-        why: against
-            ? `${engine.label} plays every seed ${clock} as well as ${!checkingRules && rules ? "the rules" : "its record"}: ${list(seeds, played.means)} against ${list(seeds, against)}`
-            : `${engine.label} played ${list(seeds, played.means)} ${clock}, with nothing to hold it to (no rules beside it, no record)`,
+        why:
+            (against
+                ? `${engine.label} plays every seed ${clock} as well as ${!checkingRules && rules ? "the rules" : "its record"}: ${list(seeds, played.means)} against ${list(seeds, against)}`
+                : `${engine.label} played ${list(seeds, played.means)} ${clock}, with nothing to hold it to (no rules beside it, no record)`) +
+            (slow ? `; the rules hold with their inputs at ${slowMs} ms too: ${list(seeds, slow.means)}` : ""),
     };
 }

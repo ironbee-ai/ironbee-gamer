@@ -34,8 +34,13 @@ A version asked for that the game does not have is refused (the server: a 400 be
   - `rulesWorse`: the rules below their record on this clock (the running one: as measured in real time, else
     paused) — the version is what to fix there;
   - `engineWorse`: the engine below the rules on the same clock (a version without rules, one trained for Jev:
-    below its record).
-- Verdict: `RULES` first (the engine learns from the rules), then `ENGINE`, else `NOTHING`. For each game played
+    below its record);
+  - `slowWorse`, live: the rules played once more with their inputs held to the slow end (`slowMs`:
+    `LIVE_LATENCY.maxMs`, 90 ms — as late as a busy machine lands a fast engine's), below their own play at the
+    soonest: the version breaks there, and Laya, which learns from it, with it — the version is what to fix, trained
+    across 45–90 ms. Holding, the check says so.
+- Verdict: `RULES` first (the engine learns from the rules; at the soonest or at the slow end), then `ENGINE`, else
+  `NOTHING`. For each game played
   below its reference, the decisions in its last 3 s where the engine chose otherwise than the rules
   (`divergences`) — where it went wrong (information only: the fix does not read them).
 - Live, the games the engine lost with its inputs landing more than `LATE_MS` (10 ms) past their floor are said so,
@@ -66,7 +71,8 @@ A version asked for that the game does not have is refused (the server: a 400 be
 - Checked again, then `playsBetter`. The same version (Laya taught more), held to the same rules: fewer seeds below
   their reference with the mean no lower, or as few and the mean higher by more than 1 %. A new version is held to its
   own fresh record (its rules can no longer be below it): its engine must play better outright, the mean higher by more
-  than 1 %. A training that kept no version, and a distillation that kept the checkpoint before it (the new one played
+  than 1 % — or, its rules having lost at the slow end before, its rules there better by more than 1 % with its engine
+  at the soonest no lower than live games vary (`SLOW_FIX_TOLERANCE`, 3 %). A training that kept no version, and a distillation that kept the checkpoint before it (the new one played
   no better paused), end there: nothing new to check.
   - Better: the version kept is what that engine and clock play from then on — the game's configs (its own, else
     the ones its versions earn) pinned in the user library's game.json; Laya and the rules together.
