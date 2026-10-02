@@ -8,6 +8,7 @@ import { GameBrowser } from "../../../src/devtools/client";
 import { OpenRequest, OpenResult } from "../../../src/devtools/protocol";
 import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../../../src/distill/distiller";
 import { layaPortLockFile, LayaServerHandle, recordedStudentMean } from "../../../src/distill/laya-runtime";
+import { WanderingStudent } from "../../../src/distill/teacher";
 import { DecisionEngine, EngineKind, Question } from "../../../src/engine";
 import { DecisionEngineError, RequestTooLargeError, SystemOneResponse } from "../../../src/engine/systemone";
 import { GameDefinition, Perception, Profile } from "../../../src/game/types";
@@ -293,6 +294,31 @@ describe("Distiller", (): void => {
         expect(lines.filter((l: string): boolean => /lagged|with the lag/.test(l))).toEqual([]);
     }, 30_000);
 
+    it("lets every other Laya game of a round wander from its seed — off its own path, its random moves no mistakes of its —, and says so when its own games play the very same on every seed", async (): Promise<void> => {
+        const played: Played[] = recordPlays();
+        const tuned: Tuned[] = [];
+        const lines: string[] = [];
+        await distiller(tuned).distill({ ...OPTIONS, studentGames: 4, workDir: path.join(root, "work"), hooks: { onLog: (l: string): number => lines.push(l) } });
+        const round: Played[] = played.filter((p: Played): boolean => p.seed >= 1_000_000 && p.seed < 1_000_100);
+        expect(round.map((p: Played): boolean => p.engine instanceof WanderingStudent)).toEqual([false, true, false, true]);
+        expect(lines.some((l: string): boolean => /Laya games: .*\(wandering\)/.test(l))).toBe(true);
+        // The fake runner is one game whatever the seed: the student's own two games played the very same.
+        expect(lines.some((l: string): boolean => /its games on 2 seeds played the very same/.test(l))).toBe(true);
+        const rows: Row[] = rowsIn(tuned[1].trainOnly![0]);
+        const own: Row[] = rows.filter((r: Row): boolean => r.seed === round[0].seed);
+        const wandering: Row[] = rows.filter((r: Row): boolean => r.seed === round[1].seed);
+        // Off its path: states its own game never showed.
+        const seen: Set<string> = new Set(own.map((r: Row): string => JSON.stringify(r.state)));
+        expect(wandering.some((r: Row): boolean => !seen.has(JSON.stringify(r.state)))).toBe(true);
+        // On the ground away from the obstacle the student says NOOP: a random JUMP there is kept as its own NOOP.
+        const calm: Row[] = wandering.filter((r: Row): boolean => {
+            const s: { dx: number | null; air: boolean } = r.state as { dx: number | null; air: boolean };
+            return !s.air && (s.dx === null || s.dx < 10 || s.dx > 40);
+        });
+        expect(calm.length).toBeGreaterThan(0);
+        expect(calm.every((r: Row): boolean => r.student === "NOOP")).toBe(true);
+    }, 30_000);
+
     it("with a lag, plays the teacher's games with it until half the labelled states are made with it, and half of each round's Laya games: their rows are the states made for it, each with its game's seed and lag", async (): Promise<void> => {
         const v2: Profile = library.saveProfile("fake-runner", {
             ...fakeProfile({ teacher: RIGHT, extractor: LAG_EXTRACTOR }),
@@ -343,7 +369,8 @@ describe("Distiller", (): void => {
         for (const r of daggerRows) {
             expect(laggedSeed(r.seed) ? r.state.lag >= 45 && r.state.lag <= 60 && r.lag !== undefined : r.state.lag === 0 && r.lag === undefined).toBe(true);
         }
-        expect(lines).toContainEqual(expect.stringMatching(/^ {2}Laya games: \d+\*?, \d+\*? \(lagged\)$/));
+        // Its second game wanders too.
+        expect(lines).toContainEqual(expect.stringMatching(/^ {2}Laya games: \d+\*?, \d+\*? \(lagged\) \(wandering\)$/));
 
         // The profile's seeds: the student paused, then once more with the lag; its rules and random play paused.
         const seedGames: Played[] = played.filter((p: Played): boolean => p.seed < 10_000);
@@ -361,7 +388,7 @@ describe("Distiller", (): void => {
         expect(JSON.parse(readFileSync(path.join(result.checkpoint, "distill.json"), "utf-8"))).toMatchObject({ lag, lagged: result.lagged, laggedRows: result.laggedRows });
     });
 
-    it("live, plays every round's Laya games with the clock running, one at a time, its inputs held to the floor: their rows keep the lag each decision was made at", async (): Promise<void> => {
+    it("live, plays every round's Laya games with the clock running, one at a time, each game's inputs held to its own floor (spread to the slowest): their rows keep the lag each decision was made at", async (): Promise<void> => {
         const played: Played[] = recordPlays();
         const tuned: Tuned[] = [];
         const lines: string[] = [];
@@ -369,12 +396,12 @@ describe("Distiller", (): void => {
             ...OPTIONS,
             // Live games take their time: a second each.
             gameSeconds: 1,
-            live: { minLagMs: 30 },
+            live: { minLagMs: 30, maxLagMs: 90 },
             workDir: path.join(root, "work"),
             hooks: { onLog: (l: string): number => lines.push(l) },
         });
         const studentGames: Played[] = played.filter((p: Played): boolean => p.seed >= 1_000_000);
-        expect(studentGames.map((p: Played): string => `${p.pace} ${p.minLagMs}`)).toEqual([`${Pace.REALTIME} 30`, `${Pace.REALTIME} 30`]);
+        expect(studentGames.map((p: Played): string => `${p.pace} ${p.minLagMs}`)).toEqual([`${Pace.REALTIME} 30`, `${Pace.REALTIME} 90`]);
         expect(studentGames[1].startedAt).toBeGreaterThanOrEqual(studentGames[0].endedAt as number);
         // The teacher's games and the profile's seeds as ever: paused.
         expect(played.filter((p: Played): boolean => p.seed < 1_000_000).every((p: Played): boolean => p.pace === Pace.TURN && p.minLagMs === undefined)).toBe(true);
@@ -384,7 +411,7 @@ describe("Distiller", (): void => {
             .map((l: string): { lag?: { minMs: number; maxMs: number } } => JSON.parse(l));
         expect(daggerRows.length).toBeGreaterThan(0);
         expect(daggerRows.every((r: { lag?: { minMs: number; maxMs: number } }): boolean => r.lag !== undefined && r.lag.minMs === r.lag.maxMs)).toBe(true);
-        expect(lines).toContainEqual(expect.stringMatching(/^ {2}Laya games \(live\): \d+\*?, \d+\*?$/));
+        expect(lines).toContainEqual(expect.stringMatching(/^ {2}Laya games \(live\): \d+\*?, \d+\*? \(wandering\)$/));
     }, 30_000);
 
     it("with a lag, on a version whose rows hold enough paused states (distilled before), plays lagged teacher's games until half the states wanted are made with it, and says what it reused", async (): Promise<void> => {

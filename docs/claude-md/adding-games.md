@@ -42,8 +42,8 @@
    400 naming what Jev or the trainer lacks, before anything runs; `ibgamer train` refuses one without the
    trainer's CLI too, by the same check (`trainerHealth`), before Jev is asked or its daemon starts).
    **…for real time** (the wizard's box, later the setup checklist's **Train for real time**, and Train with the
-   clock running once the game is played live): a game that does not wait for the player is trained as Laya plays live (docs/claude-md/training.md: the rules 45–60 ms late, simulated,
-   every seed at 45, 53 and 60 ms) — no lag to pick; not for Jev (hundreds of ms: the box is off for it, and the
+   clock running once the game is played live): a game that does not wait for the player is trained as Laya plays live (docs/claude-md/training.md: the rules 45–90 ms late, simulated,
+   every seed at 45, 68 and 90 ms) — no lag to pick; not for Jev (hundreds of ms: the box is off for it, and the
    server refuses it). **Notes for the trainer** (the wizard's and Train's, optional): what the game should be
    played like, told to the trainer in its every prompt (docs/claude-md/training.md).
 

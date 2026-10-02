@@ -453,7 +453,7 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
         }
     });
 
-    it("live, plays each seed its games for real, one at a time, the rules at once and the inputs held to the floor; the unseen seeds paused", async (): Promise<void> => {
+    it("live, plays each seed its games for real, one at a time, the rules at once and each game's inputs held to its own floor (spread to the slowest); the unseen seeds paused", async (): Promise<void> => {
         const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-train-live-"));
         try {
             const library: Library = new Library(path.join(root, "built-in"), path.join(root, "user"));
@@ -479,12 +479,14 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
                     prompts.push(prompt);
                     return tunerReply({ teacher: RIGHT_RULES });
                 },
-            }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, realtime: true, live: { minLagMs: 30, gamesPerSeed: 2 }, workDir: path.join(root, "work") });
+            }).train({ gameId: "fake-runner", decider: Decider.RULES, iterations: 1, realtime: true, live: { minLagMs: 30, maxLagMs: 90, gamesPerSeed: 2 }, workDir: path.join(root, "work") });
             jest.restoreAllMocks();
             const live: Array<(typeof played)[number]> = played.filter((p: (typeof played)[number]): boolean => p.pace === Pace.REALTIME);
-            // Each version: seeds 1 and 2 twice each, live, held to the floor, the rules answering at once, one game after another.
+            // Each version: seeds 1 and 2 twice each, live, the rules answering at once, one game after another — a seed's games
+            // held to floors from 30 to 90 ms.
             expect(live.map((p: (typeof played)[number]): number => p.seed)).toEqual([1, 1, 2, 2, 1, 1, 2, 2]);
-            expect(live.every((p: (typeof played)[number]): boolean => p.minLagMs === 30 && p.latency === undefined)).toBe(true);
+            expect(live.map((p: (typeof played)[number]): number | undefined => p.minLagMs)).toEqual([30, 90, 30, 90, 30, 90, 30, 90]);
+            expect(live.every((p: (typeof played)[number]): boolean => p.latency === undefined)).toBe(true);
             for (let i: number = 1; i < live.length; i++) {
                 expect(live[i].startedAt).toBeGreaterThanOrEqual(live[i - 1].endedAt as number);
             }
@@ -493,7 +495,7 @@ describe("Trainer for real time simulated on the paused clock", (): void => {
             expect(unseen.length).toBeGreaterThan(0);
             expect(unseen.every((p: (typeof played)[number]): boolean => p.pace === Pace.TURN)).toBe(true);
             expect(prompts[0]).toContain("These games are played live, for real");
-            expect(prompts[0]).toContain("each seed 2 times");
+            expect(prompts[0]).toContain("each seed 2 times, each game's inputs held to land no sooner than its own floor, from 30 to 90 ms after their frame");
             const results: ProfileResults | undefined = library.profile("fake-runner", 2)?.results;
             expect(results?.test?.seeds).toEqual([1001, 2002, 3003]);
             expect(results?.realtime?.test).toBeUndefined();

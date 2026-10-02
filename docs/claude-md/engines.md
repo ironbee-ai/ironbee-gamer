@@ -1,6 +1,6 @@
 # Decision engines (src/engine/)
 
-`DecisionEngine { kind, label, ask(state, questions), warmUp?(), keepWarm?(question), health() }` over the System One
+`DecisionEngine { kind, label, ask(state, questions), warmUp?(), keepWarm?(), health() }` over the System One
 protocol (`SystemOneClient`: HTTP/2 pool, 5 attempts with backoff on 429/5xx, on a connection dropped
 or timed out before the answer or while its body arrives, and on a 200 whose body is not a JSON answer —
 the clock is frozen while it waits; a body that stays no answer is an `InvalidAnswerError`, as an answer
@@ -11,10 +11,13 @@ offered option with sane probabilities.
 the play ends): a local model idles down within a second — its answer after 0.2 s idle took ~40–65 ms, after
 2–5 s ~70–130 ms (the forward pass itself: the server's `inference_ms`), against ~28 ms back to back — so
 every game's first decision, and every one after a pause (`askWhen`, a round's end), came late. Laya is asked
-the last question again whenever it has been idle 100 ms (before any, the decision's question about an empty
-game), never beside one in flight: the server answers one at a time, so a decision asked meanwhile waits for
-one warm answer. Measured 2026-10-01: Mario's first decisions 31–56 ms against 71–120 cold, the rest
-unchanged; Pop the Lock (`askWhen`) at a 45–48 ms lag against 77–86 cold. Jev has none (its questions cost).
+the smallest question (`{ warm: true }`, two options: as the server warms itself up at its start) whenever it has
+been idle 100 ms, never beside one in flight: the server answers one at a time, so a decision asked meanwhile waits
+for one warm answer — the shortest there is. It once re-asked the last decision's question (a game's state, hundreds
+of tokens): a game deciding seldom (Flappy Bird, one decision in ~400 ms) met one in flight often enough that its
+inputs landed at 56–76 ms where they land at 50, and Laya lost games live it had won. Measured 2026-10-01 with the
+last question: Mario's first decisions 31–56 ms against 71–120 cold, the rest unchanged; Pop the Lock (`askWhen`) at a
+45–48 ms lag against 77–86 cold. Jev has none (its questions cost).
 
 | Engine | Where | Latency (measured 2026-09-27) |
 |---|---|---|
@@ -68,7 +71,11 @@ into its weights through labelled states.
   `laya/finetune.py` from the base → DAgger rounds (the student plays `studentGames`, the teacher
   labels what it visited into `.dagger.jsonl`, fine-tuning CONTINUES from the previous round's
   checkpoint for `roundEpochs`; a student choice the teacher gives the highest probability is no
-  mistake, so a tie is not a hard row; `live` (`laya distill --live`, Train's fix for the running clock): every
+  mistake, so a tie is not a hard row; every other student game wanders (`WanderingStudent`, src/distill/teacher.ts:
+  8 % of its moves random, from the game's seed, as the teacher's second games do) — the states just off the
+  student's own path, labelled as any, its row keeping the student's own choice (a random move is no mistake of its,
+  no hard row): in a game whose seeds all play the same, the only other states a round can show it, and the log says
+  when its own games on different seeds played the very same; `live` (`laya distill --live`, Train's fix for the running clock): every
   round's student games played live, one at a time, the inputs held to the live floor, each row with the lag its
   decision was made at — Laya corrected on the states it meets live, which a simulated lag does not make) → the student plays the profile's seeds one at a time (the
   decision time is a single game's), beside the profile's rules (its teacher, unless the engine taught
@@ -153,7 +160,7 @@ into its weights through labelled states.
 - **Distilling with a lag** (`lag`; CLI `laya distill --lag <ms | min-max>`, parsed as `play --lag`): for a
   lag-aware version, whose extractor computes time-critical features as of `info.lagMs` after the frame and
   whose inputs land live at the config's `lagMs` floor. A lag-aware version is distilled with
-  `LIVE_LATENCY` (45–60 ms) unless told otherwise — the UI's distillations (a training for Laya, the checklist's)
+  `LIVE_LATENCY` (45–90 ms; 45–60 before 2026-10-02) unless told otherwise — the UI's distillations (a training for Laya, the checklist's)
   always, the CLI when neither `--lag`
   (`0`: none) nor `--resume` is given. A resume with no `--lag` goes on with the lag its checkpoint was
   distilled with (its record's `lag`), and the checkpoint it keeps records it — a plain `--resume` of Pac-Man's

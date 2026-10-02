@@ -38,6 +38,10 @@ A version asked for that the game does not have is refused (the server: a 400 be
 - Verdict: `RULES` first (the engine learns from the rules), then `ENGINE`, else `NOTHING`. For each game played
   below its reference, the decisions in its last 3 s where the engine chose otherwise than the rules
   (`divergences`) — where it went wrong (information only: the fix does not read them).
+- Live, the games the engine lost with its inputs landing more than `LATE_MS` (10 ms) past their floor are said so,
+  with its time a decision (`engineMs`, every game's): it answered slower than the version is played at — the
+  engine's speed, not its lessons. Paused, `sameGames`: every seed played the very same game (the same score in as
+  many decisions) — the seeds do not change this game, and the check saw one.
 - `ibgamer train <game> --check-only` prints the games, the verdict and the divergences.
 
 ## The fix (improve.ts, `Improver`)
@@ -55,7 +59,10 @@ A version asked for that the game does not have is refused (the server: a 400 be
     running clock). Training kept nothing while Laya plays below its rules where they hold: Laya taught more.
 - `ENGINE` with Laya: Laya taught more — DAgger from its checkpoint (`resume`, 2 rounds); the running clock:
   `DistillOptions.live`, its student games played live, one at a time, each row with the lag it was decided at
-  (`laya distill --live`).
+  (`laya distill --live`). A lesson that plays no better (its distillation kept the checkpoint before it, or the check
+  after it found nothing better: undone) is followed by the next (`LAYA_LESSONS`): the version learnt again from the
+  base model on every state gathered (the teacher's and every round's; not resumed), then its rounds — kept on the
+  same terms, undone when it plays no better. Every round's student games wander half the time (docs/claude-md/engines.md).
 - Checked again, then `playsBetter`. The same version (Laya taught more), held to the same rules: fewer seeds below
   their reference with the mean no lower, or as few and the mean higher by more than 1 %. A new version is held to its
   own fresh record (its rules can no longer be below it): its engine must play better outright, the mean higher by more
@@ -86,8 +93,9 @@ A version asked for that the game does not have is refused (the server: a 400 be
 - A checked run (`RunKind.TRAIN` with `record.improve`) shows its progress as a training's does (`ImproveTracker`,
   src/run/progress.ts): the check's games (played of planned, the time left at the pace of those played), the fix's
   own stages (a training's iterations, a distillation's rounds, followed by their own trackers), the check after it
-  (skipped, "nothing new to check", when the fix kept nothing) — the bar weighed, each check a fifth, so it never runs
-  back when the fix's stages appear. Its phases and log are in the Training tab, its check and training games in the
+  (skipped, "nothing new to check", when the fix kept nothing); a second Laya lesson its own stages ("Laya, again")
+  and check — the bar weighed (the check before a fifth, each go at the fix the rest, its check after it a quarter of
+  that), planning for a second lesson as soon as Laya is taught more, so it never runs back. Its phases and log are in the Training tab, its check and training games in the
   live view; `record.improve` keeps each check (the means per seed, the rules' beside them, the seeds below their
   reference), the outcome and what was done, summarized above the log. A run with nothing to check is a training's
   (`ProgressTracker`, `LayaTrainingTracker`).

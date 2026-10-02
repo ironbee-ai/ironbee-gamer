@@ -9,10 +9,23 @@ import { GameDefinition, PlayConfig, Profile, ProfileResults } from "./types";
 
 /**
  * Real time for a fast engine (Laya, the rules): the lag its inputs land at when a game is played live — an answer in
- * tens of ms (Laya: 25–40 ms a decision, measured 2026-09) and the frame's step, held to a floor (LIVE_FLOOR_MS). Training
- * for real time simulates it, and a version trained so is distilled with it.
+ * tens of ms (Laya: 25–40 ms a decision, measured 2026-09) and the frame's step, held to a floor (LIVE_FLOOR_MS) — and as
+ * late as a machine busy with other work makes it: a browser tab taking most of a core once put Laya's at 56–99 ms where it
+ * was 45–50, and versions trained for 45–60 lost live there. Training for real time plays the whole range, and a version
+ * trained so is distilled with it.
  */
-export const LIVE_LATENCY: { minMs: number; maxMs: number } = { minMs: 45, maxMs: 60 };
+export const LIVE_LATENCY: { minMs: number; maxMs: number } = { minMs: 45, maxMs: 90 };
+
+/**
+ * Live, the floors a round of `games` holds its inputs to, spread evenly from `minMs` to `maxMs` (none, or no wider: every
+ * game at `minMs`) — each game as an engine that answers that late, or a busy machine, lands them.
+ */
+export function liveFloors(minMs: number, maxMs: number | undefined, games: number): number[] {
+    if (maxMs === undefined || maxMs <= minMs || games < 2) {
+        return Array.from({ length: games }, (): number => minMs);
+    }
+    return Array.from({ length: games }, (_: unknown, i: number): number => Math.round(minMs + (i * (maxMs - minMs)) / (games - 1)));
+}
 
 /** A lag-aware version's inputs land no sooner than this live when neither its config nor its own results name a floor. */
 export const LIVE_FLOOR_MS: number = 50;

@@ -37,6 +37,8 @@ export const WORSE_SHARE: { live: number; paused: number } = { live: 0.9, paused
 const EVIDENCE_WINDOW_MS: number = 3_000;
 /** Decisions shown per game that went wrong. */
 const EVIDENCE_PER_GAME: number = 5;
+/** Real time: inputs landing this much past the floor are late — the engine answered slower than the version is played at. */
+const LATE_MS: number = 10;
 
 /** Where a game the engine played worse went another way than the rules: a decision before its end. */
 export interface Divergence {
@@ -53,6 +55,8 @@ export interface CheckGame {
     over: boolean;
     /** Real time: the lag its inputs landed at (median). */
     lagMs?: number;
+    /** The engine's own time a decision (median). */
+    engineMs?: number;
     decisions: number;
     /** Decisions the rules would have made otherwise (asked about every state the engine decided on). */
     disagreements: number;
@@ -90,6 +94,11 @@ export interface CheckReport {
     worseSeeds: number[];
     /** Share of the engine's decisions the rules would have made otherwise (none: no rules to ask). */
     disagreement?: number;
+    /**
+     * With the clock paused, every seed played the very same game — the same score in as many decisions (the rules', else
+     * the engine's): the seeds do not change this game, and the check saw one game.
+     */
+    sameGames?: boolean;
     stopped: boolean;
 }
 
@@ -168,6 +177,12 @@ function recordOf(profile: Profile, live: boolean): Record<number, number> | und
 }
 
 /** `a` below `share` of `b` (nothing is below a reference of 0 or less). */
+/** The middle of some numbers (the upper middle of an even count), whole. */
+function median(values: number[]): number {
+    const sorted: number[] = [...values].sort((a: number, b: number): number => a - b);
+    return Math.round(sorted[Math.floor(sorted.length / 2)]);
+}
+
 function worse(a: number | undefined, b: number | undefined, share: number): boolean {
     return a !== undefined && b !== undefined && b > 0 && a < b * share;
 }
@@ -245,6 +260,7 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
                     seconds: e.gameSeconds,
                     over: e.over,
                     ...(e.lagMs !== undefined ? { lagMs: e.lagMs } : {}),
+                    ...(e.engineMedianMs !== undefined ? { engineMs: Math.round(e.engineMedianMs) } : {}),
                     decisions: asked.length,
                     disagreements,
                 };
@@ -265,6 +281,9 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
     const clock: string = live ? "with the clock running" : "with the clock paused";
     const labelled: number = played.games.reduce((n: number, g: CheckGame): number => n + (askedOf.has(g) ? g.decisions : 0), 0);
     const disagreed: number = played.games.reduce((n: number, g: CheckGame): number => n + g.disagreements, 0);
+    const same: CheckGame[] = (rules ?? played).games;
+    const sameGames: boolean =
+        !live && seeds.length > 1 && same.length > 1 && same.every((g: CheckGame): boolean => g.score === same[0].score && g.decisions === same[0].decisions);
     const base: Omit<CheckReport, "verdict" | "why" | "rulesWorse" | "engineWorse" | "worseSeeds"> = {
         gameId: game.id,
         version: profile.version,
@@ -274,6 +293,7 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         ...(rules ? { rules } : {}),
         ...(record ? { record } : {}),
         ...(labelled > 0 ? { disagreement: Number((disagreed / labelled).toFixed(3)) } : {}),
+        ...(sameGames ? { sameGames: true } : {}),
         stopped,
     };
     if (stopped) {
@@ -312,10 +332,21 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
             }
         }
         const there: CheckGame[] = played.games.filter((g: CheckGame): boolean => engineWorse.includes(g.seed));
-        const lost: number = there.filter((g: CheckGame): boolean => worse(g.score, reference[g.seed], share)).length;
+        const lostGames: CheckGame[] = there.filter((g: CheckGame): boolean => worse(g.score, reference[g.seed], share));
+        // Real time, the games it lost with its inputs landing well past their floor: it answered slower than the version is
+        // played at — the engine's speed, not its lessons.
+        const floor: number | undefined = live ? (options.minLagMs ?? 0) : undefined;
+        const late: CheckGame[] = floor !== undefined ? lostGames.filter((g: CheckGame): boolean => g.lagMs !== undefined && g.lagMs > floor + LATE_MS) : [];
+        const lateText: string = late.length
+            ? `; its inputs landed late in ${late.length} of them: at ${median(late.map((g: CheckGame): number => g.lagMs as number))} ms where they land at ${floor} ms at the soonest` +
+              (late.some((g: CheckGame): boolean => g.engineMs !== undefined)
+                  ? ` (${median(late.filter((g: CheckGame): boolean => g.engineMs !== undefined).map((g: CheckGame): number => g.engineMs as number))} ms a decision)`
+                  : "")
+            : "";
         findings.push(
             `${engine.label} plays ${seedsText(engineWorse)} ${clock} below ${rules ? "the rules" : "its record"}: ` +
-                `${list(engineWorse, played.means)} against ${list(engineWorse, reference)} (${lost} of ${there.length} games there)` +
+                `${list(engineWorse, played.means)} against ${list(engineWorse, reference)} (${lostGames.length} of ${there.length} games there)` +
+                lateText +
                 (evidence.length ? `; before the end it went otherwise than the rules — ${evidence.join("; ")}` : "")
         );
     }

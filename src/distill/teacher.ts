@@ -11,6 +11,7 @@ import { DecisionEngine, EngineHealth, EngineKind } from "../engine/types";
 import { GameAction, Profile } from "../game/types";
 import { LatencyRange, latencyAt } from "../play/latency";
 import { planSlotOf } from "../play/plan";
+import type { DecisionRecord } from "../play/player";
 import { Teacher } from "../play/sandbox";
 
 export { LatencyRange, latencyAt };
@@ -125,6 +126,63 @@ export function seededRandom(seed: number): () => number {
         t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+}
+
+/**
+ * A student that wanders, as the teacher's second games do: this share of its moves a random action (from the game's
+ * seed), so a DAgger round meets the states just off the student's own path — in a game whose seeds all play the same,
+ * the only states besides that one path. A decision's row keeps the student's own choice (`recorded`): a random move is
+ * no mistake of the student's, and no hard row.
+ */
+export class WanderingStudent implements DecisionEngine {
+    readonly kind: EngineKind;
+    readonly label: string;
+    private readonly next: () => number;
+    /** The student's own choice where its last move was a random one. */
+    private own?: string;
+
+    constructor(
+        private readonly student: DecisionEngine,
+        private readonly epsilon: number,
+        seed: number
+    ) {
+        this.kind = student.kind;
+        this.label = `${student.label}, wandering`;
+        this.next = seededRandom(seed);
+    }
+
+    async ask(state: unknown, questions: Record<string, Question>): Promise<SystemOneResponse> {
+        const response: SystemOneResponse = await this.student.ask(state, questions);
+        this.own = undefined;
+        if (this.next() >= this.epsilon) {
+            return response;
+        }
+        const answers: Record<string, unknown> = { ...response.answers };
+        for (const [id, question] of Object.entries(questions)) {
+            const options: string[] = Object.keys(question.criteria);
+            const move: string = options[Math.floor(this.next() * options.length)];
+            this.own = (response.answers[id] as { choice?: string } | undefined)?.choice;
+            answers[id] = { choice: move, probabilities: Object.fromEntries(options.map((o: string): [string, number] => [o, o === move ? 1 : 0])), confidence: 1 };
+        }
+        return { ...response, answers };
+    }
+
+    /** A decision as its row keeps it: the student's own choice where the move made was a random one. */
+    recorded(record: DecisionRecord): DecisionRecord {
+        return this.own !== undefined ? { ...record, choice: this.own } : record;
+    }
+
+    warmUp(): void {
+        this.student.warmUp?.();
+    }
+
+    keepWarm(): () => void {
+        return this.student.keepWarm ? this.student.keepWarm() : (): void => undefined;
+    }
+
+    async health(): Promise<EngineHealth> {
+        return this.student.health();
+    }
 }
 
 /**

@@ -4,7 +4,7 @@
  */
 
 import { EngineKind } from "../../../src/engine";
-import { LIVE_FLOOR_MS, liveFloorMs, liveReadiness, playConfigs, VersionFacts } from "../../../src/game/configs";
+import { LIVE_FLOOR_MS, liveFloorMs, liveFloors, liveReadiness, playConfigs, VersionFacts } from "../../../src/game/configs";
 import { ProfileResults } from "../../../src/game/types";
 import { fakeGameDefinition } from "../../helpers/fake-game";
 
@@ -25,6 +25,16 @@ describe("liveFloorMs", (): void => {
         expect(liveFloorMs({ lagAware: true, results: results(10, 9, 53) })).toBe(53);
         expect(liveFloorMs({ lagAware: true, results: results(10) })).toBe(LIVE_FLOOR_MS);
         expect(liveFloorMs({ results: results(10, 9, 53) })).toBeUndefined();
+    });
+});
+
+describe("liveFloors", (): void => {
+    it("spreads a round's floors evenly from the soonest to the slowest; none wider, every game at the soonest", (): void => {
+        expect(liveFloors(45, 90, 5)).toEqual([45, 56, 68, 79, 90]);
+        expect(liveFloors(50, 90, 2)).toEqual([50, 90]);
+        expect(liveFloors(45, 90, 1)).toEqual([45]);
+        expect(liveFloors(50, undefined, 3)).toEqual([50, 50, 50]);
+        expect(liveFloors(95, 90, 2)).toEqual([95, 95]);
     });
 });
 

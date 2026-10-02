@@ -59,8 +59,7 @@
     }
   ],
   "preferredConfig": {
-    "engine": "laya",
-    "live": true
+    "engine": "laya"
   },
   "pageStyle": "body { margin: 0; background: #000; overflow: hidden; } #controls, #instructions, #mute, #stats, #fps { display: none !important; } #racer { margin: 0 !important; border: 0 !important; width: 960px !important; height: 720px !important; } #canvas { width: 960px !important; height: 720px !important; } #hud { width: 960px !important; font-size: 1em !important; }"
 }

@@ -20,6 +20,14 @@ const HEALTH_TIMEOUT_MS: number = 2_000;
 const KEEP_WARM_AFTER_MS: number = 100;
 /** keepWarm: how often it looks whether Laya is idle. */
 const KEEP_WARM_POLL_MS: number = 20;
+/**
+ * What keepWarm asks: the smallest question, as the server warms itself up at its start — not the last decision's
+ * (a game's state, hundreds of tokens): the server answers one at a time, and a decision asked while a warm question
+ * is answered waits for it. A game deciding seldom (one decision in ~400 ms) met one in flight often enough to land its
+ * inputs well after their floor.
+ */
+const WARM_STATE: unknown = { warm: true };
+const WARM_QUESTIONS: Record<string, Question> = { q: { type: "choice", instructions: "warm up", criteria: { a: "a", b: "b" } } };
 
 export interface LayaEngineOptions {
     /** Base URL of the server. */
@@ -37,10 +45,9 @@ export class LayaEngine implements DecisionEngine {
     private readonly client: SystemOneClient;
     private readonly baseUrl: string;
     private readonly fetchImpl: typeof fetch;
-    /** Questions asked and not answered yet (keepWarm's too), since when none is, and the last one the player asked. */
+    /** Questions asked and not answered yet (keepWarm's too), and since when none is. */
     private inFlight: number = 0;
     private idleSince: number = Date.now();
-    private lastAsked?: { state: unknown; questions: Record<string, Question> };
 
     constructor(options: LayaEngineOptions = {}) {
         this.baseUrl = (options.url ?? DEFAULT_LAYA_URL).replace(/\/$/, "");
@@ -57,7 +64,6 @@ export class LayaEngine implements DecisionEngine {
     }
 
     async ask(state: unknown, questions: Record<string, Question>): Promise<SystemOneResponse> {
-        this.lastAsked = { state, questions };
         this.inFlight++;
         try {
             return await this.client.ask(state, questions);
@@ -72,20 +78,18 @@ export class LayaEngine implements DecisionEngine {
     }
 
     /**
-     * Asks again whenever Laya has been idle KEEP_WARM_AFTER_MS — the last question (before any, `question` about
-     * an empty game), never beside one in flight: the server answers one at a time, so a decision asked meanwhile
-     * waits for one warm answer (~30 ms) where a cold one would take 70–130 ms. Steady play asks more often than
-     * that and is never joined.
+     * Asks again whenever Laya has been idle KEEP_WARM_AFTER_MS — the smallest question (WARM_QUESTIONS), never beside
+     * one in flight: the server answers one at a time, so a decision asked meanwhile waits for one warm answer, the
+     * shortest there is, where a cold one would take 70–130 ms. Steady play asks more often than that and is never joined.
      */
-    keepWarm(question: Record<string, Question>): () => void {
+    keepWarm(): () => void {
         const timer: NodeJS.Timeout = setInterval((): void => {
             if (this.inFlight > 0 || Date.now() - this.idleSince < KEEP_WARM_AFTER_MS) {
                 return;
             }
-            const asked: { state: unknown; questions: Record<string, Question> } = this.lastAsked ?? { state: { game: {} }, questions: question };
             this.inFlight++;
             this.client
-                .ask(asked.state, asked.questions)
+                .ask(WARM_STATE, WARM_QUESTIONS)
                 .catch((): void => {
                     // Only to keep the device busy: a decision asks on its own.
                 })

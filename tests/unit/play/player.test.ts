@@ -75,12 +75,10 @@ class RealtimeRoundsFakeGame extends FakeGame {
 describe("Player in real time", (): void => {
     const gaps = (ticks: TickEvent[]): number[] => ticks.filter((t: TickEvent): boolean => t.asked).map((t: TickEvent, i: number, a: TickEvent[]): number => (i ? t.gameMs - a[i - 1].gameMs : 0)).slice(1);
 
-    it("keeps an engine warm from before the page opens until the play ends, with a decision's question — in real time only", async (): Promise<void> => {
+    it("keeps an engine warm from before the page opens until the play ends — in real time only", async (): Promise<void> => {
         const events: string[] = [];
-        let warmQuestion: Record<string, Question> | undefined;
         const engine: FakeEngine = new FakeEngine(jumpWhenClose);
-        (engine as DecisionEngine).keepWarm = (question: Record<string, Question>): (() => void) => {
-            warmQuestion = question;
+        (engine as DecisionEngine).keepWarm = (): (() => void) => {
             events.push("warm");
             return (): number => events.push("stop");
         };
@@ -94,7 +92,6 @@ describe("Player in real time", (): void => {
         await new Player(new Opening(), engine).play(options);
         expect(events).toEqual(["warm", "open", "stop"]);
         expect(engine.asked.length).toBeGreaterThan(0);
-        expect(warmQuestion).toEqual(engine.asked[0].questions);
 
         events.length = 0;
         await new Player(new FakeGame(), engine).play({ ...options, pace: Pace.TURN });

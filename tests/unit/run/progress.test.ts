@@ -222,6 +222,32 @@ describe("ImproveTracker", (): void => {
         expect(p.stages[p.stages.length - 1]).toEqual({ label: "Checking again", state: StageState.SKIPPED, detail: "nothing new to check" });
     });
 
+    it("plans for a second lesson once Laya is taught more, and follows it — its own stages and check — without the bar running back", (): void => {
+        const tracker: ImproveTracker = new ImproveTracker((): number => 0);
+        tracker.onCheckStart("before", 6);
+        for (let i: number = 0; i < 6; i++) {
+            tracker.onGame();
+        }
+        tracker.onCheck("before", "engine", "laya plays seed 101 below the rules");
+        tracker.onPhase("teaching Laya more: 2 rounds where it plays and its rules say what they would do");
+        tracker.onDistillPhase("round 4: Laya plays, the teacher labels what it saw");
+        let p: RunProgress = tracker.progress;
+        const first: number = p.overall;
+        // The first lesson kept the checkpoint before it: the second begins, with no check after the first.
+        tracker.onPhase("Laya learns v4 again from the base model, on every state gathered: 2 rounds where it plays and its rules say what they would do");
+        p = tracker.progress;
+        expect(p.overall).toBeGreaterThanOrEqual(first);
+        expect(p.stages.some((s: { label: string }): boolean => s.label.startsWith("Laya, again: "))).toBe(true);
+        const checking: Array<{ label: string; state: StageState; detail?: string }> = p.stages.filter((s: { label: string }): boolean => s.label === "Checking again");
+        expect(checking[0]).toEqual({ label: "Checking again", state: StageState.SKIPPED, detail: "nothing new to check" });
+        expect(checking[1].state).toBe(StageState.TODO);
+        const second: number = p.overall;
+        tracker.onCheckStart("after", 6);
+        expect(tracker.progress.overall).toBeGreaterThanOrEqual(second);
+        tracker.finish("improved");
+        expect(tracker.progress.overall).toBe(1);
+    });
+
     it("follows a lesson's own stages when Laya is taught more", (): void => {
         const tracker: ImproveTracker = new ImproveTracker((): number => 0);
         tracker.onCheckStart("before", 6);

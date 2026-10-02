@@ -2,7 +2,8 @@
  * Train's check and fix (the UI's Train, `ibgamer train`): the app makes a game play better with an engine on a clock —
  * the one thing the person asks for, with, if they have one, an idea of their own (notes for the trainer). It checks how
  * the game plays (check.ts) and fixes what the check says is wrong:
- *   - Laya playing worse than its rules: Laya taught more on that clock (DAgger; for the running clock, live games);
+ *   - Laya playing worse than its rules: Laya taught more on that clock (DAgger; for the running clock, live games) —
+ *     and, more rounds not playing better, the version learnt again from the base model on every state gathered;
  *   - Jev playing worse: its instructions trained, Jev deciding (the version kept is Jev's: not made active, Jev's
  *     config plays it);
  *   - the rules playing worse than their record: the version trained on that clock (real time for the running one),
@@ -39,6 +40,16 @@ const LAYA_ROUNDS: number = 2;
 const LAYA_STUDENT_GAMES: { paused: number; live: number } = { paused: 8, live: 6 };
 /** How much higher the mean must be for a fix to play better where no fewer seeds play below their reference (playsBetter). */
 const MEAN_RISES: number = 1.01;
+
+/**
+ * How Laya is taught more, in turn, until a lesson plays better (each one undone when it does not): more DAgger rounds
+ * from its checkpoint; then the version learnt again from the base model, on every state gathered, and its rounds.
+ */
+export enum LayaLesson {
+    MORE_ROUNDS = "more rounds",
+    FROM_THE_BASE = "from the base",
+}
+const LAYA_LESSONS: LayaLesson[] = [LayaLesson.MORE_ROUNDS, LayaLesson.FROM_THE_BASE];
 
 export enum ImproveOutcome {
     IMPROVED = "improved",
@@ -194,6 +205,11 @@ function configFor(config: PlayConfig | undefined, version: number): PlayConfig 
     return config && (config.version === undefined || config.version === version) ? config : undefined;
 }
 
+/** A lesson, as what was done says it. */
+function lessonText(lesson: LayaLesson): string {
+    return lesson === LayaLesson.FROM_THE_BASE ? "Laya learnt the version again from the base model" : "Laya taught more";
+}
+
 export class Improver {
     constructor(private readonly deps: ImproveDeps) {}
 
@@ -230,6 +246,9 @@ export class Improver {
             ...(options.hooks?.onTick ? { onTick: options.hooks.onTick } : {}),
         });
         this.log(options, `${report.verdict === Verdict.NOTHING ? "nothing played worse" : `to fix: ${report.verdict === Verdict.RULES ? "the rules" : engine.label}`} — ${report.why}`);
+        if (report.sameGames) {
+            this.log(options, "  its seeds played the very same game (the same score in as many decisions): the seeds do not change this game, and the check saw one");
+        }
         options.hooks?.onCheck?.(when, report);
         return report;
     }
@@ -296,11 +315,9 @@ export class Improver {
             // Training kept no version: nothing new to play.
             return { outcome: ImproveOutcome.NOT_IMPROVED, before, done, version };
         }
-        if (lessons && trained === undefined && lessons.checkpoint === lessons.previous) {
-            // The distillation kept the checkpoint before it (the new one played no better paused): nothing new to check.
-            done.push("Laya taught more, but the checkpoint before it played better: it stays");
-            this.dropBackup(lessons);
-            return { outcome: ImproveOutcome.NOT_IMPROVED, before, done, version };
+        if (lessons && trained === undefined) {
+            // Laya taught more: kept only if it plays better, else undone and taught the next way.
+            return this.lessonsUntilBetter(options, game, version, before, lessons, activeBefore, done);
         }
 
         let after: CheckReport;
@@ -325,6 +342,63 @@ export class Improver {
         return { outcome: after.stopped ? ImproveOutcome.STOPPED : ImproveOutcome.NOT_IMPROVED, before, after, done, version };
     }
 
+    /**
+     * Laya taught more (the first lesson, given: `first`), then checked again and kept only if it plays better — else undone,
+     * and taught the next way (LAYA_LESSONS) from the checkpoint before. A lesson whose distillation kept the checkpoint
+     * before it (the new one played no better paused) has nothing new to check.
+     */
+    private async lessonsUntilBetter(
+        options: ImproveOptions,
+        game: GameDefinition,
+        version: number,
+        before: CheckReport,
+        first: Lessons,
+        activeBefore: number | undefined,
+        done: string[]
+    ): Promise<ImproveResult> {
+        const library: Library = this.deps.library;
+        let lessons: Lessons = first;
+        let after: CheckReport | undefined;
+        for (const [i, lesson] of LAYA_LESSONS.entries()) {
+            if (i > 0) {
+                lessons = this.keepAside(options, game, version);
+                try {
+                    await this.teachLaya(options, game, version, lessons, done, lesson);
+                } catch (err: unknown) {
+                    this.undo(library, game, lessons, activeBefore, undefined, done);
+                    throw err;
+                }
+                if (options.signal?.aborted) {
+                    this.undo(library, game, lessons, activeBefore, undefined, done);
+                    return { outcome: ImproveOutcome.STOPPED, before, ...(after ? { after } : {}), done, version };
+                }
+            }
+            if (lessons.checkpoint === lessons.previous) {
+                done.push(`${lessonText(lesson)}, but the checkpoint before it played better: it stays`);
+                this.dropBackup(lessons);
+                continue;
+            }
+            try {
+                after = await this.check(options, game, version, "after");
+            } catch (err: unknown) {
+                // A check that failed (a Laya server that would not start on the new checkpoint) says nothing better: undone.
+                await this.deps.engines.release().catch((): undefined => undefined);
+                this.undo(library, game, lessons, activeBefore, undefined, done);
+                throw err;
+            }
+            await this.deps.engines.release();
+            if (playsBetter(before, after)) {
+                this.dropBackup(lessons);
+                return { outcome: ImproveOutcome.IMPROVED, before, after, done, version };
+            }
+            this.undo(library, game, lessons, activeBefore, undefined, done);
+            if (after.stopped || options.signal?.aborted) {
+                return { outcome: ImproveOutcome.STOPPED, before, after, done, version };
+            }
+        }
+        return { outcome: ImproveOutcome.NOT_IMPROVED, before, ...(after ? { after } : {}), done, version };
+    }
+
     /** Laya's checkpoint for the version kept aside before Laya is taught more: what an undo brings back. */
     private keepAside(options: ImproveOptions, game: GameDefinition, version: number): Lessons {
         const library: Library = this.deps.library;
@@ -339,27 +413,43 @@ export class Improver {
         return lessons;
     }
 
-    /** Laya taught more on the clock asked, from its checkpoint for the version (kept aside: `lessons`). */
-    private async teachLaya(options: ImproveOptions, game: GameDefinition, version: number, lessons: Lessons, done: string[]): Promise<void> {
+    /**
+     * Laya taught more on the clock asked, the way `lesson` says: more DAgger rounds from its checkpoint for the version
+     * (kept aside: `lessons`), or the version learnt again from the base model on every state gathered, then its rounds.
+     */
+    private async teachLaya(
+        options: ImproveOptions,
+        game: GameDefinition,
+        version: number,
+        lessons: Lessons,
+        done: string[],
+        lesson: LayaLesson = LayaLesson.MORE_ROUNDS
+    ): Promise<void> {
         const library: Library = this.deps.library;
         const profile: Profile = library.profile(game.id, version) as Profile;
         const minLagMs: number = liveFloorMs(profile, configFor(this.played(game, EngineKind.LAYA, true), version)) ?? 0;
-        this.phase(options, `teaching Laya more${options.live ? " live" : ""}: ${LAYA_ROUNDS} rounds where it plays and its rules say what they would do`);
+        const again: boolean = lesson === LayaLesson.FROM_THE_BASE;
+        const rounds: string = `${LAYA_ROUNDS} rounds where it plays and its rules say what they would do`;
+        this.phase(
+            options,
+            again ? `Laya learns v${version} again from the base model${options.live ? " live" : ""}, on every state gathered: ${rounds}` : `teaching Laya more${options.live ? " live" : ""}: ${rounds}`
+        );
         const result: DistillResult = await this.deps.distill({
             ...this.deps.distillDefaults,
             gameId: game.id,
             profileVersion: version,
-            resume: lessons.previous !== undefined,
+            resume: !again && lessons.previous !== undefined,
             rounds: LAYA_ROUNDS,
             studentGames: options.live ? LAYA_STUDENT_GAMES.live : LAYA_STUDENT_GAMES.paused,
-            ...(options.live ? { live: { minLagMs } } : {}),
-            ...(!lessons.previous && profile.lagAware ? { lag: LIVE_LATENCY } : {}),
+            ...(options.live ? { live: { minLagMs, maxLagMs: LIVE_LATENCY.maxMs } } : {}),
+            // A distillation that is not resumed learns a lag-aware version with its lag; a resumed one goes on with its checkpoint's.
+            ...((again || !lessons.previous) && profile.lagAware ? { lag: LIVE_LATENCY } : {}),
             workDir: path.join(options.workDir, "distill"),
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.hooks?.distill ? { hooks: options.hooks.distill } : {}),
         });
         lessons.checkpoint = result.checkpoint;
-        done.push(`Laya taught more ${options.live ? "live" : "with the clock paused"} (${LAYA_ROUNDS} rounds): ${path.basename(result.checkpoint)}`);
+        done.push(`${lessonText(lesson)} ${options.live ? "live" : "with the clock paused"} (${LAYA_ROUNDS} rounds): ${path.basename(result.checkpoint)}`);
     }
 
     /**
@@ -390,6 +480,8 @@ export class Improver {
                     realtime: true,
                     live: {
                         minLagMs: liveFloorMs(this.deps.library.profile(game.id, version) as Profile, configFor(this.played(game, options.engine, true), version)) ?? 0,
+                        // Up to as late as a busy machine lands a fast engine's inputs: a version that holds there too.
+                        maxLagMs: LIVE_LATENCY.maxMs,
                         gamesPerSeed: options.gamesPerSeed ?? LIVE_GAMES_PER_SEED,
                     },
                 }
@@ -415,7 +507,7 @@ export class Improver {
             rounds: LAYA_ROUNDS,
             studentGames: options.live ? LAYA_STUDENT_GAMES.live : LAYA_STUDENT_GAMES.paused,
             ...(profile.lagAware ? { lag: LIVE_LATENCY } : {}),
-            ...(options.live ? { live: { minLagMs: liveFloorMs(profile) ?? 0 } } : {}),
+            ...(options.live ? { live: { minLagMs: liveFloorMs(profile) ?? 0, maxLagMs: LIVE_LATENCY.maxMs } } : {}),
             workDir: path.join(options.workDir, "distill"),
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.hooks?.distill ? { hooks: options.hooks.distill } : {}),

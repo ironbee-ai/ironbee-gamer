@@ -26,14 +26,15 @@ describe("engines", (): void => {
         expect(calls[0]).toEqual({ url: "http://laya:8000/v1/systemone", body: { model: "dino", state: { game: 1 }, questions: {} } });
     });
 
-    it("keeps Laya warm while it idles: the last question again (before any, the one given about an empty game), never beside one in flight, until stopped", async (): Promise<void> => {
+    it("keeps Laya warm while it idles: the smallest question (as the server warms itself up), never beside one in flight, until stopped", async (): Promise<void> => {
         jest.useFakeTimers();
         try {
-            const states: unknown[] = [];
+            const asked: Array<{ state: unknown; questions: Record<string, Question> }> = [];
             const held: Array<() => void> = [];
             let holding: boolean = false;
             const fetchImpl: typeof fetch = (async (_url: string, init: RequestInit): Promise<Response> => {
-                states.push(JSON.parse(String(init.body)).state);
+                const body: { state: unknown; questions: Record<string, Question> } = JSON.parse(String(init.body));
+                asked.push({ state: body.state, questions: body.questions });
                 if (holding) {
                     await new Promise<void>((resolve: () => void): number => held.push(resolve));
                 }
@@ -41,32 +42,37 @@ describe("engines", (): void => {
             }) as unknown as typeof fetch;
             const laya: LayaEngine = new LayaEngine({ fetchImpl });
             const question: Record<string, Question> = { action: { type: "choice", criteria: { go: "go" }, instructions: "the rules" } };
-            const stop: () => void = laya.keepWarm(question);
+            const warm: { state: unknown; questions: Record<string, Question> } = {
+                state: { warm: true },
+                questions: { q: { type: "choice", instructions: "warm up", criteria: { a: "a", b: "b" } } },
+            };
+            const stop: () => void = laya.keepWarm();
             await jest.advanceTimersByTimeAsync(80);
-            expect(states).toEqual([]);
+            expect(asked).toEqual([]);
             await jest.advanceTimersByTimeAsync(40);
-            expect(states).toEqual([{ game: {} }]);
+            expect(asked).toEqual([warm]);
 
+            // After a decision, the smallest question again — never the decision's own state (hundreds of tokens).
             await laya.ask({ game: 1 }, question);
-            states.length = 0;
+            asked.length = 0;
             await jest.advanceTimersByTimeAsync(80);
-            expect(states).toEqual([]);
+            expect(asked).toEqual([]);
             await jest.advanceTimersByTimeAsync(40);
-            expect(states).toEqual([{ game: 1 }]);
+            expect(asked).toEqual([warm]);
 
             holding = true;
-            states.length = 0;
+            asked.length = 0;
             const slow: Promise<SystemOneResponse> = laya.ask({ game: 2 }, question);
             await jest.advanceTimersByTimeAsync(1000);
-            expect(states).toEqual([{ game: 2 }]);
+            expect(asked).toEqual([{ state: { game: 2 }, questions: question }]);
             holding = false;
             held.forEach((release: () => void): void => release());
             await slow;
 
             stop();
-            states.length = 0;
+            asked.length = 0;
             await jest.advanceTimersByTimeAsync(1000);
-            expect(states).toEqual([]);
+            expect(asked).toEqual([]);
         } finally {
             jest.useRealTimers();
         }

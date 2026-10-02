@@ -26,6 +26,7 @@ import { GameBrowser } from "../devtools/client";
 import { DecisionEngine, InvalidAnswerError, validateChoice } from "../engine";
 import { LayaEngine } from "../engine/laya";
 import { RequestTooLargeError } from "../engine/systemone";
+import { liveFloors } from "../game/configs";
 import { GameDefinition, Profile } from "../game/types";
 import { Library } from "../library/store";
 import { DecisionRecord, EpisodeResult, Pace, Player, PlayHooks, PlayResult } from "../play/player";
@@ -45,7 +46,7 @@ import {
     startLayaServer,
     LayaServerHandle,
 } from "./laya-runtime";
-import { RandomPlayer, RulesTeacher, seededRandom, TeacherLabel } from "./teacher";
+import { RandomPlayer, RulesTeacher, seededRandom, TeacherLabel, WanderingStudent } from "./teacher";
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
@@ -63,7 +64,7 @@ const STUDENT_SEED_BASE: number = 1_000_000;
 const RELABEL_CONCURRENCY: number = 8;
 /** An engine teacher's answer that is no action is asked again this many times, as the player's decide asks (play/player.ts). */
 const INVALID_ANSWER_RETRIES: number = 2;
-/** Share of random moves in half of the rules teacher's games: states off its own path. */
+/** Share of random moves in half of the rules teacher's games, and in half of a DAgger round's student games: states off their own path. */
 const EXPLORATION: number = 0.08;
 /** Teacher batches before training goes ahead with what there is. */
 const MAX_TEACHER_BATCHES: number = 60;
@@ -129,11 +130,12 @@ export interface DistillOptions {
     lag?: { minMs: number; maxMs: number };
     /**
      * Every DAgger round's student games played live — the clock running, for real — their inputs held to land no sooner
-     * than `minLagMs` (a lag-aware version's live floor): Laya corrected on the states it meets live, which a simulated lag
-     * does not make (there a decision's own time varies, and an action it decides a frame late can come too late). One game at a
+     * than a floor: `minLagMs` (a lag-aware version's live floor), or each game its own, spread from it to `maxLagMs`
+     * (liveFloors), as a busy machine slows Laya. Laya corrected on the states it meets live, which a simulated lag does
+     * not make (there a decision's own time varies, and an action it decides a frame late can come too late). One game at a
      * time: live games side by side slow each other. Each row keeps the lag its decision was made at.
      */
-    live?: { minLagMs: number };
+    live?: { minLagMs: number; maxLagMs?: number };
     workDir: string;
     signal?: AbortSignal;
     hooks?: { onLog?(line: string): void; onPhase?(detail: string): void; play?: PlayHooks };
@@ -218,6 +220,11 @@ function throwIfStopped(options: DistillOptions, played: PlayResult[]): void {
  */
 function rowOf(record: DecisionRecord, lag: { minMs: number; maxMs: number } | undefined): DecisionRecord {
     return lag ? { ...record, lag } : record;
+}
+
+/** Whether a DAgger round's student game wanders (WanderingStudent): every other one, as the teacher's games do. */
+function wanders(game: number): boolean {
+    return game % 2 === 1;
 }
 
 /** Whether a row was made with this lag: its game was played with it. */
@@ -757,7 +764,9 @@ export class Distiller {
                 break;
             }
             // DAgger: the student plays; the teacher labels what it saw. With a lag, half its games are played with it: it is
-            // corrected where it goes in real time too (the rows keep their game's seed and lag, relabelled as any).
+            // corrected where it goes in real time too (the rows keep their game's seed and lag, relabelled as any). Every other
+            // game wanders (WanderingStudent): a random move now and then takes it just off its own path, where it is corrected
+            // too — in a game whose seeds all play the same, the only other states a round can show it.
             const visited: string = path.join(options.workDir, `student-r${round}.jsonl`);
             writeFileSync(visited, "");
             const seeds: number[] = Array.from({ length: options.studentGames }, (_: unknown, i: number): number => firstStudentSeed + (round - start) * 100 + i);
@@ -765,11 +774,24 @@ export class Distiller {
             const lags: Array<{ minMs: number; maxMs: number } | undefined> = seeds.map((_: number, i: number): { minMs: number; maxMs: number } | undefined =>
                 lag && !options.live && laggedGame(round, i) ? lag : undefined
             );
-            const live: { minLagMs: number } | undefined = options.live;
+            const live: { minLagMs: number; maxLagMs?: number } | undefined = options.live;
+            const floors: number[] = live ? liveFloors(live.minLagMs, live.maxLagMs, seeds.length) : [];
             const played: PlayResult[] = await this.withStudent(game.id, checkpoint, options, async (student: LayaEngine): Promise<PlayResult[]> => {
                 options.hooks?.onPhase?.(`round ${round}: Laya plays${live ? " live" : ""}, the teacher labels what it saw`);
-                const one: (s: number, i: number) => Promise<PlayResult> = (s: number, i: number): Promise<PlayResult> =>
-                    this.play(game, learned, student, s, options, i === 0, (d: DecisionRecord): void => appendRow(visited, rowOf(d, lags[i])), lags[i], live?.minLagMs);
+                const one: (s: number, i: number) => Promise<PlayResult> = (s: number, i: number): Promise<PlayResult> => {
+                    const wanderer: WanderingStudent | undefined = wanders(i) ? new WanderingStudent(student, EXPLORATION, s) : undefined;
+                    return this.play(
+                        game,
+                        learned,
+                        wanderer ?? student,
+                        s,
+                        options,
+                        i === 0,
+                        (d: DecisionRecord): void => appendRow(visited, rowOf(wanderer ? wanderer.recorded(d) : d, lags[i])),
+                        lags[i],
+                        live ? floors[i] : undefined
+                    );
+                };
                 if (!live) {
                     return Promise.all(seeds.map(one));
                 }
@@ -781,8 +803,16 @@ export class Distiller {
             });
             this.log(
                 options,
-                `  Laya games${live ? " (live)" : ""}: ${played.map((r: PlayResult, i: number): string => `${r.episodes[0]?.score ?? "?"}${r.episodes[0]?.over ? "" : "*"}${lags[i] ? " (lagged)" : ""}`).join(", ")}`
+                `  Laya games${live ? " (live)" : ""}: ${played.map((r: PlayResult, i: number): string => `${r.episodes[0]?.score ?? "?"}${r.episodes[0]?.over ? "" : "*"}${lags[i] ? " (lagged)" : ""}${wanders(i) ? " (wandering)" : ""}`).join(", ")}`
             );
+            // Its own games, on the paused clock, every one the same: the seeds do not change this game.
+            const own: EpisodeResult[] = played
+                .filter((_: PlayResult, i: number): boolean => !wanders(i) && !lags[i] && !live)
+                .map((r: PlayResult): EpisodeResult | undefined => r.episodes[0])
+                .filter((e: EpisodeResult | undefined): e is EpisodeResult => e !== undefined);
+            if (own.length > 1 && own.every((e: EpisodeResult): boolean => e.score === own[0].score && e.decisions === own[0].decisions)) {
+                this.log(options, `  its games on ${own.length} seeds played the very same (${own[0].score} in ${own[0].decisions} decisions each): the seeds do not change this game, the wandering games show it the states off its path`);
+            }
             const relabelled: Relabelled = await this.relabel(visited, daggerFile, label, options, skipped);
             this.log(options, `  the teacher labelled ${relabelled.added} states the student visited; it chose otherwise in ${relabelled.disagreed}`);
             if (relabelled.failed > 0) {

@@ -337,8 +337,7 @@ export class Player {
         this.engine.warmUp?.();
         // In real time a local model is kept from idling down while the page loads and between decisions: after a
         // pause its first answer comes 2–3× slower (keepWarm).
-        const stopWarm: (() => void) | undefined =
-            options.pace === Pace.REALTIME ? this.engine.keepWarm?.(decisionQuestion(options.game, options.profile)) : undefined;
+        const stopWarm: (() => void) | undefined = options.pace === Pace.REALTIME ? this.engine.keepWarm?.() : undefined;
         try {
             for (let ep: number = 1; ep <= options.episodes; ep++) {
                 if (options.signal?.aborted) {

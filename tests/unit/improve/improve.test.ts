@@ -52,6 +52,8 @@ describe("Improver", (): void => {
     let distills: DistillOptions[];
     /** What the fake distillation does: teach (default), keep the checkpoint before it, or stop after a round. */
     let distillAs: "teach" | "keepPrevious" | "stopPartWay";
+    /** What each distillation in turn does, before `distillAs` does. */
+    let distillPlan: Array<"teach" | "keepPrevious" | "stopPartWay">;
 
     beforeEach((): void => {
         root = mkdtempSync(path.join(tmpdir(), "ibgamer-improve-"));
@@ -64,6 +66,7 @@ describe("Improver", (): void => {
         trains = [];
         distills = [];
         distillAs = "teach";
+        distillPlan = [];
     });
 
     afterEach((): void => {
@@ -105,10 +108,11 @@ describe("Improver", (): void => {
             distill: async (options: DistillOptions): Promise<DistillResult> => {
                 distills.push(options);
                 const laya: string = path.join(library.userDirFor("fake-runner"), "laya");
-                if (distillAs === "keepPrevious") {
+                const as: "teach" | "keepPrevious" | "stopPartWay" = distillPlan.shift() ?? distillAs;
+                if (as === "keepPrevious") {
                     return { checkpoint: path.join(laya, readdirSync(laya)[0]), teacher: "rules v1", profileVersion: options.profileVersion as number } as DistillResult;
                 }
-                if (distillAs === "stopPartWay") {
+                if (as === "stopPartWay") {
                     // A round fine-tuned, then the stop: a distillation throws on one.
                     checkpoint(5);
                     throw new Error("stopped");
@@ -140,13 +144,35 @@ describe("Improver", (): void => {
         expect(readdirSync(path.join(library.userDirFor("fake-runner"), "laya"))).toEqual([expect.stringMatching(/-r9$/)]);
     });
 
-    it("undoes a lesson that plays no better: Laya's checkpoint before it comes back", async (): Promise<void> => {
+    it("undoes a lesson that plays no better, and the next one — the version learnt again from the base model — too: Laya's checkpoint before them comes back", async (): Promise<void> => {
         const before: string = checkpoint(0);
         teachingWorks = false;
         const result: ImproveResult = await improve(EngineKind.LAYA);
         expect(result.outcome).toBe(ImproveOutcome.NOT_IMPROVED);
+        // More rounds from the checkpoint, then from the base model on every state gathered (not resumed).
+        expect(distills.map((d: DistillOptions): boolean | undefined => d.resume)).toEqual([true, false]);
         expect(readdirSync(path.join(library.userDirFor("fake-runner"), "laya"))).toEqual([path.basename(before)]);
-        expect(result.done.join("\n")).toMatch(/undone: Laya's checkpoint before it is back/);
+        expect(result.done.filter((d: string): boolean => /undone: Laya's checkpoint before it is back/.test(d))).toHaveLength(2);
+        expect(result.done.join("\n")).toMatch(/Laya learnt the version again from the base model with the clock paused \(2 rounds\)/);
+    });
+
+    it("teaches Laya the next way when more rounds play no better (the checkpoint before them stays), and keeps that lesson when it plays better", async (): Promise<void> => {
+        checkpoint(0);
+        distillPlan = ["keepPrevious", "teach"];
+        const checks: string[] = [];
+        const result: ImproveResult = await improver().improve({
+            gameId: "fake-runner",
+            engine: EngineKind.LAYA,
+            live: false,
+            workDir: path.join(root, "work"),
+            hooks: { onCheck: (when: "before" | "after"): number => checks.push(when) },
+        });
+        expect(result.outcome).toBe(ImproveOutcome.IMPROVED);
+        expect(distills.map((d: DistillOptions): boolean | undefined => d.resume)).toEqual([true, false]);
+        // The first lesson kept the checkpoint before it: nothing new to check after it, only after the second.
+        expect(checks).toEqual(["before", "after"]);
+        expect(result.done.join("\n")).toMatch(/Laya taught more, but the checkpoint before it played better: it stays/);
+        expect(readdirSync(path.join(library.userDirFor("fake-runner"), "laya"))).toEqual([expect.stringMatching(/-r9$/)]);
     });
 
     it("keeps a lesson the distillation turned away (the checkpoint before it played better): nothing new, nothing checked again", async (): Promise<void> => {
@@ -228,7 +254,8 @@ describe("Improver", (): void => {
             gamesPerSeed: 1,
             workDir: path.join(root, "work"),
         });
-        expect(trains).toEqual([expect.objectContaining({ decider: "rules", realtime: true, live: { minLagMs: 0, gamesPerSeed: 1 }, note: "jump earlier" })]);
+        // Its games' floors spread up to as late as a busy machine lands a fast engine's inputs.
+        expect(trains).toEqual([expect.objectContaining({ decider: "rules", realtime: true, live: { minLagMs: 0, maxLagMs: 90, gamesPerSeed: 1 }, note: "jump earlier" })]);
         expect(trains[0].simulated).toBeUndefined();
     }, 30_000);
 

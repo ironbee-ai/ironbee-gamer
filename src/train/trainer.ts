@@ -19,7 +19,7 @@
 import { GameBrowser } from "../devtools/client";
 import { StepRequest, StepResult } from "../devtools/protocol";
 import { DecisionEngine, DecisionEngineError } from "../engine";
-import { LIVE_LATENCY } from "../game/configs";
+import { LIVE_LATENCY, liveFloors } from "../game/configs";
 import { openRequest, perceivedKinds } from "../game/open";
 import { DecideOn, FailureWindow, GameAction, GameDefinition, Perception, PlanConfig, Profile, ProfileResults, RegressionTest } from "../game/types";
 import { validateProfile, validateRegressionTest } from "../game/validate";
@@ -162,13 +162,14 @@ export interface TrainOptions {
      */
     fromVersion?: number;
     /**
-     * Real time as the game is played live (Improve, where a version loses live what simulated real time never shows):
+     * Real time as the game is played live (Train's fix, where a version loses live what simulated real time never shows):
      * with `realtime`, not `simulated`, every seed played `gamesPerSeed` times with the clock running, one game at a time,
-     * the rules answering at once and the inputs landing no sooner than `minLagMs` after their frame — as a live config
-     * plays them. A version is measured over all those games (a seed's score their mean); the seeds it is never shown
-     * are played paused, live games varying too much to hold a version to them.
+     * the rules answering at once and each game's inputs landing no sooner than its own floor after their frame — spread
+     * from `minLagMs` to `maxLagMs` (liveFloors; none: every game at `minLagMs`), as a slower engine or a busy machine lands
+     * them. A version is measured over all those games (a seed's score their mean); the seeds it is never shown are played
+     * paused, live games varying too much to hold a version to them.
      */
-    live?: { minLagMs: number; gamesPerSeed: number };
+    live?: { minLagMs: number; gamesPerSeed: number; maxLagMs?: number };
     /**
      * Whether the versions it keeps are made active (default: when it started from the active version). False leaves the
      * active version as it is: a version trained for one engine (Jev's, without rules as code) is played by that
@@ -284,8 +285,8 @@ export class Trainer {
             return { pace: Pace.TURN };
         }
         if (options.live) {
-            // As a live config plays it: its inputs held to its lag.
-            return { pace: Pace.REALTIME, minLagMs: options.live.minLagMs };
+            // As a live config plays it: its inputs held to its lag — the game's own floor (runsOf).
+            return { pace: Pace.REALTIME, minLagMs: lag ?? options.live.minLagMs };
         }
         // Before any decision was timed, the player expects the decider's latency (it adds the step itself).
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
@@ -319,8 +320,9 @@ export class Trainer {
     /** The games an evaluation plays: each seed once, at each of the lag points, or live its games a seed. */
     private runsOf(seeds: number[], options: TrainOptions): Array<{ seed: number; lag?: number }> {
         if (options.live) {
-            const games: number = options.live.gamesPerSeed;
-            return seeds.flatMap((seed: number): Array<{ seed: number }> => Array.from({ length: games }, (): { seed: number } => ({ seed })));
+            // Every seed's games, each at its own floor (the lag its inputs are held to).
+            const floors: number[] = liveFloors(options.live.minLagMs, options.live.maxLagMs, options.live.gamesPerSeed);
+            return seeds.flatMap((seed: number): Array<{ seed: number; lag: number }> => floors.map((lag: number): { seed: number; lag: number } => ({ seed, lag })));
         }
         const points: number[] | undefined = this.lagPoints(options);
         return points ? seeds.flatMap((seed: number): Array<{ seed: number; lag: number }> => points.map((lag: number): { seed: number; lag: number } => ({ seed, lag }))) : seeds.map((seed: number): { seed: number } => ({ seed }));
@@ -348,8 +350,9 @@ export class Trainer {
     /** Real-time training: how late a decision acts (the decider's latency, and on the running clock the step that lands its input). */
     private realtimeTraining(options: TrainOptions): RealtimeTraining {
         if (options.live) {
-            // The rules answer at once: a decision lands at the floor its inputs are held to.
-            return { minMs: options.live.minLagMs, maxMs: options.live.minLagMs, live: { gamesPerSeed: options.live.gamesPerSeed } };
+            // The rules answer at once: a decision lands at the floor its inputs are held to, each game's its own.
+            const floors: number[] = liveFloors(options.live.minLagMs, options.live.maxLagMs, options.live.gamesPerSeed);
+            return { minMs: Math.min(...floors), maxMs: Math.max(...floors), live: { gamesPerSeed: options.live.gamesPerSeed } };
         }
         const range: { minMs: number; maxMs: number } = this.decisionLatency(options);
         const step: number = options.simulated ? 0 : REALTIME_STEP_MS;

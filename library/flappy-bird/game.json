@@ -68,7 +68,6 @@
     }
   ],
   "preferredConfig": {
-    "engine": "laya",
-    "live": true
+    "engine": "laya"
   }
 }

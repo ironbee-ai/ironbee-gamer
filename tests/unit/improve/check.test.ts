@@ -4,7 +4,7 @@ import { Profile } from "../../../src/game/types";
 import { checkPlay, CheckReport, Verdict } from "../../../src/improve/check";
 import { Library } from "../../../src/library/store";
 import { FakeEngine, jumpWhenClose } from "../../helpers/fake-engine";
-import { fakeGameDefinition, FakeGame, fakeProfile } from "../../helpers/fake-game";
+import { fakeGameDefinition, FakeGame, fakeProfile, RealtimeFakeGame } from "../../helpers/fake-game";
 
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -66,12 +66,33 @@ describe("checkPlay", (): void => {
         expect(report.why).toMatch(/^the rules play seeds 1, 2 .* below their record.*; and fake plays seeds 1, 2 .* below the rules/);
     });
 
-    it("finds nothing to fix in an engine that plays as the rules do, and says so with the numbers", async (): Promise<void> => {
+    it("finds nothing to fix in an engine that plays as the rules do, and says so with the numbers — and that its seeds played the very same game", async (): Promise<void> => {
         const report: CheckReport = await check(version(), new FakeEngine(jumpWhenClose));
         expect(report.verdict).toBe(Verdict.NOTHING);
         expect(report.disagreement).toBe(0);
         expect(report.why).toMatch(/as well as the rules: 50, 50 against 50, 50/);
+        // The fake runner is one game whatever the seed.
+        expect(report.sameGames).toBe(true);
     });
+
+    it("live, says the engine's inputs landed late in the games it lost, and its time a decision: its speed, not its lessons", async (): Promise<void> => {
+        const slow: FakeEngine = new FakeEngine(jumpWhenClose);
+        const ask: FakeEngine["ask"] = slow.ask.bind(slow);
+        slow.ask = async (...a: Parameters<FakeEngine["ask"]>): ReturnType<FakeEngine["ask"]> => {
+            await new Promise((resolve: (v: unknown) => void): unknown => setTimeout(resolve, 120));
+            return ask(...a);
+        };
+        const report: CheckReport = await checkPlay((): FakeGame => new RealtimeFakeGame(), library, {
+            game: fakeGameDefinition(),
+            profile: version({ results: { mean: 50, scores: [50, 50], seeds: [1, 2], gameSeconds: 2, measuredAt: "x" } }),
+            engine: slow,
+            live: true,
+            gamesPerSeed: 1,
+        });
+        expect(report.engineWorse.length).toBeGreaterThan(0);
+        expect(report.why).toMatch(/its inputs landed late in \d+ of them: at \d+ ms where they land at 0 ms at the soonest \(\d+ ms a decision\)/);
+        expect(report.played.games.every((g: { engineMs?: number }): boolean => (g.engineMs ?? 0) >= 100)).toBe(true);
+    }, 30_000);
 
     it("holds an engine playing a version without rules (one trained for Jev) to the version's record", async (): Promise<void> => {
         const report: CheckReport = await check(version({ teacher: undefined }), new FakeEngine((): string => "NOOP"));

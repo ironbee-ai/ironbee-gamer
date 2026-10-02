@@ -1021,7 +1021,10 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                         onGame: (side: string, g: CheckGame): void => {
                             tracker.onGame();
                             progressed();
-                            say(`  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}${g.disagreements ? ` (${g.disagreements} decisions otherwise than the rules)` : ""}`);
+                            say(
+                                `  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}${g.engineMs !== undefined ? ` (${g.engineMs} ms a decision)` : ""}` +
+                                    `${g.disagreements ? ` (${g.disagreements} decisions otherwise than the rules)` : ""}`
+                            );
                         },
                         onTick: onTick(record),
                         onCheck: (when: "before" | "after", report: CheckReport): void => {

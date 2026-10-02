@@ -186,8 +186,10 @@ earn: every engine with the clock paused, and live Laya and the rules on the new
 for real time that keeps at least 80 % of its paused score there — that version, its inputs held to the
 lag it was trained at; never Jev live. Nothing to write by hand. A live config can also set `lagMs`: a version trained for real time has its inputs land no
 sooner than that after their frame, however fast the engine answers (the lag it was trained at,
-where its timing holds). Pop the Lock, Flappy Bird, Racer, Pac-Man with ghosts and Crazy Snake open with
-Laya in real time, Chrome Dino, Super Coin Box and Infinite Mario with Laya and the clock paused; each plays
+where its timing holds). Every game opens with Laya and the clock paused: live, a busy machine slows Laya's answers
+past what a version was trained for and costs it games (a browser tab taking most of a core once put its inputs at
+56–99 ms where they land at 45–50), while paused the game waits for each decision and plays the same — Laya answering in
+tens of ms, the difference shows little. The live clock stays a choice. Each plays
 both clocks on one version trained for real time (Dino: `{"engine": "laya", "live": true, "version": 11, "lagMs": 50}`),
 but Super Coin Box, whose v5 was kept for real time only (live on v5, paused on v4, the active one), and
 Infinite Mario, whose configs name a version for every engine — Laya and the rules v6 on both clocks, Jev v7
@@ -352,8 +354,9 @@ distils by hand.
 
 **For real time**, a game that does not wait for the player, for Laya or Rules (code): until a version plays live, the
 setup checklist's **Train for real time** (and the add-a-game wizard's box; `ibgamer train <game> --realtime` in the
-CLI) trains it — the rules decide 45–60 ms late, as Laya plays live, on the paused clock so every run gives the same
-result, and every seed is played at 45, 53 and 60 ms: a version must play at every lag in that range. It is kept only
+CLI) trains it — the rules decide 45–90 ms late, as Laya plays live on a quiet machine and on a busy one, on the paused
+clock so every run gives the same result, and every seed is played at 45, 68 and 90 ms: a version must play at every
+lag in that range (45–60 before 2026-10-02: a busy machine put Laya's inputs past it, and such versions lost live). It is kept only
 if it also plays no worse with the clock paused, so one version serves both clocks. Laya then learns its live states
 too (a training for Laya teaches the version kept with the lag), and the game is offered live once a version plays
 there nearly as well as paused. No lag or version to pick. A version that plays better live but worse paused than

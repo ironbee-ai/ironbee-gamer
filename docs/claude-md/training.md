@@ -32,8 +32,10 @@ Train with the clock running while the game is not played live yet — the setup
 and the add-a-game wizard's box — Laya or Rules (code) only, refused for Jev, whose hundreds of ms no game is played
 live with): every game
 is played with the clock never paused, the rules decider answering late as the engine that will play
-does. The UI trains simulated (below) at `LIVE_LATENCY` (45–60 ms: Laya's answer and the frame's step, held to
-its floor), from the active version — nobody picks a number. A range (`250-600` for a hosted engine) gives each game its own latency — from its seed — which
+does. The UI trains simulated (below) at `LIVE_LATENCY` (45–90 ms: Laya's answer and the frame's step, held to
+its floor, on a quiet machine and a busy one — 45–60 before 2026-10-02), from the active version — nobody picks a number.
+Live training (`live`) spreads its games' floors over the same range (`liveFloors`: from the version's floor to 90 ms),
+and so do live DAgger rounds' student games. A range (`250-600` for a hosted engine) gives each game its own latency — from its seed — which
 drifts across the range during the game (`latencyAt`: a ~20 s swing), because an engine's time differs
 from game to game and changes as it speeds up or slows down; the prompts say so and tell the tuner that
 a decision acts `info.lagMs` (the current lag, measured) after its frame, so the extractor computes

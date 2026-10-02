@@ -468,7 +468,7 @@ async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinit
     process.once("SIGINT", (): void => abort.abort());
     const printGame: (side: string, g: CheckGame) => void = (side: string, g: CheckGame): void => {
         console.log(
-            `  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}, ${g.decisions} decisions` +
+            `  ${side}, seed ${g.seed}: ${g.score} in ${g.seconds} s${g.lagMs !== undefined ? `, inputs at ${g.lagMs} ms` : ""}${g.engineMs !== undefined ? ` (${g.engineMs} ms a decision)` : ""}, ${g.decisions} decisions` +
                 `${g.disagreements ? ` (${g.disagreements} otherwise than the rules)` : ""}`
         );
     };
@@ -497,6 +497,9 @@ async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinit
                 onGame: printGame,
             });
             console.log(`${report.verdict === Verdict.NOTHING ? "nothing plays worse" : `to fix: ${report.verdict === Verdict.RULES ? "the rules" : engine.label}`} — ${report.why}`);
+            if (report.sameGames) {
+                console.log("  its seeds played the very same game (the same score in as many decisions): the seeds do not change this game, and the check saw one");
+            }
             printWhere(report);
             return;
         }
@@ -723,7 +726,7 @@ layaCommand
         `for a lag-aware version: half the teacher's labelled states and half the student's games come from games simulating real time on the paused clock, each decision landing this late (ms, or a range 45-60) in game time; the profile's seeds are played paused, then once more with the lag (default for a lag-aware version: ${LIVE_LATENCY.minMs}-${LIVE_LATENCY.maxMs}, and with --resume the lag its checkpoint was distilled with; 0: none)`,
         latencyRange
     )
-    .option("--live", "the DAgger rounds' Laya games played live, the clock running, one at a time: Laya corrected on the states it meets in real time (its inputs held to the version's live lag)")
+    .option("--live", `the DAgger rounds' Laya games played live, the clock running, one at a time: Laya corrected on the states it meets in real time (each game's inputs held to its own floor, from the version's live lag to ${LIVE_LATENCY.maxMs} ms)`)
     .option("--work <dir>", "where the student's visited states go (default: a temporary directory)")
     .action(
         async (
@@ -807,7 +810,7 @@ layaCommand
                     // resume goes on with the lag its checkpoint was distilled with (the distiller reads its record).
                     ...(opts.lag ? { lag: opts.lag } : !opts.resume && learnt?.lagAware ? { lag: LIVE_LATENCY } : {}),
                     // Live, the inputs held as Laya's live play holds them: its config's lag (a config for this version), else the version's floor.
-                    ...(opts.live && learnt ? { live: { minLagMs: liveFloorMs(learnt, layaLiveConfigFor(game, lib, learnt.version)) ?? 0 } } : {}),
+                    ...(opts.live && learnt ? { live: { minLagMs: liveFloorMs(learnt, layaLiveConfigFor(game, lib, learnt.version)) ?? 0, maxLagMs: LIVE_LATENCY.maxMs } } : {}),
                     workDir: opts.work ? path.resolve(opts.work) : mkdtempSync(path.join(tmpdir(), `ibgamer-distill-${gameId}-`)),
                     signal: abort.signal,
                     hooks: { onLog: (line: string): void => console.log(line), onPhase: (p: string): void => console.log(`— ${p}`) },

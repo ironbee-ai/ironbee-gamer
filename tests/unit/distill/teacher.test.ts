@@ -1,10 +1,10 @@
-import { LatencyRange, latencyAt, RandomPlayer, RulesTeacher, seededRandom, TeacherLabel } from "../../../src/distill/teacher";
+import { LatencyRange, latencyAt, RandomPlayer, RulesTeacher, seededRandom, TeacherLabel, WanderingStudent } from "../../../src/distill/teacher";
 import { EngineKind } from "../../../src/engine";
 import { GameBrowser } from "../../../src/devtools/client";
 import { OpenRequest, StepRequest, StepResult } from "../../../src/devtools/protocol";
 import { Perception, Profile } from "../../../src/game/types";
 import { Library } from "../../../src/library/store";
-import { Pace, Player, PlayResult } from "../../../src/play/player";
+import { DecisionRecord, Pace, Player, PlayResult } from "../../../src/play/player";
 import { CALL_TIMEOUT_MS, ScriptError, Teacher } from "../../../src/play/sandbox";
 import { DecisionLog, DecisionRow } from "../../../src/run/decision-log";
 import { teacherPrompt, TeacherWriter } from "../../../src/train/teacher-writer";
@@ -122,6 +122,37 @@ describe("RulesTeacher", (): void => {
             moves.push(((await player.ask({ game: {} }, { action: q })).answers.action as { choice: string }).choice);
         }
         expect(moves).toEqual(["LEFT", "JUMP", "NOOP", "NOOP", "LEFT", "JUMP", "LEFT", "NOOP", "NOOP", "LEFT", "LEFT", "NOOP"]);
+    });
+});
+
+describe("WanderingStudent", (): void => {
+    const q = { type: "choice" as const, criteria: { NOOP: "a", JUMP: "b", LEFT: "c" }, instructions: {} };
+
+    /** The moves a student that always answers NOOP makes, wandering from `seed`, and the choices their rows keep. */
+    async function wander(seed: number, epsilon: number): Promise<{ moves: string[]; kept: string[] }> {
+        const student: WanderingStudent = new WanderingStudent(new FakeEngine((): string => "NOOP"), epsilon, seed);
+        const moves: string[] = [];
+        const kept: string[] = [];
+        for (let i: number = 0; i < 200; i++) {
+            const move: string = ((await student.ask({ game: {} }, { action: q })).answers.action as { choice: string }).choice;
+            moves.push(move);
+            kept.push(student.recorded({ choice: move } as DecisionRecord).choice);
+        }
+        return { moves, kept };
+    }
+
+    it("makes this share of its moves random ones, from its seed, and its rows keep the student's own choice: a random move is no mistake of its", async (): Promise<void> => {
+        const { moves, kept } = await wander(1_000_001, 0.08);
+        const random: number = moves.filter((m: string): boolean => m !== "NOOP").length;
+        // About 8 % of 200 moves, two thirds of them another action than the student's.
+        expect(random).toBeGreaterThan(2);
+        expect(random).toBeLessThan(30);
+        expect(kept.every((c: string): boolean => c === "NOOP")).toBe(true);
+        // The same seed, the same wandering.
+        expect((await wander(1_000_001, 0.08)).moves).toEqual(moves);
+        expect((await wander(1_000_003, 0.08)).moves).not.toEqual(moves);
+        // No share, no wandering.
+        expect((await wander(1_000_001, 0)).moves.every((m: string): boolean => m === "NOOP")).toBe(true);
     });
 });
 

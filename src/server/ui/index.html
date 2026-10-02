@@ -183,7 +183,7 @@
                 <label><input type="radio" name="add-engine" value="rules"> <b>Rules (code)</b> — the trainer writes the rules as code and they play directly: instant, on this machine, nothing to distill. Laya can still learn them later.</label>
             </div>
             <label class="check"><input type="checkbox" id="add-train-now" checked> Start training now, <input id="add-iterations" type="number" min="1" max="20" value="3" class="tiny"> iterations</label>
-            <label class="check" title="For a game that does not wait for the player: trained as Laya plays live (the rules deciding 45–60 ms late); offered live once a version plays there nearly as well as paused. Not for Jev: it answers in hundreds of ms."><input type="checkbox" id="add-train-live"> …for real time (the game does not wait; Laya or Rules (code))</label>
+            <label class="check" title="For a game that does not wait for the player: trained as Laya plays live (the rules deciding 45–90 ms late: as Laya answers on a quiet machine, and on a busy one); offered live once a version plays there nearly as well as paused. Not for Jev: it answers in hundreds of ms."><input type="checkbox" id="add-train-live"> …for real time (the game does not wait; Laya or Rules (code))</label>
             <label class="note" title="Optional: what you want it to do. Told to the trainer in its every prompt; a version is still kept only when it scores higher.">Notes for the trainer <textarea id="add-train-note" rows="2" maxlength="2000" placeholder="Optional — what it should do, in your words"></textarea></label>
         </section>
 
