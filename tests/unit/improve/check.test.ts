@@ -82,16 +82,23 @@ describe("checkPlay", (): void => {
             await new Promise((resolve: (v: unknown) => void): unknown => setTimeout(resolve, 120));
             return ask(...a);
         };
-        const report: CheckReport = await checkPlay((): FakeGame => new RealtimeFakeGame(), library, {
-            game: fakeGameDefinition(),
-            profile: version({ results: { mean: 50, scores: [50, 50], seeds: [1, 2], gameSeconds: 2, measuredAt: "x" } }),
-            engine: slow,
-            live: true,
-            gamesPerSeed: 1,
-        });
+        const play: (minLagMs?: number) => Promise<CheckReport> = (minLagMs?: number): Promise<CheckReport> =>
+            checkPlay((): FakeGame => new RealtimeFakeGame(), library, {
+                game: fakeGameDefinition(),
+                profile: version({ results: { mean: 50, scores: [50, 50], seeds: [1, 2], gameSeconds: 2, measuredAt: "x" } }),
+                engine: slow,
+                live: true,
+                ...(minLagMs !== undefined ? { minLagMs } : {}),
+                gamesPerSeed: 1,
+            });
+        const report: CheckReport = await play(20);
         expect(report.engineWorse.length).toBeGreaterThan(0);
-        expect(report.why).toMatch(/its inputs landed late in \d+ of them: at \d+ ms where they land at 0 ms at the soonest \(\d+ ms a decision\)/);
+        expect(report.why).toMatch(/its inputs landed late in \d+ of them: at \d+ ms where they land at 20 ms at the soonest \(\d+ ms a decision\)/);
         expect(report.played.games.every((g: { engineMs?: number }): boolean => (g.engineMs ?? 0) >= 100)).toBe(true);
+        // A version with no floor lands its inputs as soon as they are decided: none of its lags is late.
+        const unfloored: CheckReport = await play();
+        expect(unfloored.engineWorse.length).toBeGreaterThan(0);
+        expect(unfloored.why).not.toMatch(/landed late/);
     }, 30_000);
 
     it("holds an engine playing a version without rules (one trained for Jev) to the version's record", async (): Promise<void> => {

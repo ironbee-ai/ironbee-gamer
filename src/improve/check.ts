@@ -334,8 +334,9 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         const there: CheckGame[] = played.games.filter((g: CheckGame): boolean => engineWorse.includes(g.seed));
         const lostGames: CheckGame[] = there.filter((g: CheckGame): boolean => worse(g.score, reference[g.seed], share));
         // Real time, the games it lost with its inputs landing well past their floor: it answered slower than the version is
-        // played at — the engine's speed, not its lessons.
-        const floor: number | undefined = live ? (options.minLagMs ?? 0) : undefined;
+        // played at — the engine's speed, not its lessons. A version with no floor (not lag-aware) has its inputs land as soon
+        // as they are decided: no lag of its is late.
+        const floor: number | undefined = live && options.minLagMs !== undefined && options.minLagMs > 0 ? options.minLagMs : undefined;
         const late: CheckGame[] = floor !== undefined ? lostGames.filter((g: CheckGame): boolean => g.lagMs !== undefined && g.lagMs > floor + LATE_MS) : [];
         const lateText: string = late.length
             ? `; its inputs landed late in ${late.length} of them: at ${median(late.map((g: CheckGame): number => g.lagMs as number))} ms where they land at ${floor} ms at the soonest` +
