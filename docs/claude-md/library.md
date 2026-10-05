@@ -59,7 +59,9 @@ One model repo (`IBGAMER_HF_REPO`, default `ironbee-ai/ironbee-gamer-library`), 
   plays, its floor live, Laya's checkpoint and its mean (Laya's student as distilled, else the version's results).
 - `pushGames` (push.ts): a game at a time — exported into a temporary folder, `hf upload <repo> <folder> games/<id>
   --delete *` (what the folder no longer holds goes in the same commit: a checkpoint replaced), the folder removed —,
-  then the remote index read, these games put in it (`mergeIndex`, the others kept) and uploaded with the README, last.
+  then the remote index read, these games put in it (`mergeIndex`, the others kept) and uploaded with the README (its
+  front matter: `license: other`, `license_name: elastic-license-2.0`, `license_link: LICENSE`) and the package's
+  `LICENSE` (Elastic License 2.0, IronBee Gamer's own), last.
   `--private` unless asked (only a repo that is not there yet takes it). The CLI is `IBGAMER_HF_CLI` (`hf`).
 - `fetchIndex` / `downloadFile` (client.ts): HTTPS, `<HF_ENDPOINT>/<repo>/resolve/<rev>/<path>`, a private repo with
   `HF_TOKEN` else the token file `hf auth login` writes. The index's commit (`x-repo-commit`) is what every file of a

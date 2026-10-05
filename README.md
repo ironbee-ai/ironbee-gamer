@@ -147,7 +147,9 @@ pulled from it plays at once, trained: Laya with no distillation, Jev with your 
   no longer holds, then the index. A repo that is not there is made private (`--public` for a public one). Paths of
   your machine are taken out of what is shared; a file that still names your home folder stops the push.
 
-A private repo is read with `HF_TOKEN`, else the token `hf auth login` keeps.
+The library is shared under the Elastic License 2.0, as IronBee Gamer (a push uploads `LICENSE` with the
+README, which names it); Laya's checkpoints are fine-tuned from `jhu-clsp/mmBERT-base` (MIT). A private repo is
+read with `HF_TOKEN`, else the token `hf auth login` keeps.
 
 ### Adding a game
 

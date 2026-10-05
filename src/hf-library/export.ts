@@ -231,6 +231,9 @@ export function readmeFor(index: HfIndex, repo: string): string {
             .join("; ");
     return [
         "---",
+        "license: other",
+        "license_name: elastic-license-2.0",
+        "license_link: LICENSE",
         "tags:",
         "  - ironbee-gamer",
         "  - game-playing",
@@ -261,6 +264,12 @@ export function readmeFor(index: HfIndex, repo: string): string {
         "",
         `Layout: \`index.json\` lists every game and file; \`games/<id>/\` holds \`game.json\`, \`profiles/v<N>.json\`,`,
         "`windows/`, `samples/` and `laya/<checkpoint>/` (model.safetensors, tokenizer, the run's settings).",
+        "",
+        "## License",
+        "",
+        "[Elastic License 2.0](LICENSE), as IronBee Gamer. Laya's checkpoints are fine-tuned from",
+        "[jhu-clsp/mmBERT-base](https://huggingface.co/jhu-clsp/mmBERT-base) (MIT). The games belong to their authors: each",
+        "`game.json` names the page it plays.",
         "",
     ].join("\n");
 }

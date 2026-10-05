@@ -163,7 +163,7 @@ describe("the Hugging Face library", (): void => {
         expect(index.games.map((g: HfGame): string => g.id)).toEqual(["fake-runner", "other-game"]);
         const made: string[] = readFileSync(calls, "utf-8").trim().split("\n");
         expect(made[0]).toMatch(new RegExp(`^upload ${REPO} \\S+/games/fake-runner games/fake-runner --repo-type model --private --delete \\* --commit-message fake-runner: \\d+ files$`));
-        expect(made[1]).toMatch(new RegExp(`^upload ${REPO} \\S+ \\. --repo-type model --private --include index.json --include README.md --commit-message index: fake-runner$`));
+        expect(made[1]).toMatch(new RegExp(`^upload ${REPO} \\S+ \\. --repo-type model --private --include index.json --include README.md --include LICENSE --commit-message index: fake-runner$`));
         expect(lines.join("\n")).toMatch(/fake-runner: \d+ files/);
     });
 });

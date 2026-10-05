@@ -12,9 +12,12 @@ import { exportGameForHf, mergeIndex, readmeFor } from "./export";
 import { HF_LIBRARY_FORMAT, HfGame, HfIndex, HfSource } from "./types";
 
 import { spawn } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
+
+/** The license the library is shared under: IronBee Gamer's own (Elastic License 2.0), the package's LICENSE. */
+const LICENSE_FILE: string = path.resolve(__dirname, "..", "..", "LICENSE");
 
 export interface PushOptions {
     /** Where the repo is read from (its index) — and its id is the one uploaded to. */
@@ -84,12 +87,13 @@ export async function pushGames(library: Library, ids: string[], options: PushOp
         const index: HfIndex = mergeIndex(remote?.index, games, HF_LIBRARY_FORMAT);
         writeFileSync(path.join(staging, "index.json"), JSON.stringify(index, null, 2));
         writeFileSync(path.join(staging, "README.md"), readmeFor(index, repo));
+        const include: string[] = ["--include", "index.json", "--include", "README.md"];
+        if (existsSync(LICENSE_FILE)) {
+            copyFileSync(LICENSE_FILE, path.join(staging, "LICENSE"));
+            include.push("--include", "LICENSE");
+        }
         log(`index: uploading to ${repo}`);
-        await runCli(
-            cli,
-            ["upload", repo, staging, ".", "--repo-type", "model", visibility, "--include", "index.json", "--include", "README.md", "--commit-message", `index: ${ids.join(", ")}`],
-            log
-        );
+        await runCli(cli, ["upload", repo, staging, ".", "--repo-type", "model", visibility, ...include, "--commit-message", `index: ${ids.join(", ")}`], log);
         return index;
     } finally {
         rmSync(staging, { recursive: true, force: true });
