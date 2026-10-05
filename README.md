@@ -31,7 +31,7 @@ page (canvas / engine)
 
 **The division of labor.** Each part has one job:
 
-- **The trainer (Claude, through the Claude Code CLI)** writes the logic: what the state
+- **The trainer (an LLM through a coding-agent CLI: the Claude Code CLI or the Codex CLI, chosen with the UI's Trainer pill)** writes the logic: what the state
   computes, such as distances, how soon things happen and what is possible now. It also writes the rules that
   map those features to an action.
 - **The decision engine** makes every live decision by applying those rules to the state.
@@ -45,14 +45,26 @@ removed.
 ```bash
 npm install
 npm run build
-export TYPESAFE_API_KEY=…            # Jev — or put it in a .env in the working directory
-node dist/cli/main.js ui             # http://127.0.0.1:1986
+npm link                             # once: puts the `ibgamer` command on your PATH
+ibgamer laya setup                   # once: a Python environment for Laya, the local engine (needs python3)
+npm run ui                           # the web UI at http://127.0.0.1:1986 (the same as `ibgamer ui`)
 ```
 
-Pick a game from the library and press **Play**. The browser is headless by default, and the
+Without `npm link`, `npm start -- <command>` runs the same commands (`npm start -- play dino --seconds 30`).
+
+In the UI, **⇩ Hugging Face** downloads the trained games — each with its profile versions and Laya's model
+(about 700 MB a game). Then pick a game and press **Play**. The browser is headless by default, and the
 live view shows it. Use `--headed` to see the real window. Until the game's first frame (a Laya
 server to start, the browser, the page to load: several seconds) the screen says which step it is on
-and for how long, and why, if the game does not start.
+and for how long, and why, if the game does not start. When a game ends, the screen says how: **Time's up**
+(its Game seconds are played — nothing hangs), **Game over**, or **Stopped**.
+
+What each part needs:
+
+- **Playing with Laya** (the default): the Python environment above, and the game's model — downloaded, or trained here.
+- **Playing with Jev**: its key, `export TYPESAFE_API_KEY=…` (or in a `.env` in the working directory).
+- **Training, and adding a game**: a coding-agent CLI, installed and logged in — the Claude Code CLI (`claude`) or the
+  Codex CLI (`codex`). The **Trainer** pill at the top of the UI says which one and which model is used, and chooses it.
 
 ```bash
 ibgamer library list                 # the games and their active profiles
@@ -162,10 +174,14 @@ In the UI, press **+ Add game**. A guided dialog takes a URL to a playable game 
    each step, which works for anything but is less exact. Better, **let the trainer read the
    game's code**: it reads the page's scripts and writes one expression that returns the game's
    own state, which is checked on the page before it is offered. It takes a few minutes, and it
-   works for any game whose state JavaScript can reach.
+   works for any game whose state JavaScript can reach. While it is being written the dialog shows
+   the step it is on and its time so far; you can go on to the other steps meanwhile, and **Add the
+   game** waits for it (or **Stop reading** lets go of it).
 2. **Start.** It starts by itself, on a key, or on a click you place on the page's screenshot.
-3. **Game.** Its name, how to play it in the game's own words, and the score: read by the
-   trainer from what it perceives, or a page expression you know.
+3. **Game.** Its name, how to play it in the game's own words — needed: it is what the trainer and
+   the engine are told the game is; the trainer proposes it when it read the game's code, for you
+   to check — and the score: read by the trainer from what it perceives, or a page expression you
+   know. A **Next** that stays grey says what it waits for.
 4. **Engine.** Laya (local, fast; the trainer writes the rules as code and Laya learns them) or
    Jev (hosted; reads the rules as text). Training can start right away.
 
@@ -405,6 +421,22 @@ wrong: a profile covers only the phases of a game it has seen. In the research, 
 broke when night mode began, and one retraining round on longer games fixed it. The research,
 with every number and pitfall, is in [research/KNOW-HOW.md](research/KNOW-HOW.md).
 
+### The trainer
+
+The trainer is an LLM run through a coding-agent CLI on its own login — no API key is read. One choice for
+the whole app, not a game's: the **Trainer** pill at the top of the UI names the model in use and opens the
+choice.
+
+| CLI | Models | What it can read |
+|---|---|---|
+| Claude Code (`claude`), the default | Haiku, Sonnet, Opus (the default), Fable — each the latest of its family; the UI shows which (`Opus 5.5`), asked of the CLI itself | the training run's own folder only |
+| Codex (`codex`) | the ones it lists on this machine; its newest Sol the default | any file of this user: its sandbox is read-only (no writes, no network) but not held to the run's folder |
+
+Either way the CLI gets none of this app's keys, writes nothing and saves no session. The difference in what
+they can read matters because a prompt carries text the game's page drew: with Codex, a page could talk the
+trainer into repeating a file of yours in the rules it writes. The choice is kept in `~/.ibgamer/settings.json`,
+so `ibgamer train` uses it too; `IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` win over it.
+
 ## Decision engines: Jev, Laya and the rules as code
 
 | | Jev (TypeSafe, hosted) | Laya (open, local) | Rules (code) |
@@ -483,7 +515,9 @@ the version) — and Laya plays the version's own, the active version's when non
 | `IBGAMER_HOME` | `~/.ibgamer` | the user library (`library/`) and runs (`runs/`) |
 | `IBGAMER_DAEMON_URL` | – | an IronBee DevTools daemon to use, started with this package's `TOOL_PLUGINS` |
 | `IRONBEE_DEVTOOLS_DAEMON_SCRIPT` | the installed package | the DevTools daemon to start |
-| `CLAUDE_CODE_CLI` / `IBGAMER_TRAINER_MODEL` | `claude` / `opus` | the trainer |
+| `IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` | `claude-code` / its default (`opus`) | the trainer's CLI (`claude-code` or `codex`) and its model; set, they win over the one chosen in the UI (the Trainer pill, kept in `~/.ibgamer/settings.json`) |
+| `CLAUDE_CODE_CLI` / `CODEX_CLI` | `claude` / `codex` | the trainer CLIs' executables |
+| `IBGAMER_TRAINER_TIMEOUT_MINUTES` | `30` | how long one call of the trainer may take |
 | `IBGAMER_HF_REPO` / `IBGAMER_HF_REVISION` | `ironbee-ai/ironbee-gamer-library` / `main` | the Hugging Face library, and the branch or commit pulled |
 | `HF_TOKEN` / `HF_ENDPOINT` / `IBGAMER_HF_CLI` | the token `hf auth login` keeps / `https://huggingface.co` / `hf` | reading a private repo; the Hub; the CLI a push uploads with |
 

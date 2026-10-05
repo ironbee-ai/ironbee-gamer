@@ -3,7 +3,7 @@
 ```
 src/
   cli/main.ts               ibgamer: ui | play | train (--check-only, --no-check) | probe | measure | check | library (list/show/activate/import/export/remove/games) | laya (setup/distill/eval/list/serve)
-  config/config.ts          env → GamerConfig (engine, daemon, UI 1986, ~/.ibgamer, trainer CLI); loadDotEnv
+  config/config.ts          env → GamerConfig (engine, daemon, UI 1986, ~/.ibgamer, the trainer: env, else <home>/settings.json); loadDotEnv
   engine/                   DecisionEngine interface; systemone.ts (the /v1/systemone client, retries), jev.ts, laya.ts
   net/http.ts               undici HTTP/2 keep-alive pool for the engine
   devtools/
@@ -33,7 +33,9 @@ src/
     prompts.ts              setup and tune prompts
     regression.ts           offline regression tests over saved windows
     teacher-writer.ts       TeacherWriter: the trainer writes teach(state); checked (agreement, own play); saved as a version
-    claude.ts               the Claude Code CLI (childEnv, Read rule, JSON reply parsing)
+    claude.ts               the trainer as the Claude Code CLI (childEnv, Read rule, JSON reply parsing)
+    codex.ts                the trainer as the Codex CLI (codex exec, read-only sandbox; the models it lists)
+    trainer-cli.ts          which CLI the trainer is and its model: askTrainer, trainerHealth, the settings file, the environment
   distill/
     distiller.ts            Distiller: teacher games → finetune → DAgger rounds → the student on the seeds
     teacher.ts              RulesTeacher: teach(state) standing where an engine stands (exploration, onLabel)

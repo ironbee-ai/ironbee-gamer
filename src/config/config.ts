@@ -5,6 +5,8 @@
 
 import { EngineConfig } from "../engine";
 import { EngineKind } from "../engine/types";
+import { TrainerModel, TrainerProvider } from "../train/claude";
+import { resolveTrainer, TrainerChoice, trainerCommand } from "../train/trainer-cli";
 
 import { existsSync } from "fs";
 import { homedir } from "os";
@@ -35,8 +37,12 @@ export interface GamerConfig {
     libraryDir: string;
     /** Where runs keep their videos, screenshots and results. */
     runsDir: string;
-    /** The Claude Code CLI training runs with (its own login), and how long one call may take. */
-    claude: { command: string; model: string; timeoutMs?: number };
+    /**
+     * The trainer: the coding-agent CLI training runs with (the Claude Code CLI or the Codex CLI, each on its own
+     * login), its model, and how long one call may take. The environment's when it names one (`fromEnv`), else the
+     * one chosen in the UI (`<home>/settings.json`), else the Claude Code CLI with Opus.
+     */
+    trainer: TrainerModel & { provider: TrainerProvider; fromEnv: boolean };
     /**
      * Local Laya: the Python that has it — found when read: `ibgamer laya setup` may make one while the UI
      * runs — and the port its server answers on.
@@ -97,6 +103,7 @@ function parsePort(value: string | undefined, name: string, fallback: number): n
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GamerConfig {
     const home: string = env.IBGAMER_HOME || join(homedir(), ".ibgamer");
     const trainerTimeoutMs: number | undefined = parseMinutes(env.IBGAMER_TRAINER_TIMEOUT_MINUTES, "IBGAMER_TRAINER_TIMEOUT_MINUTES");
+    const trainer: TrainerChoice & { fromEnv: boolean } = resolveTrainer(home, env);
     return {
         engine: {
             kind: parseEnum(env.IBGAMER_ENGINE, EngineKind, "IBGAMER_ENGINE", EngineKind.JEV),
@@ -124,10 +131,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GamerConfig {
         home,
         libraryDir: env.IBGAMER_LIBRARY_DIR || join(home, "library"),
         runsDir: env.IBGAMER_RUNS_DIR || join(home, "runs"),
-        claude: {
-            command: env.CLAUDE_CODE_CLI || "claude",
-            model: env.IBGAMER_TRAINER_MODEL || "opus",
+        trainer: {
+            provider: trainer.provider,
+            command: trainerCommand(trainer.provider, env),
+            model: trainer.model,
             ...(trainerTimeoutMs !== undefined ? { timeoutMs: trainerTimeoutMs } : {}),
+            fromEnv: trainer.fromEnv,
+            home,
         },
         layaRuntime: {
             // `ibgamer laya setup` makes <home>/laya-venv; a Python named here wins.

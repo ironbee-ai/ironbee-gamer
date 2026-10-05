@@ -172,7 +172,12 @@ async function loadStatus() {
     for (const [kind, health] of Object.entries(s.engines).filter(([kind]) => PICKABLE_ENGINES.includes(kind))) {
         pills.push(`<span class="pill ${health.ok ? "ok" : "down"}" title="${esc(health.detail)}">${kind === "jev" ? "Jev" : kind === "laya" ? "Laya" : esc(kind)}</span>`);
     }
-    pills.push(`<span class="pill ${s.trainer.ok ? "ok" : "down"}" title="${esc(s.trainer.detail)}">Trainer</span>`);
+    // The trainer's pill names its model — the one its alias last answered as, once a call has said (`opus` is whichever
+    // Opus is the latest) — and opens where it is chosen (one choice for all games).
+    const trainerModel = s.trainer.answeredByName || s.trainer.model;
+    pills.push(
+        `<button type="button" class="pill ${s.trainer.ok ? "ok" : "down"}" data-trainer title="${esc(s.trainer.detail)} — click to choose the trainer">Trainer${trainerModel ? ` · ${esc(trainerModel)}` : ""}</button>`
+    );
     $("status").innerHTML = pills.join("");
     renderEngines();
     // Whether a training is offered follows the trainer's readiness, and Jev's for one it decides.
@@ -1233,6 +1238,101 @@ document.querySelector(".tabs").addEventListener("click", (event) => {
     }
 });
 
+// ---------- the trainer: which coding-agent CLI, which of its models (one choice for all games) ----------
+
+const trainer = { settings: null, asking: false, keep: false };
+
+/** The provider the dialog shows. */
+function trainerProvider() {
+    return (trainer.settings?.providers || []).find((p) => p.provider === $("trainer-provider").value);
+}
+
+/** The models of the provider shown: the one in use when it is the provider in use, else its default. */
+function renderTrainerModels() {
+    const s = trainer.settings;
+    const p = trainerProvider();
+    const models = p?.models || [];
+    const wanted = p?.provider === s.provider && models.some((m) => m.id === s.model) ? s.model : (models.find((m) => m.default) || models[0])?.id;
+    // An alias by the model it stands for, named as a person reads it: "Opus 5.5" (the alias alone until the CLI has said).
+    const picked = models.some((m) => m.id === $("trainer-model").value) && trainer.keep ? $("trainer-model").value : wanted;
+    $("trainer-model").innerHTML = models
+        .map((m) => `<option value="${esc(m.id)}"${m.id === picked ? " selected" : ""}>${esc(m.answeredByName || m.name)}${m.default ? " (default)" : ""}</option>`)
+        .join("");
+    renderTrainerDetail();
+}
+
+function renderTrainerDetail() {
+    const s = trainer.settings;
+    const p = trainerProvider();
+    const locked = s.fromEnv ? " Named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): start the app without them to choose it here." : "";
+    // Claude Code's names are aliases, each its family's latest model: which one, as the CLI says (asked when this opens).
+    const model = (p?.models || []).find((m) => m.id === $("trainer-model").value);
+    const alias =
+        p?.provider !== "claude-code" || !model
+            ? ""
+            : model.answeredBy
+              ? ` “${model.id}” is ${model.answeredBy} now: the latest ${model.name} this CLI knows.`
+              : trainer.asking
+                ? ` Asking the CLI which model “${model.id}” stands for…`
+                : ` “${model.id}” is the latest ${model.name} this CLI knows.`;
+    $("trainer-detail").textContent = p ? `${p.ok ? `Installed: ${p.detail}.` : `Not installed: ${p.detail}.`} ${p.reads}${alias}${locked}` : "";
+    $("trainer-provider").disabled = s.fromEnv;
+    $("trainer-model").disabled = s.fromEnv || !p?.ok;
+    const same = p?.provider === s.provider && $("trainer-model").value === s.model;
+    $("trainer-save").disabled = s.fromEnv || !p?.ok || same || !$("trainer-model").value;
+}
+
+async function openTrainer() {
+    $("trainer-error").textContent = "";
+    trainer.settings = await api("GET", "/api/trainer");
+    const s = trainer.settings;
+    $("trainer-provider").innerHTML = s.providers
+        .map((p) => `<option value="${esc(p.provider)}"${p.provider === s.provider ? " selected" : ""}>${esc(p.label)}${p.ok ? "" : " — not installed"}</option>`)
+        .join("");
+    renderTrainerModels();
+    $("trainer-dialog").showModal();
+    // Which models Claude Code's aliases stand for: the CLI is asked (a second or two) when one is not known, or it was
+    // last asked a week ago; the list and the pill follow.
+    if (s.aliasesDue && !trainer.asking) {
+        trainer.asking = true;
+        renderTrainerDetail();
+        api("POST", "/api/trainer/models")
+            .then((settings) => {
+                trainer.settings = settings;
+            })
+            .catch(() => {})
+            .finally(() => {
+                trainer.asking = false;
+                // What is picked in the dialog stays picked.
+                trainer.keep = true;
+                renderTrainerModels();
+                trainer.keep = false;
+                loadStatus().catch(() => {});
+            });
+    }
+}
+
+$("status").addEventListener("click", (event) => {
+    if (event.target.closest("[data-trainer]")) {
+        openTrainer().catch(showError);
+    }
+});
+$("trainer-provider").addEventListener("change", renderTrainerModels);
+$("trainer-model").addEventListener("change", renderTrainerDetail);
+$("trainer-close").addEventListener("click", () => $("trainer-dialog").close());
+$("trainer-save").addEventListener("click", async () => {
+    $("trainer-error").textContent = "";
+    $("trainer-save").disabled = true;
+    try {
+        trainer.settings = await api("POST", "/api/trainer", { provider: $("trainer-provider").value, model: $("trainer-model").value });
+        await loadStatus();
+        $("trainer-dialog").close();
+    } catch (err) {
+        $("trainer-error").textContent = err.message;
+        renderTrainerDetail();
+    }
+});
+
 // ---------- adding a game: a guided flow ----------
 
 const add = {
@@ -1246,9 +1346,14 @@ const add = {
     readerStart: null,
     /** What the trainer's reader filled in, or did not, in words. */
     readerNote: "",
-    /** A start or a score chosen here (in this dialog): the reader's is not put over it. */
+    /** The trainer's reader being written now: since when, and the step it is on (null: none is). */
+    reading: null,
+    /** Counts the reader's runs: one stopped, or begun again, is no longer the current one. */
+    readerRun: 0,
+    /** A start or a score chosen here (in this dialog), How to play written here: the reader's is not put over it. */
     startTouched: false,
     scoreTouched: false,
+    goalTouched: false,
 };
 
 /** Whether this app can read the page's game, and how, in words. */
@@ -1345,6 +1450,8 @@ function showStep(step) {
         }
         syncAddTrainLive();
     }
+    // A reader still being written is said on the steps after the first (on the first, its own line says it).
+    renderReaderNote();
     renderNext();
 }
 
@@ -1384,7 +1491,12 @@ function numberField(id, label, unit, fallback, whole) {
 /** Whether a step can go on, and — for a value it holds that is refused — why not, in words; a field still empty only waits. */
 function stepCheck(step) {
     if (step === 1) {
-        return { ok: Boolean(add.probe && (verdictOf(add.probe).ok || add.reader)), problem: "" };
+        if (!add.probe) {
+            return { ok: false, problem: "", wait: "Next waits for the page: open it and look at it first." };
+        }
+        const ok = Boolean(verdictOf(add.probe).ok || add.reader);
+        const wait = ok ? "" : add.reading ? "Next waits for the trainer's reader: this page is not read as it is drawn." : "Next waits for a reader: let the trainer read the game's code.";
+        return { ok, problem: "", wait };
     }
     if (step === 2) {
         const load = numberField("add-load", "Loading time", "seconds", 0, false);
@@ -1394,7 +1506,8 @@ function stepCheck(step) {
         if (startChoice() === "click" && !add.click && !clickBox()) {
             return { ok: false, problem: NO_CLICK_TARGET };
         }
-        return { ok: startChoice() !== "click" || Boolean(add.click), problem: "" };
+        const picked = startChoice() !== "click" || Boolean(add.click);
+        return { ok: picked, problem: "", wait: picked ? "" : "Next waits for the start: click the picture where the game is started." };
     }
     if (step === 3) {
         const id = $("add-id").value.trim();
@@ -1413,7 +1526,13 @@ function stepCheck(step) {
         if (scoreChoice() === "state" && $("add-score").value.trim()) {
             return { ok: false, problem: "A page expression is written, but the trainer's reading is chosen: choose the expression, or empty its field." };
         }
-        return { ok: Boolean($("add-name").value.trim() && id && $("add-goal").value.trim()), problem: "" };
+        // A field still empty only waits — said, so a Next that stays grey has a reason.
+        const missing = [
+            ...($("add-name").value.trim() ? [] : ["Name"]),
+            ...(id ? [] : ["Id"]),
+            ...($("add-goal").value.trim() ? [] : ["How to play"]),
+        ];
+        return { ok: missing.length === 0, problem: "", wait: missing.length ? `Next waits for: ${missing.join(", ")}.` : "" };
     }
     const trainNow = $("add-train-now").checked;
     const iterations = trainNow ? numberField("add-iterations", "Training iterations", "", 3, true) : {};
@@ -1421,7 +1540,13 @@ function stepCheck(step) {
         return { ok: false, problem: iterations.problem };
     }
     const refusal = trainNow ? trainRefusal(addEngine()) : "";
-    return refusal ? { ok: false, problem: `${refusal} Uncheck “Start training now” to add the game, and train it once that is ready.` } : { ok: true, problem: "" };
+    if (refusal) {
+        return { ok: false, problem: `${refusal} Uncheck “Start training now” to add the game, and train it once that is ready.` };
+    }
+    // Asked for, the reader is how the game is read: added before it answered, the game would be read as it is drawn, unsaid.
+    return add.reading
+        ? { ok: false, problem: "", wait: "“Add the game” waits for the trainer's reader of this game (step 1 shows how far it is, and can stop it)." }
+        : { ok: true, problem: "" };
 }
 
 function renderNext() {
@@ -1430,12 +1555,59 @@ function renderNext() {
     $("add-save").disabled = add.step === 4 && !check.ok;
     $("add-invalid").textContent = check.problem;
     $("add-invalid").hidden = !check.problem;
+    // What a grey Next (or Add) waits for, when nothing it holds is refused.
+    const wait = check.problem ? "" : check.wait || "";
+    $("add-wait").textContent = wait;
+    $("add-wait").hidden = !wait;
 }
 
-/** What the trainer's reader filled into the later steps, or left: shown on every step once it has answered. */
+/** Minutes and seconds since `since`, as m:ss. */
+function elapsed(since) {
+    const seconds = Math.max(0, Math.floor((Date.now() - since) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * What the trainer's reader filled into the later steps, or left: shown on every step once it has answered — and, while
+ * it is still being written, that it is (the steps after the first go on meanwhile).
+ */
 function renderReaderNote() {
-    $("add-reader-note").textContent = add.readerNote;
-    $("add-reader-note").hidden = !add.readerNote;
+    const reading =
+        add.reading && add.step > 1
+            ? `The trainer is still reading the game's code (${elapsed(add.reading.since)}). Go on meanwhile: what it finds is filled in where nothing was chosen here, and “Add the game” waits for it.`
+            : "";
+    $("add-reader-note").textContent = reading || add.readerNote;
+    $("add-reader-note").hidden = !(reading || add.readerNote);
+}
+
+const READ_LABEL = $("add-read").textContent;
+
+/** The trainer's reader being written, said as it goes: the step it is on and its time so far (it takes minutes). */
+function renderReading() {
+    const reading = add.reading;
+    $("add-reading").hidden = !reading;
+    $("add-read-stop").hidden = !reading;
+    $("add-read").textContent = reading ? "Reading the game's code…" : READ_LABEL;
+    if (reading) {
+        const step = reading.phase ? reading.phase.charAt(0).toUpperCase() + reading.phase.slice(1) : "Starting";
+        $("add-reading-text").textContent = `${step} · ${elapsed(reading.since)}`;
+    }
+    renderReaderNote();
+}
+
+function startReading() {
+    clearInterval(add.readingTimer);
+    add.reading = { since: Date.now(), phase: "" };
+    add.readingTimer = setInterval(renderReading, 1000);
+    renderReading();
+    renderNext();
+}
+
+function stopReading() {
+    clearInterval(add.readingTimer);
+    add.readingTimer = undefined;
+    add.reading = null;
+    renderReading();
 }
 
 function startChoice() {
@@ -1464,7 +1636,12 @@ function forgetPage() {
         $("add-score").value = "";
         document.querySelector('input[name="add-score"][value="state"]').checked = true;
     }
+    if (add.reader?.goal && !add.goalTouched && $("add-goal").value === add.reader.goal) {
+        $("add-goal").value = "";
+    }
     Object.assign(add, { probe: null, screenshot: null, target: null, click: null, reader: null, readerJob: null, readerStart: null, readerNote: "" });
+    add.readerRun++;
+    stopReading();
     $("add-reader").hidden = true;
     $("add-reader-status").textContent = "";
     $("add-reader-sample").hidden = true;
@@ -1601,6 +1778,7 @@ $("add-game").addEventListener("click", () => {
     $("add-form").reset();
     add.startTouched = false;
     add.scoreTouched = false;
+    add.goalTouched = false;
     $("add-verdict").hidden = true;
     showStep(1);
     $("add-dialog").showModal();
@@ -1660,7 +1838,7 @@ $("add-probe").addEventListener("click", async () => {
         $("add-reader").hidden = false;
         $("add-read").disabled = !state.status?.trainer?.ok;
         if (!state.status?.trainer?.ok) {
-            $("add-reader-status").textContent = "The trainer (the Claude Code CLI) is not available.";
+            $("add-reader-status").textContent = `The trainer is not available: ${state.status?.trainer?.detail || "no coding-agent CLI was found"}.`;
         }
         if (!$("add-name").value && probe.title) {
             $("add-name").value = probe.title.slice(0, 60);
@@ -1689,12 +1867,14 @@ $("add-read").addEventListener("click", async () => {
     // The reader is for the page looked at now: after a new look, another address or the dialog opened afresh,
     // its job is no longer the current one, and what it answers is left unread.
     const probe = add.probe;
+    const run = ++add.readerRun;
     let id = null;
-    const current = () => add.probe === probe && add.readerJob === id;
+    const current = () => add.probe === probe && add.readerRun === run && add.readerJob === id;
     add.readerJob = null;
     $("add-read").disabled = true;
     $("add-reader-sample").hidden = true;
-    $("add-reader-status").textContent = "Starting…";
+    $("add-reader-status").textContent = "";
+    startReading();
     try {
         const { reader } = await api("POST", "/api/reader", { url: $("add-url").value.trim(), ...(probe?.viewport ? { viewport: probe.viewport } : {}) });
         if (!current()) {
@@ -1712,7 +1892,8 @@ $("add-read").addEventListener("click", async () => {
                 return;
             }
             if (job.status === "running") {
-                $("add-reader-status").textContent = `${job.phase}…`;
+                add.reading.phase = job.phase;
+                renderReading();
                 continue;
             }
             if (job.status === "failed") {
@@ -1731,10 +1912,24 @@ $("add-read").addEventListener("click", async () => {
         }
     } finally {
         if (current()) {
+            stopReading();
             $("add-read").disabled = false;
             renderNext();
         }
     }
+});
+
+// Stopped, the reader is no longer waited for: what it answers is left unread (the trainer ends by itself), and the game
+// is read as it is drawn unless its code is read again.
+$("add-read-stop").addEventListener("click", () => {
+    add.readerRun++;
+    add.readerJob = null;
+    stopReading();
+    $("add-read").disabled = !state.status?.trainer?.ok;
+    $("add-reader-status").textContent = add.reader
+        ? "Stopped: the reader the trainer wrote before is kept."
+        : "Stopped: the game is read as it is drawn, unless the trainer reads its code again.";
+    renderNext();
 });
 
 /**
@@ -1785,6 +1980,14 @@ function applyReaderStart(reader) {
         $("add-score").value = reader.score;
         filled.push("the score expression (step 3)");
     }
+    // How the game is played, as the trainer read it in the page and its code: proposed where nothing is written, for the
+    // person to check — it is what the trainer and the engine are told the game is.
+    if (reader.goal && (add.goalTouched || $("add-goal").value.trim())) {
+        left.push("how the game is played");
+    } else if (reader.goal) {
+        $("add-goal").value = reader.goal;
+        filled.push("How to play (step 3: read it, and correct it where it is wrong)");
+    }
     add.readerNote = [
         filled.length ? `The trainer's reader filled in ${filled.join(" and ")}.` : "",
         left.length ? `${filled.length ? "It found" : "The trainer's reader found"} ${left.join(" and ")}${filled.length ? " as well" : ""}, not applied: what was chosen here is kept.` : "",
@@ -1817,6 +2020,10 @@ for (const input of [...document.querySelectorAll('input[name="add-score"]'), $(
         });
     }
 }
+// How to play written here (the reader's proposal corrected too) is the one saved: a reader still to answer leaves it.
+$("add-goal").addEventListener("input", () => {
+    add.goalTouched = true;
+});
 
 /** Checks a choice's radio as a click on it would, with no change event; true when another choice was checked before. */
 function choose(name, value) {

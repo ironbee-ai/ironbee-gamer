@@ -117,6 +117,22 @@ describe("PageReaderWriter", (): void => {
         });
     }
 
+    it("proposes how the game is played, in a few sentences, for the one adding it to check: a long one cut at a sentence, none when the trainer cannot tell", async (): Promise<void> => {
+        const reply = (goal: unknown): string => JSON.stringify({ read: "(() => ({ playing: true, hero: game.hero }))()", format: "{ playing, hero: { x } }", goal });
+        const prompts: string[] = [];
+        const told: ReaderProposal = await writer([reply("Press  Space to jump.\n Avoid the cacti: touching one ends the game. ")], prompts).write({ url: "https://game.test/", workDir });
+        expect(told.goal).toBe("Press Space to jump. Avoid the cacti: touching one ends the game.");
+        // Asked for from the page's own words, and no strategy.
+        expect(prompts[0]).toContain('"goal": how the game is played');
+        expect(prompts[0]).toContain('"goal": "..." | null');
+        const long: ReaderProposal = await writer([reply(`${"Jump over what comes. ".repeat(40)}`)], []).write({ url: "https://game.test/", workDir });
+        expect(long.goal!.length).toBeLessThanOrEqual(600);
+        expect(long.goal!.endsWith("Jump over what comes.")).toBe(true);
+        for (const none of [null, "", "   ", 7]) {
+            expect("goal" in (await writer([reply(none)], []).write({ url: "https://game.test/", workDir }))).toBe(false);
+        }
+    });
+
     it("collects the page's own code, leaves engine builds out, and returns a reader that works on the page", async (): Promise<void> => {
         const prompts: string[] = [];
         const page: FakePage = new FakePage();

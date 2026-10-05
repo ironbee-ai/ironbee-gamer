@@ -145,6 +145,8 @@
             <div id="add-reader" class="reader" hidden>
                 <p class="muted">Or let the trainer read the page's code and write a reader for the game's own state (where things are, the score, whether it is over): the way in for a game drawn with WebGL, and often sharper than what is drawn for any game. It takes a few minutes.</p>
                 <button type="button" id="add-read" class="secondary">Let the trainer read the game's code</button>
+                <button type="button" id="add-read-stop" class="ghost" hidden>Stop reading</button>
+                <div id="add-reading" class="reading" role="status" aria-live="polite" hidden><span class="spinner small" aria-hidden="true"></span><span id="add-reading-text"></span></div>
                 <span id="add-reader-status" class="muted"></span>
                 <pre id="add-reader-sample" class="state" hidden></pre>
             </div>
@@ -170,12 +172,12 @@
                 <label class="field"><span>Name</span><input id="add-name"></label>
                 <label class="field"><span>Id</span><input id="add-id" pattern="[a-z0-9][a-z0-9\-]*" placeholder="my-game"></label>
             </div>
-            <label class="field"><span>How to play <small class="muted">the game's own instructions, as a player would read them: the trainer starts from these</small></span>
+            <label class="field"><span>How to play <small class="muted">the game's own instructions, as a player would read them — a sentence or two is enough: the trainer and the engine start from these</small></span>
                 <textarea id="add-goal" rows="3" placeholder="The game's own words: its controls, its goal, what ends a game."></textarea></label>
             <div class="choices">
                 <label><input type="radio" name="add-score" value="state" checked> Let the trainer read the score and the end of a game from what it perceives</label>
                 <label><input type="radio" name="add-score" value="expression"> I know a page expression for it
-                    <input id="add-score" placeholder="({ over: game.over, score: game.score })"></label>
+                    <textarea id="add-score" rows="3" spellcheck="false" placeholder="({ over: game.over, score: game.score })"></textarea></label>
             </div>
             <div class="row">
                 <label class="field"><span>The score counts</span><input id="add-score-label" value="points"></label>
@@ -184,7 +186,7 @@
         </section>
 
         <section class="step" data-step="4" hidden>
-            <p class="muted">Who makes the decisions while the game is played. Either way the trainer (the Claude Code CLI) first writes and tunes the game's profile.</p>
+            <p class="muted">Who makes the decisions while the game is played. Either way the trainer (a coding-agent CLI — the Trainer pill at the top says which, and chooses it) first writes and tunes the game's profile.</p>
             <div class="choices engines" id="add-engines">
                 <label><input type="radio" name="add-engine" value="laya"> <b>Laya</b> — local, a decision in ~20–30 ms. The trainer writes the rules as code, then a local model learns them (distillation, ~1 hour on this machine). <span id="add-laya-status" class="muted"></span></label>
                 <label><input type="radio" name="add-engine" value="jev"> <b>Jev</b> — hosted, ~250–300 ms a decision; reads the rules as text. Nothing to distill. <span id="add-jev-status" class="muted"></span></label>
@@ -195,6 +197,7 @@
         </section>
 
         <p id="add-reader-note" class="muted" hidden></p>
+        <p id="add-wait" class="muted" role="status" hidden></p>
         <div id="add-invalid" class="error" role="alert" hidden></div>
         <div id="add-error" class="error"></div>
         <div class="buttons">
@@ -204,6 +207,19 @@
             <button type="submit" id="add-save" hidden>Add the game</button>
         </div>
     </form>
+</dialog>
+
+<dialog id="trainer-dialog" class="trainer">
+    <h2>Trainer</h2>
+    <p class="muted">The LLM that writes and tunes every game's profile — how the game is read, its rules — and reads a game's code when it is added: a coding-agent CLI, on its own login. One choice for all games.</p>
+    <label class="field"><span>CLI</span><select id="trainer-provider"></select></label>
+    <label class="field"><span>Model</span><select id="trainer-model"></select></label>
+    <p id="trainer-detail" class="muted"></p>
+    <div id="trainer-error" class="error" role="alert"></div>
+    <div class="buttons">
+        <button type="button" class="ghost" id="trainer-close">Close</button>
+        <button type="button" id="trainer-save">Use it</button>
+    </div>
 </dialog>
 
 <dialog id="hf-dialog" class="hf">

@@ -29,7 +29,24 @@ import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../distil
 import { RulesTeacher } from "../distill/teacher";
 import { CheckGame, CheckReport } from "../improve/check";
 import { ImproveEngines, ImproveOutcome, ImproveResult, Improver, nothingToCheck } from "../improve/improve";
-import { askClaude, trainerHealth } from "../train/claude";
+import { findOnPath, TrainerProvider } from "../train/claude";
+import {
+    askClaudeAliases,
+    askTrainer,
+    claudeAliasesDue,
+    modelDisplayName,
+    parseTrainerChoice,
+    TRAINER_LABELS,
+    TRAINER_READS,
+    TrainerChoice,
+    trainerCommand,
+    trainerHealth,
+    TrainerModelInfo,
+    trainerModels,
+    TrainerModelsSeen,
+    readTrainerModelsSeen,
+    writeTrainerChoice,
+} from "../train/trainer-cli";
 import { checkLayaPython, LayaCheckpoint, layaPortHeldByOther, LayaPortHeldError, layaPortLockFile, refuseHeldLayaPort } from "../distill/laya-runtime";
 import { checkpointFor, checkpointProfileVersion, currentCheckpoints, LayaServers, LayaSetup } from "../distill/laya-play";
 import { PageReaderWriter, PROBE_BOOT_MS, ReaderProposal } from "../reader/page-reader";
@@ -366,6 +383,8 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
     };
 
     let current: { record: RunRecord; abort: AbortController } | undefined;
+    /** The Claude Code CLI being asked what its aliases stand for (one asking at a time). */
+    let aliasesAsked: Promise<void> | undefined;
     /** Readers the trainer is writing for pages being added (a few minutes each), by job id. */
     const readers: Map<string, ReaderJob> = new Map();
     /** The readers still at work: close() aborts each and stops its daemon (one still starting, once it is up). */
@@ -395,7 +414,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             try {
                 job.result = await new PageReaderWriter({
                     openBrowser: (): GameBrowser => new DevtoolsClient({ baseUrl: handle.baseUrl }),
-                    ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, dir, signal),
+                    ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askTrainer(config.trainer, prompt, dir, signal),
                 }).write({
                     url,
                     workDir: join(config.runsDir, "readers", job.id),
@@ -684,11 +703,11 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 const result: TrainForResult = await trainFor(
                     {
                         library,
-                        train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine, openBrowser, trainer: config.claude }).train(o),
+                        train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine, openBrowser, trainer: config.trainer }).train(o),
                         distill: (o: DistillOptions): Promise<DistillResult> =>
                             new Distiller({
                                 library,
-                                ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, work, signal),
+                                ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askTrainer(config.trainer, prompt, work, signal),
                                 openBrowser,
                                 python: config.layaRuntime.python,
                             }).distill(o),
@@ -866,7 +885,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 const result: DistillResult = await new Distiller({
                     library,
                     ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> =>
-                        askClaude(config.claude, prompt, work, signal),
+                        askTrainer(config.trainer, prompt, work, signal),
                     openBrowser: (): GameBrowser => {
                         const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: handle.baseUrl });
                         browsers.push(browser);
@@ -1011,11 +1030,11 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     library,
                     openBrowser,
                     engines,
-                    train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine: engineFor(EngineKind.JEV), openBrowser, trainer: config.claude }).train(o),
+                    train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library, engine: engineFor(EngineKind.JEV), openBrowser, trainer: config.trainer }).train(o),
                     distill: (o: DistillOptions): Promise<DistillResult> =>
                         new Distiller({
                             library,
-                            ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, work, signal),
+                            ask: (prompt: string, work: string, signal?: AbortSignal): Promise<string> => askTrainer(config.trainer, prompt, work, signal),
                             openBrowser,
                             python: config.layaRuntime.python,
                         }).distill(o),
@@ -1143,7 +1162,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             // The version it learns (the one asked for — a version the live clock plays —, else the active one) without its rules as code: the trainer writes them first — without its
             // CLI the run would stop there, after its daemon started.
             if (!profile.teacher) {
-                const trainer: EngineHealth = trainerHealth(config.claude);
+                const trainer: EngineHealth = trainerHealth(config.trainer);
                 if (!trainer.ok) {
                     throw new Error(`The trainer is not ready: ${trainer.detail} (${game.name} v${profile.version} has no rules as code, and the trainer writes them first)`);
                 }
@@ -1190,7 +1209,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             }
             // Without it a training would play every measuring game, then fail each tuning and end "done".
             if (alone === undefined || !library.profile(game.id, alone)?.teacher) {
-                const trainer: EngineHealth = trainerHealth(config.claude);
+                const trainer: EngineHealth = trainerHealth(config.trainer);
                 if (!trainer.ok) {
                     throw new Error(`The trainer is not ready: ${trainer.detail}`);
                 }
@@ -1225,11 +1244,53 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
             python,
         };
         engines[EngineKind.RULES] = { ok: true, detail: "the profile's rules as code (teach), written by the trainer: instant, on this machine" };
+        // The model the trainer's alias last stood for (Claude Code's `opus`: whichever Opus answered), once a call has said.
+        const answeredBy: string | undefined = readTrainerModelsSeen(config.home)[config.trainer.provider]?.[config.trainer.model];
         return {
             defaultEngine: config.engine.kind,
             engines,
-            trainer: trainerHealth(config.claude),
+            trainer: {
+                ...trainerHealth(config.trainer),
+                provider: config.trainer.provider,
+                model: config.trainer.model,
+                ...(answeredBy !== undefined ? { answeredBy, answeredByName: modelDisplayName(answeredBy) } : {}),
+            },
             running: current ? current.record.id : null,
+        };
+    };
+
+    /**
+     * The trainer and what it can be: each coding-agent CLI with whether it is installed, what it reads of the machine and
+     * the models it offers — one choice for the whole app (the Trainer pill's dialog), not a game's.
+     */
+    /** The executable of a provider's CLI: the trainer's own when it is that provider's. */
+    const commandOf: (provider: TrainerProvider) => string = (provider: TrainerProvider): string =>
+        provider === config.trainer.provider ? config.trainer.command : trainerCommand(provider);
+    const trainerSettings: () => Record<string, unknown> = (): Record<string, unknown> => {
+        const seen: TrainerModelsSeen = readTrainerModelsSeen(config.home);
+        return {
+            provider: config.trainer.provider,
+            model: config.trainer.model,
+            // Named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): not chosen here.
+            fromEnv: config.trainer.fromEnv,
+            // Claude Code's names are aliases: the CLI is to be asked which models they stand for (POST /api/trainer/models).
+            aliasesDue: findOnPath(commandOf(TrainerProvider.CLAUDE_CODE)) !== undefined && claudeAliasesDue(config.home),
+            providers: Object.values(TrainerProvider).map((provider: TrainerProvider): Record<string, unknown> => {
+                const command: string = commandOf(provider);
+                const found: string | undefined = findOnPath(command);
+                return {
+                    provider,
+                    label: TRAINER_LABELS[provider],
+                    ok: found !== undefined,
+                    detail: found ?? `${command} is not on PATH`,
+                    reads: TRAINER_READS[provider],
+                    // Each alias with the model it stands for, as the CLI last said (`answeredBy`), and that model's name as read.
+                    models: trainerModels(provider).map((m: TrainerModelInfo): TrainerModelInfo & { answeredBy?: string; answeredByName?: string } => {
+                        const answeredBy: string | undefined = seen[provider]?.[m.id];
+                        return { ...m, ...(answeredBy !== undefined ? { answeredBy, answeredByName: modelDisplayName(answeredBy) } : {}) };
+                    }),
+                };
+            }),
         };
     };
 
@@ -1378,6 +1439,39 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     return;
                 }
                 serveFile(res, file, "image/png");
+            } else if (req.method === "GET" && path === "/api/trainer") {
+                sendJson(res, 200, trainerSettings());
+            } else if (req.method === "POST" && path === "/api/trainer/models") {
+                // Which models the Claude Code CLI's aliases stand for now, asked of the CLI (a second or two; one asking at a time).
+                if (findOnPath(commandOf(TrainerProvider.CLAUDE_CODE)) !== undefined) {
+                    aliasesAsked ??= askClaudeAliases(config.home, commandOf(TrainerProvider.CLAUDE_CODE)).finally((): void => {
+                        aliasesAsked = undefined;
+                    });
+                    await aliasesAsked.catch((): void => undefined);
+                }
+                sendJson(res, 200, trainerSettings());
+            } else if (req.method === "POST" && path === "/api/trainer") {
+                const choice: TrainerChoice | string = parseTrainerChoice(await readJson(req));
+                if (typeof choice === "string") {
+                    sendJson(res, 400, { error: choice });
+                    return;
+                }
+                if (config.trainer.fromEnv) {
+                    sendJson(res, 409, { error: "The trainer is named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): start the app without them to choose it here." });
+                    return;
+                }
+                // Between runs only: a training asks its trainer many times, and is one trainer's work.
+                if (current) {
+                    sendJson(res, 409, { error: `${current.record.gameName} is running: the trainer is chosen between runs.` });
+                    return;
+                }
+                if (!trainerModels(choice.provider).some((m: TrainerModelInfo): boolean => m.id === choice.model)) {
+                    sendJson(res, 400, { error: `The ${TRAINER_LABELS[choice.provider]} lists no model ${choice.model}.` });
+                    return;
+                }
+                writeTrainerChoice(config.home, choice);
+                config.trainer = { ...config.trainer, provider: choice.provider, command: trainerCommand(choice.provider), model: choice.model };
+                sendJson(res, 200, trainerSettings());
             } else if (req.method === "POST" && path === "/api/laya/warm") {
                 // Laya was chosen for a game: its server starts now, so Play does not wait for it — with the checkpoint
                 // Play will take, the version sent as Play sends it (a config's; none: the active one's checkpoint).

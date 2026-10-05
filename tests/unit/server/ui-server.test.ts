@@ -12,6 +12,8 @@ import { Library } from "../../../src/library/store";
 import { EpisodeResult } from "../../../src/play/player";
 import { profileHash } from "../../../src/run/decision-log";
 import { keepThumbnail, startUiServer, UiServerHandle } from "../../../src/server/ui-server";
+import { TrainerProvider } from "../../../src/train/claude";
+import { noteTrainerModel } from "../../../src/train/trainer-cli";
 import { fakeGameDefinition, fakeProfile } from "../../helpers/fake-game";
 
 import { spawnSync } from "child_process";
@@ -259,7 +261,7 @@ describe("the UI server", (): void => {
     it("refuses a training Jev would decide while Jev is not ready: a 400 saying why, before any run starts", async (): Promise<void> => {
         // The trainer's CLI is there (a stand-in): what is refused is Jev.
         const t: TestUi = await startTestUi(
-            (c: GamerConfig, root: string): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, claude: { ...c.claude, command: script(root, "claude", "exit 0") } })
+            (c: GamerConfig, root: string): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, trainer: { ...c.trainer, command: script(root, "claude", "exit 0") } })
         );
         try {
             const refused: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev" });
@@ -287,10 +289,113 @@ describe("the UI server", (): void => {
         }
     });
 
+    it("asks the Claude Code CLI which models its aliases stand for, when asked to, and names them as they are read", async (): Promise<void> => {
+        const tools: string = mkdtempSync(path.join(tmpdir(), "ibgamer-ui-aliases-"));
+        // A stand-in CLI that says the model an alias stands for at its start, as the real one does.
+        const claude: string = script(
+            tools,
+            "claude",
+            'M=""\nwhile [ $# -gt 0 ]; do if [ "$1" = "--model" ]; then M="$2"; fi; shift; done\ncat > /dev/null\necho "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",\\"model\\":\\"claude-$M-9-1\\"}"\nexec sleep 20'
+        );
+        const t: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, trainer: { ...c.trainer, command: claude } }));
+        try {
+            const models = (body: Record<string, unknown>): Array<Record<string, unknown>> => (body.providers as Array<Record<string, unknown>>)[0].models as Array<Record<string, unknown>>;
+            // Not known yet: the aliases alone, and the CLI is to be asked.
+            const before: Record<string, unknown> = (await call(t.port, "GET", "/api/trainer")).body;
+            expect(before.aliasesDue).toBe(true);
+            expect(models(before).map((m: Record<string, unknown>): unknown => m.answeredBy)).toEqual([undefined, undefined, undefined, undefined]);
+            const asked: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/trainer/models");
+            expect(asked.status).toBe(200);
+            expect(asked.body.aliasesDue).toBe(false);
+            expect(models(asked.body).map((m: Record<string, unknown>): unknown => [m.id, m.answeredBy, m.answeredByName])).toEqual([
+                ["haiku", "claude-haiku-9-1", "Haiku 9.1"],
+                ["sonnet", "claude-sonnet-9-1", "Sonnet 9.1"],
+                ["opus", "claude-opus-9-1", "Opus 9.1"],
+                ["fable", "claude-fable-9-1", "Fable 9.1"],
+            ]);
+            // The trainer's pill names the model its alias stands for.
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toMatchObject({ model: "opus", answeredBy: "claude-opus-9-1", answeredByName: "Opus 9.1" });
+        } finally {
+            await t.ui.close();
+            for (const dir of [tools, t.root]) {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+    }, 30_000);
+
+    it("says which CLI the trainer is and keeps another one chosen, for all games: a model its CLI lists, unless the environment names the trainer", async (): Promise<void> => {
+        const tools: string = mkdtempSync(path.join(tmpdir(), "ibgamer-ui-trainer-"));
+        // A Codex CLI on this machine, and the models it fetched.
+        const codex: string = path.join(tools, "codex");
+        writeFileSync(codex, "#!/bin/sh\nexit 0\n");
+        chmodSync(codex, 0o755);
+        writeFileSync(path.join(tools, "models_cache.json"), JSON.stringify({ models: [{ slug: "gpt-9-sol", display_name: "GPT-9-Sol" }, { slug: "gpt-9-luna" }] }));
+        const before: { CODEX_HOME?: string; CODEX_CLI?: string } = { CODEX_HOME: process.env.CODEX_HOME, CODEX_CLI: process.env.CODEX_CLI };
+        process.env.CODEX_HOME = tools;
+        process.env.CODEX_CLI = codex;
+        const t: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON } }));
+        const named: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON } }), { IBGAMER_TRAINER_MODEL: "sonnet" });
+        try {
+            const shown: { status: number; body: Record<string, unknown> } = await call(t.port, "GET", "/api/trainer");
+            expect(shown.body).toMatchObject({ provider: "claude-code", model: "opus", fromEnv: false });
+            const providers: Array<Record<string, unknown>> = shown.body.providers as Array<Record<string, unknown>>;
+            expect(providers.map((p: Record<string, unknown>): unknown => p.provider)).toEqual(["claude-code", "codex"]);
+            expect(providers[1]).toMatchObject({ label: "Codex CLI", ok: true, detail: codex, models: [{ id: "gpt-9-sol", name: "GPT-9-Sol", default: true }, { id: "gpt-9-luna", name: "gpt-9-luna" }] });
+            // What each reads of the machine is said where it is chosen.
+            expect(String(providers[0].reads)).toMatch(/own folder only/);
+            expect(String(providers[1].reads)).toMatch(/can read any file of this user/);
+
+            // An alias says which model it last answered as, once a call has (noted in the home's settings).
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: true, detail: "Claude Code CLI (opus)", provider: "claude-code", model: "opus" });
+            noteTrainerModel(t.root, TrainerProvider.CLAUDE_CODE, "opus", "claude-opus-9-1");
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toMatchObject({ model: "opus", answeredBy: "claude-opus-9-1" });
+            const opus: Record<string, unknown> | undefined = (((await call(t.port, "GET", "/api/trainer")).body.providers as Array<Record<string, unknown>>)[0].models as Array<Record<string, unknown>>).find(
+                (m: Record<string, unknown>): boolean => m.id === "opus"
+            );
+            expect(opus).toEqual({ id: "opus", name: "Opus", default: true, answeredBy: "claude-opus-9-1", answeredByName: "Opus 9.1" });
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toMatchObject({ answeredByName: "Opus 9.1" });
+            rmSync(path.join(t.root, "settings.json"));
+
+            // Not a provider, not a model its CLI lists: refused, nothing kept.
+            expect((await call(t.port, "POST", "/api/trainer", { provider: "gemini", model: "x" })).status).toBe(400);
+            const unlisted: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-1" });
+            expect(unlisted.status).toBe(400);
+            expect(String(unlisted.body.error)).toBe("The Codex CLI lists no model gpt-1.");
+            expect(existsSync(path.join(t.root, "settings.json"))).toBe(false);
+
+            const chosen: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-9-sol" });
+            expect(chosen.status).toBe(200);
+            expect(chosen.body).toMatchObject({ provider: "codex", model: "gpt-9-sol" });
+            // Every training from now on asks it, and the next start of the app too.
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: true, detail: "Codex CLI (gpt-9-sol)", provider: "codex", model: "gpt-9-sol" });
+            expect(JSON.parse(readFileSync(path.join(t.root, "settings.json"), "utf-8"))).toEqual({ trainer: { provider: "codex", model: "gpt-9-sol" } });
+            expect(loadConfig({ IBGAMER_HOME: t.root }).trainer).toMatchObject({ provider: "codex", model: "gpt-9-sol", fromEnv: false });
+
+            // Named by the environment: shown, not chosen here.
+            expect((await call(named.port, "GET", "/api/trainer")).body).toMatchObject({ provider: "claude-code", model: "sonnet", fromEnv: true });
+            const locked: { status: number; body: Record<string, unknown> } = await call(named.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-9-sol" });
+            expect(locked.status).toBe(409);
+            expect(String(locked.body.error)).toMatch(/named by the environment/);
+        } finally {
+            await t.ui.close();
+            await named.ui.close();
+            for (const name of ["CODEX_HOME", "CODEX_CLI"] as const) {
+                if (before[name] === undefined) {
+                    delete process.env[name];
+                } else {
+                    process.env[name] = before[name];
+                }
+            }
+            for (const dir of [tools, t.root, named.root]) {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+    });
+
     it("refuses a training it could not carry out — Jev on the running clock, a version the game does not have, no trainer — a 400 saying why, before any run starts", async (): Promise<void> => {
         const root: string = mkdtempSync(path.join(tmpdir(), "ibgamer-ui-train-"));
         const missing: string = path.join(root, "no-claude");
-        const t: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, claude: { ...c.claude, command: missing } }));
+        const t: TestUi = await startTestUi((c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, trainer: { ...c.trainer, command: missing } }));
         try {
             // The clock running, as the UI's Clock says it (`live`): never Jev.
             const live: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "fake-runner", engine: "jev", live: true });
@@ -319,7 +424,7 @@ describe("the UI server", (): void => {
         const python: string = script(root, "python", "echo laya");
         const missing: string = path.join(root, "no-claude");
         const t: TestUi = await startTestUi(
-            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, claude: { ...c.claude, command: missing } }),
+            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, trainer: { ...c.trainer, command: missing } }),
             { IBGAMER_LAYA_PYTHON: python }
         );
         try {
@@ -329,7 +434,7 @@ describe("the UI server", (): void => {
                 expect(refused).toEqual({ status: 400, body: { error: `The trainer is not ready: ${detail}` } });
             }
             expect((await call(t.port, "GET", "/api/runs")).body).toMatchObject({ runs: [], current: null });
-            expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: false, detail });
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: false, detail, provider: "claude-code", model: "opus" });
             // A game that is not there is still said so first.
             expect((await call(t.port, "POST", "/api/runs", { kind: "train", gameId: "no-such-game", engine: "rules" })).status).toBe(404);
         } finally {
@@ -471,7 +576,7 @@ describe("the UI server", (): void => {
         const missing: string = path.join(root, "no-claude");
         const layaPort: number = await freePort();
         const t: TestUi = await startTestUi(
-            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, claude: { ...c.claude, command: missing } }),
+            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, url: UNREACHABLE_DAEMON }, trainer: { ...c.trainer, command: missing } }),
             { IBGAMER_LAYA_PYTHON: python, IBGAMER_LAYA_PORT: String(layaPort) }
         );
         const distill: (gameId?: string) => Promise<{ status: number; body: Record<string, unknown> }> = (gameId: string = "fake-runner"): Promise<{ status: number; body: Record<string, unknown> }> =>
@@ -553,7 +658,7 @@ describe("the UI server", (): void => {
         // trainer's CLI is there (a stand-in): the version has no rules as code, and it would write them first.
         const python: string = script(root, "python", "sleep 1\necho laya");
         const t: TestUi = await startTestUi(
-            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, script: daemon.script }, claude: { ...c.claude, command: script(root, "claude", "exit 0") } }),
+            (c: GamerConfig): GamerConfig => ({ ...c, daemon: { ...c.daemon, script: daemon.script }, trainer: { ...c.trainer, command: script(root, "claude", "exit 0") } }),
             { IBGAMER_LAYA_PYTHON: python, IBGAMER_LAYA_PORT: String(await freePort()) }
         );
         let closed: boolean = false;

@@ -25,7 +25,7 @@ import { defaultBuiltInDir, GameSummary, Library, ProfileSummary } from "../libr
 import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../play/player";
 import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../distill/distiller";
 import { RulesTeacher } from "../distill/teacher";
-import { askClaude, trainerHealth } from "../train/claude";
+import { askTrainer, trainerHealth } from "../train/trainer-cli";
 import { MAX_USER_NOTE_CHARS } from "../train/prompts";
 import { checkpointFor, checkpointProfileVersion, checkpointsToServe, currentCheckpoints, LayaServers, LayaSetup } from "../distill/laya-play";
 import { checkLayaPython, LayaCheckpoint, layaCheckpoints, layaPortLockFile, layaScriptsDir, LayaServerHandle, refuseHeldLayaPort, startLayaServer } from "../distill/laya-runtime";
@@ -345,7 +345,7 @@ async function trainUnchecked(config: GamerConfig, lib: Library, game: GameDefin
     const seeds: number[] | undefined = opts.seeds?.split(",").map((s: string): number => int("seed", 0, 2_147_483_646)(s.trim()));
     // Without its CLI a training would play every measuring game (each move Jev's, unless the rules decide), then
     // fail each tuning: refused before anything starts, as the UI refuses it.
-    const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
+    const trainer: { ok: boolean; detail: string } = trainerHealth(config.trainer);
     if (!trainer.ok) {
         throw new Error(`The trainer is not ready: ${trainer.detail}`);
     }
@@ -371,11 +371,11 @@ async function trainUnchecked(config: GamerConfig, lib: Library, game: GameDefin
         const result: TrainForResult = await trainFor(
             {
                 library: lib,
-                train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine, openBrowser, trainer: config.claude }).train(o),
+                train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine, openBrowser, trainer: config.trainer }).train(o),
                 distill: (o: DistillOptions): Promise<DistillResult> =>
                     new Distiller({
                         library: lib,
-                        ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, dir, signal),
+                        ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askTrainer(config.trainer, prompt, dir, signal),
                         openBrowser,
                         python: config.layaRuntime.python,
                     }).distill(o),
@@ -434,7 +434,7 @@ async function trainUnchecked(config: GamerConfig, lib: Library, game: GameDefin
 async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinition, kind: EngineKind, live: boolean, opts: TrainCliOptions): Promise<void> {
     // A fix may train (the trainer's CLI) or teach Laya (its Python): refused before anything starts, as the UI refuses it.
     if (!opts.checkOnly) {
-        const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
+        const trainer: { ok: boolean; detail: string } = trainerHealth(config.trainer);
         if (!trainer.ok) {
             throw new Error(`The trainer is not ready: ${trainer.detail}`);
         }
@@ -531,11 +531,11 @@ async function trainChecked(config: GamerConfig, lib: Library, game: GameDefinit
             library: lib,
             openBrowser,
             engines,
-            train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine: jev, openBrowser, trainer: config.claude }).train(o),
+            train: (o: TrainOptions): Promise<TrainResult> => new Trainer({ library: lib, engine: jev, openBrowser, trainer: config.trainer }).train(o),
             distill: (o: DistillOptions): Promise<DistillResult> =>
                 new Distiller({
                     library: lib,
-                    ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askClaude(config.claude, prompt, dir, signal),
+                    ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> => askTrainer(config.trainer, prompt, dir, signal),
                     openBrowser,
                     python: config.layaRuntime.python,
                 }).distill(o),
@@ -779,7 +779,7 @@ layaCommand
             // without its CLI the run would stop there, after the daemon started — refused before it, as the UI refuses it.
             const learnt: Profile | undefined = lib.profile(gameId, opts.profileVersion);
             if (teacherKind === TeacherKind.RULES && !opts.resume && learnt && !learnt.teacher) {
-                const trainer: { ok: boolean; detail: string } = trainerHealth(config.claude);
+                const trainer: { ok: boolean; detail: string } = trainerHealth(config.trainer);
                 if (!trainer.ok) {
                     throw new Error(`The trainer is not ready: ${trainer.detail} (${game.name} v${learnt.version} has no rules as code, and the trainer writes them first)`);
                 }
@@ -797,7 +797,7 @@ layaCommand
                     library: lib,
                     ...(engine ? { engine } : {}),
                     ask: (prompt: string, dir: string, signal?: AbortSignal): Promise<string> =>
-                        askClaude(config.claude, prompt, dir, signal),
+                        askTrainer(config.trainer, prompt, dir, signal),
                     openBrowser: (): GameBrowser => {
                         const browser: DevtoolsClient = new DevtoolsClient({ baseUrl: daemon.baseUrl });
                         browsers.push(browser);

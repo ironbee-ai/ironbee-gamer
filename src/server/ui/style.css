@@ -37,6 +37,11 @@ h3 { font-size: 13px; margin: 14px 0 6px; }
 .pill { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; background: var(--panel-2); }
 .pill.ok::before { content: "● "; color: var(--ok); }
 .pill.down::before { content: "● "; color: var(--bad); }
+/* The trainer's pill opens where it is chosen. */
+button.pill { color: var(--text); font: inherit; font-size: 13px; font-weight: 400; cursor: pointer; }
+button.pill:hover { border-color: var(--accent); }
+dialog.trainer { width: min(520px, 94vw); }
+dialog.trainer .field { display: grid; gap: 4px; margin: 10px 0; }
 
 .layout { display: grid; grid-template-columns: 290px minmax(0, 1fr) 360px; gap: 12px; padding: 12px; }
 @media (max-width: 1300px) { .layout { grid-template-columns: 250px minmax(0, 1fr); } .decision { grid-column: 1 / -1; } }
@@ -214,6 +219,11 @@ input.tiny { width: 56px; }
 button.small { padding: 2px 8px; font-size: 12px; }
 .reader { margin: 10px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 6px; }
 .reader .state { max-height: 180px; overflow: auto; margin-top: 8px; }
+/* The trainer's reader being written: its step and its time so far, so a few minutes of it do not look like nothing. */
+.reading { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.spinner.small { width: 16px; height: 16px; border-width: 2px; flex: none; }
+/* A page expression is code, and long (a score read from the game's own objects): lines of it, not one. */
+.step .choices textarea { flex: 1 1 100%; min-height: 54px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 
 /* ---------- a run's progress ---------- */
 .progress-view { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }

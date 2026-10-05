@@ -1,5 +1,6 @@
 /**
- * The trainer's LLM: the Claude Code CLI (`claude -p`), on its own login — no key is read here.
+ * The trainer's LLM as the Claude Code CLI (`claude -p`), on its own login — no key is read here. (The other
+ * CLI a trainer can be is Codex: codex.ts; which one, and its model: trainer-cli.ts.)
  *
  * One call runs the CLI once, non-interactively, in the training run's own work directory, with
  * one tool: Read, allowed for that directory only (the samples, sprite crops and end screens it is
@@ -8,8 +9,9 @@
  * this process's keys (`childEnv`).
  */
 
-import { execFile } from "child_process";
-import { accessSync, constants, realpathSync } from "fs";
+import { execFile, spawn } from "child_process";
+import { accessSync, constants, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { delimiter, join } from "path";
 
 /** The CLI's whole stream: the files the trainer reads come back in it too (a pixel sample runs to MBs). */
@@ -44,6 +46,7 @@ const CHILD_ENV_NAMES: Set<string> = new Set([
     "SSL_CERT_DIR",
     "CLAUDE_CONFIG_DIR",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_HOME",
 ]);
 const CHILD_ENV_PREFIXES: string[] = ["LC_", "XDG_"];
 
@@ -77,20 +80,23 @@ export function readRuleFor(dir: string): string {
     return `Read(//${realpathSync(dir).replace(/^\/+/, "")}/**)`;
 }
 
+/** The coding-agent CLIs a trainer can be: each on its own login, each with its own models. */
+export enum TrainerProvider {
+    CLAUDE_CODE = "claude-code",
+    CODEX = "codex",
+}
+
 export interface TrainerModel {
+    /** Which CLI `command` is (default: the Claude Code CLI). */
+    provider?: TrainerProvider;
     command: string;
     model: string;
     timeoutMs?: number;
-}
-
-/**
- * Whether the trainer's CLI is there, in words: the UI's status shows it, and a training is refused without it (the UI's
- * and `ibgamer train`) — it would play every measuring game, then fail each tuning.
- */
-export function trainerHealth(trainer: TrainerModel): { ok: boolean; detail: string } {
-    return findOnPath(trainer.command)
-        ? { ok: true, detail: `Claude Code CLI (${trainer.model})` }
-        : { ok: false, detail: `${trainer.command} is not on PATH: training needs the Claude Code CLI` };
+    /**
+     * The app's home: where the model a call was answered by is noted (trainer-cli.ts) — Claude Code's `opus` is an
+     * alias for its family's latest model, and only the CLI's own stream says which one that is.
+     */
+    home?: string;
 }
 
 export class TrainerError extends Error {
@@ -98,6 +104,16 @@ export class TrainerError extends Error {
         super(message);
         this.name = "TrainerError";
     }
+}
+
+/** Why a CLI's run failed, in words: over its time limit, or its exit code — and its own last lines, which are the reason. */
+export function cliFailure(name: string, err: Error, stdout: string, stderr: string, timeoutMs: number): TrainerError {
+    const e: Error & { killed?: boolean; signal?: string | null; code?: number | string } = err as Error & { killed?: boolean; signal?: string | null; code?: number | string };
+    const minutes: number = Math.round(timeoutMs / 60_000);
+    const why: string = e.killed || e.signal ? `stopped (${e.signal ?? "killed"}): over its ${minutes}-minute limit` : `exited with ${String(e.code ?? "an error")}`;
+    // The command line is not the reason: what the CLI said is.
+    const detail: string = (stderr || stdout || "").trim().split("\n").slice(-3).join(" ").slice(0, 300);
+    return new TrainerError(`${name} ${why}${detail ? `: ${detail}` : ""}`);
 }
 
 /**
@@ -151,8 +167,75 @@ export function finalReply(stream: string): string {
     throw new TrainerError("claude returned no result");
 }
 
-/** Asks the CLI once, in `workDir`; returns its final text. */
-export function askClaude(trainer: TrainerModel, prompt: string, workDir: string, signal?: AbortSignal): Promise<string> {
+/**
+ * The model a call ran with, as the CLI's stream says at its start (`{"type":"system","subtype":"init","model":…}`): the
+ * one a model alias stood for. Undefined when the stream names none.
+ */
+export function streamModel(stream: string): string | undefined {
+    for (const line of stream.split("\n")) {
+        // The start event is among the first lines: not worth parsing a stream of MBs for.
+        if (!line.includes('"init"')) {
+            continue;
+        }
+        try {
+            const event: { type?: unknown; subtype?: unknown; model?: unknown } = JSON.parse(line) as { type?: unknown; subtype?: unknown; model?: unknown };
+            if (event.type === "system" && event.subtype === "init" && typeof event.model === "string" && event.model.trim()) {
+                return event.model.trim();
+            }
+        } catch {
+            // not an event
+        }
+    }
+    return undefined;
+}
+
+/**
+ * The model one of the CLI's aliases stands for now (`opus`: its family's latest), asked of the CLI itself: it has no
+ * list of them, but a run says its model at its very start — so one is begun, in an empty directory with no tools, and
+ * ended as soon as it has (under a second; nothing is answered). Undefined when it does not say within `timeoutMs`.
+ */
+export function claudeModelFor(command: string, alias: string, timeoutMs: number = 20_000): Promise<string | undefined> {
+    const found: string | undefined = findOnPath(command);
+    if (!found) {
+        return Promise.resolve(undefined);
+    }
+    const dir: string = mkdtempSync(join(tmpdir(), "ibgamer-claude-model-"));
+    return new Promise<string | undefined>((resolve: (model: string | undefined) => void): void => {
+        const child: ReturnType<typeof spawn> = spawn(found, ["-p", "--output-format", "stream-json", "--verbose", "--model", alias, "--tools", "", "--strict-mcp-config", "--no-session-persistence"], {
+            cwd: dir,
+            env: childEnv(),
+            stdio: ["pipe", "pipe", "ignore"],
+        });
+        let stream: string = "";
+        let done: boolean = false;
+        const finish: (model: string | undefined) => void = (model: string | undefined): void => {
+            if (done) {
+                return;
+            }
+            done = true;
+            clearTimeout(timer);
+            child.kill("SIGTERM");
+            rmSync(dir, { recursive: true, force: true });
+            resolve(model);
+        };
+        const timer: NodeJS.Timeout = setTimeout((): void => finish(undefined), timeoutMs);
+        child.stdout?.on("data", (chunk: Buffer): void => {
+            // Its start event is the first thing it says: a few lines are all that is read.
+            stream = (stream + chunk.toString("utf-8")).slice(0, 64 * 1024);
+            const model: string | undefined = streamModel(stream.slice(0, stream.lastIndexOf("\n") + 1));
+            if (model !== undefined) {
+                finish(model);
+            }
+        });
+        child.on("error", (): void => finish(undefined));
+        child.on("close", (): void => finish(streamModel(stream)));
+        child.stdin?.on("error", (): void => undefined);
+        child.stdin?.end("ok");
+    });
+}
+
+/** Asks the CLI once, in `workDir`; returns its final text. `onModel`: told the model the call ran with, when the CLI says. */
+export function askClaude(trainer: TrainerModel, prompt: string, workDir: string, signal?: AbortSignal, onModel?: (model: string) => void): Promise<string> {
     const command: string | undefined = findOnPath(trainer.command);
     if (!command) {
         return Promise.reject(new TrainerError(`The Claude Code CLI (${trainer.command}) is not installed: training needs it`));
@@ -176,17 +259,17 @@ export function askClaude(trainer: TrainerModel, prompt: string, workDir: string
             ],
             { cwd: workDir, timeout: trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, env: childEnv(), ...(signal ? { signal } : {}) },
             (err: Error | null, stdout: string, stderr: string): void => {
+                // Said at the call's start: a call that failed later (over its time) ran with it too.
+                const model: string | undefined = onModel ? streamModel(stdout ?? "") : undefined;
+                if (model !== undefined) {
+                    try {
+                        onModel?.(model);
+                    } catch {
+                        // noting it must not fail the call
+                    }
+                }
                 if (err) {
-                    const e: Error & { killed?: boolean; signal?: string | null; code?: number | string } = err as Error & {
-                        killed?: boolean;
-                        signal?: string | null;
-                        code?: number | string;
-                    };
-                    const minutes: number = Math.round((trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS) / 60_000);
-                    const why: string = e.killed || e.signal ? `stopped (${e.signal ?? "killed"}): over its ${minutes}-minute limit` : `exited with ${String(e.code ?? "an error")}`;
-                    // The command line is not the reason: what the CLI said is.
-                    const detail: string = (stderr || stdout || "").trim().split("\n").slice(-3).join(" ").slice(0, 300);
-                    reject(new TrainerError(`claude ${why}${detail ? `: ${detail}` : ""}`));
+                    reject(cliFailure("claude", err, stdout, stderr, trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS));
                     return;
                 }
                 try {

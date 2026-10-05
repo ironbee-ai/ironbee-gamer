@@ -4,7 +4,7 @@
 Plays browser games live with a fast decision engine. A per-game **profile** turns the page into a
 small JSON state (`extract(raw, memory)` over a generic perception adapter's raw input), the
 **decision engine** (Jev hosted, or Laya local and fine-tuned per game) picks every move, and the
-**trainer** (Claude, through the Claude Code CLI) writes and keeps improving the profile from the
+**trainer** (an LLM through a coding-agent CLI: the Claude Code CLI, or the Codex CLI) writes and keeps improving the profile from the
 games it plays. The browser belongs to an IronBee DevTools daemon; the game tools run inside it as a
 tool plugin. A CLI (`ibgamer`) and a local web UI with a live view (`ibgamer ui`, port 1986).
 
@@ -40,6 +40,7 @@ then learns them by distillation.
 npm run build       esbuild per-file src→dist + tsc --emitDeclarationOnly + the plugin bundle (dist/devtools-plugin/game-tools.mjs) + the UI's static files
 npm run lint        eslint .
 npm test            jest (unit); IBGAMER_E2E=1 npx jest tests/integration also runs the plugin in a real daemon (build first)
+npm run ui          the web UI (node dist/cli/main.js ui, port 1986); npm start -- <command> runs the CLI, `npm link` puts `ibgamer` on PATH
 ```
 
 ---
@@ -57,7 +58,7 @@ npm test            jest (unit); IBGAMER_E2E=1 npx jest tests/integration also r
 - The division of labor: no advice field reaches the engine (`guardState`); the score expression is read for measuring only and never becomes a state field.
 - Profile scripts (extractor, askWhen, test expects) run only in `play/sandbox.ts`: their own V8 context, no Node globals, no code from strings, a time limit, JSON across the boundary.
 - The built-in library is never written to; training writes new versions to the user library, numbered after every existing one. A version is saved only when it beat the best on the same seeds and passed every regression test.
-- The trainer's CLI runs with `childEnv()` (none of this process's keys) and Read allowed for its work directory only.
+- The trainer's CLI runs with `childEnv()` (none of this process's keys), writes nothing and saves no session. The Claude Code CLI has Read allowed for its work directory only; the Codex CLI runs in its read-only sandbox (no writes, no network), which can read other files of the user — said where the trainer is chosen.
 - A teacher never enters a state. It labels training data, and plays a watched game only when chosen as the engine ("Rules (code)", `EngineKind.RULES`: the chosen version's own `teach`). A Laya checkpoint plays the profile version whose states it learnt (`laya/v<N>-<hash>-r<k>`).
 - Every episode is a fresh page load; the session's first frozen game installs the clock paused at the game epoch, each later frozen game pauses it again before its load, and only an unfrozen game resumes it.
 

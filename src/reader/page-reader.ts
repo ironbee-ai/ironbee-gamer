@@ -75,6 +75,11 @@ export interface ReaderProposal {
     score?: string;
     /** What a player does to begin, when the code says. */
     start?: InputStep[];
+    /**
+     * How the game is played, as its player would be told (the controls, the aim, what ends a game): proposed for the
+     * game's goal — the wizard's How to play, which the person adding the game checks or rewrites.
+     */
+    goal?: string;
     /** The perception the reader goes with: Phaser pages keep the Phaser adapter (the game instance helper). */
     adapter: Perception;
     notes?: string;
@@ -96,8 +101,12 @@ interface Reply {
     format: string;
     score?: string;
     start?: InputStep[];
+    goal?: string;
     notes?: string;
 }
+
+/** The goal the reader may propose: a few sentences, not an essay (what is over is cut at a sentence's end where there is one). */
+const MAX_GOAL_CHARS: number = 600;
 
 /**
  * IPv4 networks no script is fetched from for a page elsewhere: this machine and its networks — loopback,
@@ -368,10 +377,11 @@ Find where the game keeps its state — a global game object, the current scene 
 - "format": the shape of what it returns, in one or two sentences, for the one who writes the player's rules from it.
 - "score": ONE expression returning { over: <boolean>, score: <number> } for the game in play — that object at every reading, never null or a bare number —, when the page keeps a score and a game-over state; null if you cannot tell.
 - "start": what a player does to begin a game, if the code says (a key the menu waits for, a button to click), as input steps: [{"press": ["Space"], "advanceMs": 500}] or [{"click": {"x": 0.5, "y": 0.6}, "advanceMs": 500}] (x, y: fractions of the page's largest canvas, where the clicks land — of the page body when it has none) — [] when it starts by itself, null when you cannot tell.
+- "goal": how the game is played, as its player would be told, in two or three plain sentences: the controls (which keys or clicks do what), the aim, and what ends a game. Use the page's own words where it has them (page.json's "text", its menus and messages in the code), and what the code does where it has none. It names no strategy — only the game's rules. null if you cannot tell.
 - "notes": what you found, two or three sentences.
 ${input.phaser ? "\nThis page is a Phaser game, and this app installs a helper before the page runs: window.__ibgamer.phaser.game() returns the Phaser game instance (Phaser 2 or 3), even when the page keeps it in a closure. Start from it when the game is not a global.\n" : ""}
 Reply with ONLY a JSON object, no prose, no code fence:
-{"read": "...", "format": "...", "score": "..." | null, "start": [...] | null, "notes": "..."}`;
+{"read": "...", "format": "...", "score": "..." | null, "start": [...] | null, "goal": "..." | null, "notes": "..."}`;
 }
 
 function repairPrompt(previous: string, reply: Reply, check: Check): string {
@@ -398,6 +408,12 @@ function replyOf(text: string): Reply {
     }
     if (typeof raw.notes === "string") {
         out.notes = raw.notes.trim();
+    }
+    if (typeof raw.goal === "string" && raw.goal.trim()) {
+        const goal: string = raw.goal.trim().replace(/\s+/g, " ");
+        const cut: string = goal.slice(0, MAX_GOAL_CHARS);
+        // Too long: up to the last sentence that fits, else as far as it goes.
+        out.goal = goal.length <= MAX_GOAL_CHARS ? goal : cut.slice(0, Math.max(cut.lastIndexOf(". ") + 1, 0)) || cut;
     }
     if (Array.isArray(raw.start)) {
         // Checked the way a game definition's start is: a step it cannot use is dropped, not guessed at.
@@ -452,6 +468,7 @@ export class PageReaderWriter {
             format: reply.format,
             ...(reply.score ? { score: reply.score } : {}),
             ...(reply.start ? { start: reply.start } : {}),
+            ...(reply.goal ? { goal: reply.goal } : {}),
             adapter: phaser ? Perception.PHASER : Perception.CUSTOM,
             ...(reply.notes ? { notes: reply.notes } : {}),
             samples: check.samples,
@@ -519,7 +536,7 @@ export class PageReaderWriter {
             path.join(workDir, "page.json"),
             JSON.stringify({ url: probe.url, title: probe.title, canvases: probe.canvases, engines: probe.engines, globals: probe.globals ?? [], skipped, text: probe.bodyText }, null, 1)
         );
-        files.unshift({ path: "./page.json", what: "the page: its canvases, the engines found, the globals the page's own scripts added (name: kind), the scripts left out" });
+        files.unshift({ path: "./page.json", what: "the page: its canvases, the engines found, the globals the page's own scripts added (name: kind), the scripts left out, and the first lines of the text it shows (\"text\": its own instructions, when it has them)" });
         files.unshift({ path: "./screenshot.png", what: "the page after it loaded" });
         return files;
     }

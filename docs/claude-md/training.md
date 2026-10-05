@@ -159,8 +159,40 @@ failure window), and training stops once the best version's mean reaches it.
    with `tests = best.tests + newTests`, `results`, `parent`, `note = analysis`. Two failed or rejected
    iterations in a row stop training.
 
-The trainer is the Claude Code CLI (`claude -p --output-format stream-json --verbose --model <m>
---tools Read --allowedTools Read(//<workDir>/**) --strict-mcp-config --no-session-persistence`),
+**Which LLM the trainer is** (src/train/trainer-cli.ts): a coding-agent CLI on its own login, one choice for the whole
+app — not a game's. The UI's **Trainer** pill (it names the model) opens it: the CLI (`TrainerProvider`: the Claude Code
+CLI, the Codex CLI; one not installed is listed so) and one of its models (Claude Code's aliases haiku / sonnet / opus /
+fable, Opus the default; Codex's as it lists them on this machine — `<CODEX_HOME>/models_cache.json`, its newest Sol
+the default, its own default alone when it never ran), with what each reads of the machine. `GET /api/trainer`, `POST
+/api/trainer { provider, model }` (400: no such provider, a model its CLI does not list; 409: a run is in progress —
+a training is one trainer's work — or the environment names the trainer). The choice is kept in
+`<home>/settings.json` (`trainer`), read by `loadConfig`, so `ibgamer train` asks the same one;
+`IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` win over it (`fromEnv`: the dialog is shown locked). Claude Code's
+names are aliases, each its family's latest model, and the CLI has no list of them — but a run says its model at its
+very start (the stream's `system` / `init` event: `streamModel`). So the CLI is asked: a run begun for each alias in
+an empty directory with no tools and ended once it has said (`claudeModelFor`; all four at once in 0.7 s, measured
+2026-10-06, nothing answered), when the dialog opens with an alias not known yet or last asked a week ago
+(`aliasesDue`, `POST /api/trainer/models`); and every trainer call notes the model it ran with too. What they stand
+for is kept in the settings file (`trainerModels` by alias, `trainerModelsAt`), and shown as a person reads a model's
+name, read off its id (`modelDisplayName`: `claude-opus-5-5` is "Opus 5.5", `claude-haiku-4-5-20251001` "Haiku
+4.5"; no version is written into the code): the pill "Trainer · Opus 5.5", the list "Opus 5.5 (default)", the id
+beside it in the dialog. Every call —
+setup, tuning, the teacher writer, the page reader — goes through `askTrainer`. The prompts and the JSON asked for are
+the same for both: what differs is how each is run and how its answer is read.
+
+As the Codex CLI (src/train/codex.ts): `codex exec --skip-git-repo-check --ephemeral --ignore-user-config
+--ignore-rules --sandbox read-only --color never -o <file> [-m <model>] -`, prompt on stdin, cwd = the work dir,
+environment = `childEnv()` (with `CODEX_HOME`, where its login is). Its answer is its last message, which the CLI
+writes to a file outside the work directory. None of the user's Codex configuration is loaded (its MCP servers, hooks
+and rules stay out of a training), nothing is saved, and the sandbox writes nothing and reaches no network — but it
+reads any file this user can, where Claude Code's Read is allowed for the work directory only: a prompt carries text
+the game page drew, which could talk it into repeating a file in what it writes (a profile's rules reach a hosted
+engine and a shared library). The dialog says so. Checked live 2026-10-06 (codex-cli 0.160.0): a text file and a
+picture of its work directory read and answered in 13 s; the page reader on a 2D-canvas game written and checked on
+the page in under 2 min.
+
+As the Claude Code CLI (src/train/claude.ts): `claude -p --output-format stream-json --verbose --model <m>
+--tools Read --allowedTools Read(//<workDir>/**) --strict-mcp-config --no-session-persistence`,
 prompt on stdin, cwd = the work dir, environment = `childEnv()`. Its answer is the text of every
 assistant message after its last tool call, joined (`finalReply`): a long answer (an extractor and a
 teacher that searches) is cut at the model's output limit and goes on in the next message, and the

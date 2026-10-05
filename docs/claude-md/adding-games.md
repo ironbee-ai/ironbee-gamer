@@ -49,7 +49,9 @@
    played like, told to the trainer in its every prompt (docs/claude-md/training.md).
 
 Each step checks what it holds before Next (Add, on the last): a number out of its field's range says
-which field and why, and Next waits. The form is not validated by the browser (`novalidate`): a value it
+which field and why, and Next waits. A Next that waits with nothing refused says what for, in a line above
+the buttons (`stepCheck`'s `wait`: the page not looked at yet, a start click not picked, `Next waits for:
+How to play` — the game's goal is needed, a sentence or two: the trainer and the engine start from it). The form is not validated by the browser (`novalidate`): a value it
 refuses in a step already left stops "Add the game" with nothing said but a line in the console.
 
 What was found is for the address it was looked at with: a new look, another address or the dialog
@@ -57,6 +59,12 @@ opened again drops the probe, the reader (a reader still being written is no lon
 the start picked on the old picture; Next waits for the new look. The reader may answer while a later
 step is open: its start and score expression go only where nothing was chosen in this dialog — a start
 or a score chosen here, before it answered too, is kept — and a note says what it filled in or left.
+While it is being written (minutes) the first step says so as it goes — a spinner, the step it is on and
+its time so far, the button reading "Reading the game's code…" — and every later step in a line; until
+2026-10-05 a greyed button and one grey sentence were all there was. Next stays free meanwhile (the other
+steps can be filled in), but **Add the game** waits for it: added before it answered, the game was saved
+read as it is drawn, with nothing said. **Stop reading** lets go of it (what it answers is left unread).
+The score's page expression is a field of several lines (a score read from the game's own objects is long).
 Enter in a field is Next until the last step.
 
 Saving (`POST /api/games`) refuses (409) an id the library has, and one whose user folder a removed
@@ -149,7 +157,9 @@ viewport? })` — in the UI "Let the trainer read the game's code" (`POST /api/r
   (`scriptRefusal`, `isPublicAddress`). A name is checked when it is connected to (`publicOnlyLookup`:
   the address checked is the one connected to), and a redirect is followed by hand, each hop checked;
   what was left out is named in `page.json`;
-- **the trainer** (Read in its work dir only) replies `{ read, format, score?, start?, notes? }`;
+- **the trainer** (reading its work dir) replies `{ read, format, score?, start?, goal?, notes? }` — `goal`: how the
+  game is played, as its player would be told (the controls, the aim, what ends a game; no strategy), from the page's
+  own words (`page.json`'s `text`, the first lines the page shows) and its code, 600 characters at most;
 - **check**, as the added game will be played: the clock frozen (on a Phaser page with the Phaser
   adapter, whose `window.__ibgamer.phaser.game()` hands over the running game), the boot it is saved
   with (`PROBE_BOOT_MS`; in play the wizard's loading step follows it, so the start comes no sooner
@@ -160,6 +170,10 @@ viewport? })` — in the UI "Let the trainer read the game's code" (`POST /api/r
   of 500 ms — each reading a plain JSON object, no throw, under 20,000 characters, and each score
   reading `{ over: <boolean>, score: <number> }` (a bare number or null reads 0, never over); one
   repair round with what failed.
+
+Its `goal` is put into the wizard's **How to play** when nothing is written there (written before it answered, the
+field is kept and the note says so): the game's goal is needed, and the one adding the game reads and corrects it —
+it is what the trainer and the engine are told the game is.
 
 The proposal becomes `perception: { adapter, read, format }` — `phaser` on a Phaser page (its
 game-instance helper stays installed), else `custom` — and, when given, the score expression and the

@@ -32,9 +32,10 @@ import { RandomPlayer, RulesTeacher } from "../distill/teacher";
 import { DecisionLog } from "../run/decision-log";
 import { customScriptOf } from "../run/play";
 import { TeacherWriter } from "./teacher-writer";
-import { askClaude, parseJsonObject, TrainerError, TrainerModel } from "./claude";
+import { parseJsonObject, TrainerError, TrainerModel } from "./claude";
 import { RealtimeTraining, setupPrompt, TuneEvidence, tunePrompt } from "./prompts";
 import { runRegressionTests, TestResult } from "./regression";
+import { askTrainer } from "./trainer-cli";
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import path from "path";
@@ -374,7 +375,7 @@ export class Trainer {
     }
 
     private ask(prompt: string, workDir: string, signal?: AbortSignal): Promise<string> {
-        return this.deps.ask ? this.deps.ask(prompt, workDir, signal) : askClaude(this.deps.trainer, prompt, workDir, signal);
+        return this.deps.ask ? this.deps.ask(prompt, workDir, signal) : askTrainer(this.deps.trainer, prompt, workDir, signal);
     }
 
     private log(options: TrainOptions, line: string): void {
