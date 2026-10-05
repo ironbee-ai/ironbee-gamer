@@ -163,11 +163,16 @@ failure window), and training stops once the best version's mean reaches it.
 app — not a game's. The UI's **Trainer** pill (it names the model) opens it: the CLI (`TrainerProvider`: the Claude Code
 CLI, the Codex CLI; one not installed is listed so) and one of its models (Claude Code's aliases haiku / sonnet / opus /
 fable, Opus the default; Codex's as it lists them on this machine — `<CODEX_HOME>/models_cache.json`, its newest Sol
-the default, its own default alone when it never ran), with what each reads of the machine. `GET /api/trainer`, `POST
-/api/trainer { provider, model }` (400: no such provider, a model its CLI does not list; 409: a run is in progress —
-a training is one trainer's work — or the environment names the trainer). The choice is kept in
-`<home>/settings.json` (`trainer`), read by `loadConfig`, so `ibgamer train` asks the same one;
-`IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` win over it (`fromEnv`: the dialog is shown locked). Claude Code's
+the default, its own default alone when it never ran), with what each reads of the machine, and its **effort** — how
+hard it thinks before it answers: Claude Code's `--effort` (low, medium, high, xhigh, max), Codex's reasoning effort
+(`-c model_reasoning_effort="…"`: the levels it lists for the model, whose own default the dialog names); none chosen
+is the CLI's own default. Lower answers sooner, and a call over its time limit is lost whole (below). `GET
+/api/trainer`, `POST /api/trainer { provider, model, effort? }` (400: no such provider, a model its CLI does not list,
+an effort the model does not take; 409: a run is in progress — a training is one trainer's work — or the environment
+names the trainer). The choice is kept in `<home>/settings.json` (`trainer`), read by `loadConfig`, so `ibgamer
+train` asks the same one; `IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` / `IBGAMER_TRAINER_EFFORT` win over
+it (`fromEnv`: the dialog is shown locked). The pill names the model and the effort chosen ("Trainer · Opus 5.5 ·
+medium"). Claude Code's
 names are aliases, each its family's latest model, and the CLI has no list of them — but a run says its model at its
 very start (the stream's `system` / `init` event: `streamModel`). So the CLI is asked: a run begun for each alias in
 an empty directory with no tools and ended once it has said (`claudeModelFor`; all four at once in 0.7 s, measured
@@ -180,8 +185,20 @@ beside it in the dialog. Every call —
 setup, tuning, the teacher writer, the page reader — goes through `askTrainer`. The prompts and the JSON asked for are
 the same for both: what differs is how each is run and how its answer is read.
 
+**The trainer's time limit** (`IBGAMER_TRAINER_TIMEOUT_MINUTES`, 30): one call is one run of the CLI, and one cut off
+at its limit is lost whole — no session is kept, and an answer not finished is none (a tuner with no losing game to
+fix thought for 30 minutes and wrote nothing, in Flappy Bird's training and in Breakout's, 2026-10-05/06). So the
+trainer is told: every prompt ends with its limit and how to budget it (`timeLimitRule`, appended by `askTrainer`,
+so the prompt kept in the work directory is without it). A call cut off is a `TrainerTimeoutError` (its limit in
+minutes; a call stopped by the run's Stop is not one), its message saying how far it had got by its stream — "it was
+still reading and thinking: none of its answer was written", or "its answer was cut off part way" (`cutOffAt`) — not
+the stream's last line. A tuning cut off counts as a failed iteration, as before; its history note says so in words,
+and the next attempt's prompt opens its task with **YOUR PREVIOUS ATTEMPT RAN OUT OF TIME** — nothing of it kept, the
+same limit again, decide sooner and make the one change it is most sure of. A run's progress says "the tuner ran out
+of time (30 min)".
+
 As the Codex CLI (src/train/codex.ts): `codex exec --skip-git-repo-check --ephemeral --ignore-user-config
---ignore-rules --sandbox read-only --color never -o <file> [-m <model>] -`, prompt on stdin, cwd = the work dir,
+--ignore-rules --sandbox read-only --color never -o <file> [-m <model>] [-c model_reasoning_effort="<effort>"] -`, prompt on stdin, cwd = the work dir,
 environment = `childEnv()` (with `CODEX_HOME`, where its login is). Its answer is its last message, which the CLI
 writes to a file outside the work directory. None of the user's Codex configuration is loaded (its MCP servers, hooks
 and rules stay out of a training), nothing is saved, and the sandbox writes nothing and reaches no network — but it
@@ -192,7 +209,7 @@ picture of its work directory read and answered in 13 s; the page reader on a 2D
 the page in under 2 min.
 
 As the Claude Code CLI (src/train/claude.ts): `claude -p --output-format stream-json --verbose --model <m>
---tools Read --allowedTools Read(//<workDir>/**) --strict-mcp-config --no-session-persistence`,
+[--effort <level>] --tools Read --allowedTools Read(//<workDir>/**) --strict-mcp-config --no-session-persistence`,
 prompt on stdin, cwd = the work dir, environment = `childEnv()`. Its answer is the text of every
 assistant message after its last tool call, joined (`finalReply`): a long answer (an extractor and a
 teacher that searches) is cut at the model's output limit and goes on in the next message, and the

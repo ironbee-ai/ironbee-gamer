@@ -9,7 +9,7 @@ import { Library } from "../../../src/library/store";
 import { EpisodeResult, Pace, Player, PlayOptions, PlayResult } from "../../../src/play/player";
 import { CALL_TIMEOUT_MS } from "../../../src/play/sandbox";
 import { DecisionLog } from "../../../src/run/decision-log";
-import { finalReply, parseJsonObject } from "../../../src/train/claude";
+import { finalReply, parseJsonObject, TrainerTimeoutError } from "../../../src/train/claude";
 import { setupPrompt } from "../../../src/train/prompts";
 import { runRegressionTests, TestResult } from "../../../src/train/regression";
 import { Decider, playsUnseenWell, Trainer, TrainOptions, TrainResult, UNSEEN_TOLERANCE } from "../../../src/train/trainer";
@@ -129,6 +129,38 @@ describe("Trainer", (): void => {
         expect(log.some((l: string): boolean => /training stops here/.test(l))).toBe(true);
         // Every evaluation played its seeds in browsers of their own, all closed.
         expect(browsers.every((b: FakeGame): boolean => b.closed || b.opened.length === 0)).toBe(true);
+    });
+
+    it("tells the tuner that its attempt before ran out of time — nothing of it kept — and to decide sooner", async (): Promise<void> => {
+        library.saveProfile("fake-runner", { ...fakeProfile({ tests: [] }) } as never);
+        const prompts: string[] = [];
+        const log: string[] = [];
+        const trainer: Trainer = new Trainer({
+            library,
+            engine: new FakeEngine(jumpWhenClose),
+            openBrowser,
+            trainer: { command: "claude", model: "opus" },
+            ask: async (prompt: string): Promise<string> => {
+                prompts.push(prompt);
+                // Its first attempt is cut off at its limit, as the CLI's is: no answer at all.
+                if (prompts.length === 1) {
+                    throw new TrainerTimeoutError("claude stopped (SIGTERM): over its 30-minute limit — it was still reading and thinking: none of its answer was written", 30);
+                }
+                return tunerReply({ analysis: "unchanged" });
+            },
+        });
+        const result: TrainResult = await trainer.train({ gameId: "fake-runner", iterations: 3, workDir: path.join(root, "work"), hooks: { onLog: (l: string): number => log.push(l) } });
+        expect(result.savedVersions).toEqual([]);
+        expect(log).toContain("  the tuner failed: claude stopped (SIGTERM): over its 30-minute limit — it was still reading and thinking: none of its answer was written");
+        // Nothing said of time before it happened; the attempt after it is told, and what to do about it.
+        expect(prompts[0]).not.toContain("RAN OUT OF TIME");
+        expect(prompts[1]).toContain("YOUR PREVIOUS ATTEMPT RAN OUT OF TIME. It was cut off at its 30-minute limit before its reply was finished, and nothing of it was kept");
+        expect(prompts[1]).toContain("Decide sooner: make the one change you are most confident in");
+        // Its history says so in words, not with the CLI's last line.
+        expect(result.history[1]).toEqual({ mean: null, note: "the tuner ran out of time: cut off at its 30-minute limit before its reply was finished — nothing of that attempt was kept" });
+        expect(prompts[1]).toContain("the tuner ran out of time: cut off at its 30-minute limit");
+        // Two attempts in a row that kept no version (the one cut off, then one that scored no higher): training stops there.
+        expect(prompts).toHaveLength(2);
     });
 
     it("rejects a version that fails a regression test, after one repair", async (): Promise<void> => {

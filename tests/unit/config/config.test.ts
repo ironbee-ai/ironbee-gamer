@@ -39,6 +39,15 @@ describe("loadConfig", (): void => {
                 fromEnv: true,
                 home,
             });
+            // Its effort alone names it too.
+            expect(loadConfig({ IBGAMER_HOME: home, IBGAMER_TRAINER_EFFORT: "medium" }).trainer).toEqual({
+                provider: TrainerProvider.CLAUDE_CODE,
+                command: "claude",
+                model: "opus",
+                effort: "medium",
+                fromEnv: true,
+                home,
+            });
             writeTrainerChoice(home, { provider: TrainerProvider.CODEX, model: "gpt-9-sol" });
             expect(loadConfig({ IBGAMER_HOME: home, CODEX_CLI: "/opt/codex" }).trainer).toEqual({ provider: TrainerProvider.CODEX, command: "/opt/codex", model: "gpt-9-sol", fromEnv: false, home });
             expect((): GamerConfig => loadConfig({ IBGAMER_HOME: home, IBGAMER_TRAINER_PROVIDER: "other" })).toThrow(/IBGAMER_TRAINER_PROVIDER/);

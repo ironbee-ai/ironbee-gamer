@@ -1,4 +1,4 @@
-import { askClaude, claudeModelFor, streamModel, TrainerError, TrainerModel, TrainerProvider } from "../../../src/train/claude";
+import { askClaude, claudeModelFor, cutOffAt, streamModel, TrainerError, TrainerModel, TrainerProvider, TrainerTimeoutError } from "../../../src/train/claude";
 import { askCodex, CODEX_DEFAULT_MODEL, codexArgs, CodexModel, codexModels } from "../../../src/train/codex";
 import {
     askClaudeAliases,
@@ -10,6 +10,7 @@ import {
     parseTrainerChoice,
     readTrainerChoice,
     readTrainerModelsSeen,
+    timeLimitRule,
     resolveTrainer,
     settingsFile,
     trainerCommand,
@@ -256,6 +257,84 @@ exec sleep 20
         expect(modelDisplayName("opus")).toBe("opus");
     }, 30_000);
 
+    it("asks each CLI with the effort chosen, in its own way, and none when none is: its own default", async (): Promise<void> => {
+        const work: string = path.join(root, "work");
+        mkdirSync(work);
+        // Codex: a configuration override, after its model.
+        expect(codexArgs("gpt-test", "/tmp/last.txt", "high").slice(-5)).toEqual(["-m", "gpt-test", "-c", 'model_reasoning_effort="high"', "-"]);
+        expect(codexArgs("gpt-test", "/tmp/last.txt").join(" ")).not.toContain("model_reasoning_effort");
+        // Not a level's name: left out, never a configuration of its own.
+        expect(codexArgs("gpt-test", "/tmp/last.txt", 'x" -c danger="1').join(" ")).not.toContain("model_reasoning_effort");
+        const fake: { command: string; log: string } = fakeCodex('printf "ok" > "$LAST"');
+        await askTrainer({ ...codex(fake.command), effort: "low" }, "p", work);
+        expect(readFileSync(fake.log, "utf-8")).toMatch(/^args: .* -m gpt-test -c model_reasoning_effort="low" -$/m);
+
+        // Claude Code: its --effort flag.
+        const claude: string = path.join(root, "claude");
+        const log: string = path.join(root, "claude.log");
+        const answer: string = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ok" }] } });
+        writeFileSync(claude, `#!/bin/sh\necho "args: $@" >> "${log}"\necho "stdin: $(cat)" >> "${log}"\ncat <<'EOF'\n${answer}\nEOF\n`);
+        chmodSync(claude, 0o755);
+        await askTrainer({ command: claude, model: "opus", effort: "medium" }, "the prompt", work);
+        await askTrainer({ command: claude, model: "opus" }, "the prompt", work);
+        const calls: string[] = readFileSync(log, "utf-8").split("\n").filter((l: string): boolean => l.startsWith("args: "));
+        expect(calls[0]).toContain("--model opus --effort medium --tools Read");
+        expect(calls[1]).toContain("--model opus --tools Read");
+        expect(calls[1]).not.toContain("--effort");
+
+        // Each model with the efforts it takes: Claude Code's are its CLI's, Codex's the ones it lists (and its own default).
+        expect(trainerModels(TrainerProvider.CLAUDE_CODE).every((m: TrainerModelInfo): boolean => m.efforts?.join(",") === "low,medium,high,xhigh,max" && m.defaultEffort === undefined)).toBe(true);
+        const home: string = path.join(root, "codex-home");
+        mkdirSync(home);
+        writeFileSync(
+            path.join(home, "models_cache.json"),
+            JSON.stringify({ models: [{ slug: "gpt-9-sol", default_reasoning_level: "low", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }, { effort: "not a level!" }, "ultra"] }, { slug: "gpt-9-old" }] })
+        );
+        expect(codexModels(home)).toEqual([
+            { id: "gpt-9-sol", name: "gpt-9-sol", efforts: ["low", "high", "ultra"], defaultEffort: "low", default: true },
+            { id: "gpt-9-old", name: "gpt-9-old" },
+        ]);
+        expect(trainerHealth({ command: claude, model: "opus", effort: "medium" })).toEqual({ ok: true, detail: "Claude Code CLI (opus, medium effort)" });
+    });
+
+    it("tells the trainer its time limit at the end of every prompt, and says of a call cut off at it that it ran out of time, and how far it had got", async (): Promise<void> => {
+        const work: string = path.join(root, "work");
+        mkdirSync(work);
+        expect(timeLimitRule(30 * 60_000)).toMatch(/^TIME LIMIT: this whole call .* is cut off after 30 minutes, and a reply not finished by then is lost whole/);
+        // The last thing each CLI reads.
+        const fake: { command: string; log: string } = fakeCodex('printf "ok" > "$LAST"');
+        await askTrainer({ ...codex(fake.command), timeoutMs: 20 * 60_000 }, "Write the profile.", work);
+        expect(readFileSync(fake.log, "utf-8")).toMatch(/stdin: Write the profile\.\n\nTIME LIMIT: this whole call .* is cut off after 20 minutes/);
+
+        // A CLI that goes on past its limit: cut off, and a failure of its own kind (a training tells its next attempt).
+        const slow: string = path.join(root, "slow-claude");
+        const thinking: string = JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 41050 });
+        writeFileSync(slow, `#!/bin/sh\ncat > /dev/null\necho '${thinking}'\nexec sleep 20\n`);
+        chmodSync(slow, 0o755);
+        const cut: Promise<string> = askClaude({ command: slow, model: "opus", timeoutMs: 1_500 }, "p", work);
+        await expect(cut).rejects.toBeInstanceOf(TrainerTimeoutError);
+        // Its limit in minutes (a whole one at least in words), and what it was doing — not its stream's last line.
+        await expect(cut).rejects.toThrow(/^claude stopped \(SIGTERM\): over its 0-minute limit — it was still reading and thinking: none of its answer was written$/);
+        const slowCodex: { command: string } = fakeCodex("exec sleep 20");
+        const cutCodex: Promise<string> = askCodex({ ...codex(slowCodex.command), timeoutMs: 1_500 }, "p", work);
+        await expect(cutCodex).rejects.toBeInstanceOf(TrainerTimeoutError);
+        await expect(cutCodex).rejects.toMatchObject({ minutes: 0 });
+
+        // How far a cut-off call had got, by its stream: nothing of its answer, or part of it (text after its last tool call).
+        const read: string = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Reading the runs." }, { type: "tool_use" }] } });
+        const part: string = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: '{"analysis": "the' }] } });
+        expect(cutOffAt([thinking, read].join("\n"))).toBe("it was still reading and thinking: none of its answer was written");
+        expect(cutOffAt([thinking, read, part].join("\n"))).toBe("its answer was cut off part way");
+        expect(cutOffAt("")).toBe("it was still reading and thinking: none of its answer was written");
+
+        // Stopped by whoever asked (a run's Stop) is no time limit run out.
+        const stop: AbortController = new AbortController();
+        const stopped: Promise<string> = askClaude({ command: slow, model: "opus", timeoutMs: 60_000 }, "p", work, stop.signal);
+        setTimeout((): void => stop.abort(), 300);
+        await expect(stopped).rejects.toThrow(/^claude was stopped$/);
+        await expect(stopped).rejects.not.toBeInstanceOf(TrainerTimeoutError);
+    }, 30_000);
+
     it("takes a choice only of a provider there is and a model id a CLI takes", (): void => {
         expect(parseTrainerChoice({ provider: "codex", model: "gpt-5.6-sol" })).toEqual({ provider: TrainerProvider.CODEX, model: "gpt-5.6-sol" });
         expect(parseTrainerChoice({ provider: "claude-code", model: "opus" })).toEqual({ provider: TrainerProvider.CLAUDE_CODE, model: "opus" });
@@ -264,5 +343,26 @@ exec sleep 20
             expect(parseTrainerChoice({ provider: "codex", model })).toMatch(/model is a model id/);
         }
         expect(parseTrainerChoice(null)).toMatch(/provider is one of/);
+        // … with an effort level, or none for its CLI's own default.
+        expect(parseTrainerChoice({ provider: "codex", model: "gpt-5.6-sol", effort: "high" })).toEqual({ provider: TrainerProvider.CODEX, model: "gpt-5.6-sol", effort: "high" });
+        for (const none of [undefined, null, ""]) {
+            expect(parseTrainerChoice({ provider: "claude-code", model: "opus", effort: none })).toEqual({ provider: TrainerProvider.CLAUDE_CODE, model: "opus" });
+        }
+        for (const effort of ["HIGH", "very high", 'x"', 3]) {
+            expect(parseTrainerChoice({ provider: "claude-code", model: "opus", effort })).toMatch(/effort is one of the model's effort levels/);
+        }
+    });
+
+    it("keeps the effort chosen with the trainer, and takes the environment's", (): void => {
+        const home: string = path.join(root, "home");
+        writeTrainerChoice(home, { provider: TrainerProvider.CLAUDE_CODE, model: "opus", effort: "medium" });
+        expect(JSON.parse(readFileSync(settingsFile(home), "utf-8"))).toEqual({ trainer: { provider: "claude-code", model: "opus", effort: "medium" } });
+        expect(resolveTrainer(home, {})).toEqual({ provider: TrainerProvider.CLAUDE_CODE, model: "opus", effort: "medium", fromEnv: false });
+        // None chosen: none kept (its CLI's own default).
+        writeTrainerChoice(home, { provider: TrainerProvider.CLAUDE_CODE, model: "sonnet" });
+        expect(resolveTrainer(home, {})).toEqual({ provider: TrainerProvider.CLAUDE_CODE, model: "sonnet", fromEnv: false });
+        // The environment names the trainer with its effort alone too.
+        expect(resolveTrainer(home, { IBGAMER_TRAINER_EFFORT: "low" })).toEqual({ provider: TrainerProvider.CLAUDE_CODE, model: "opus", effort: "low", fromEnv: true });
+        expect((): unknown => resolveTrainer(home, { IBGAMER_TRAINER_EFFORT: "Very High" })).toThrow(/IBGAMER_TRAINER_EFFORT/);
     });
 });

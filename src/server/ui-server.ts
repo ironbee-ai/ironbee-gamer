@@ -1253,6 +1253,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                 ...trainerHealth(config.trainer),
                 provider: config.trainer.provider,
                 model: config.trainer.model,
+                ...(config.trainer.effort ? { effort: config.trainer.effort } : {}),
                 ...(answeredBy !== undefined ? { answeredBy, answeredByName: modelDisplayName(answeredBy) } : {}),
             },
             running: current ? current.record.id : null,
@@ -1271,7 +1272,9 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
         return {
             provider: config.trainer.provider,
             model: config.trainer.model,
-            // Named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): not chosen here.
+            // How hard it thinks (one of its model's effort levels); null: its CLI's own default.
+            effort: config.trainer.effort ?? null,
+            // Named by the environment (IBGAMER_TRAINER_PROVIDER / _MODEL / _EFFORT): not chosen here.
             fromEnv: config.trainer.fromEnv,
             // Claude Code's names are aliases: the CLI is to be asked which models they stand for (POST /api/trainer/models).
             aliasesDue: findOnPath(commandOf(TrainerProvider.CLAUDE_CODE)) !== undefined && claudeAliasesDue(config.home),
@@ -1457,7 +1460,7 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     return;
                 }
                 if (config.trainer.fromEnv) {
-                    sendJson(res, 409, { error: "The trainer is named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): start the app without them to choose it here." });
+                    sendJson(res, 409, { error: "The trainer is named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL / IBGAMER_TRAINER_EFFORT): start the app without them to choose it here." });
                     return;
                 }
                 // Between runs only: a training asks its trainer many times, and is one trainer's work.
@@ -1465,12 +1468,19 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     sendJson(res, 409, { error: `${current.record.gameName} is running: the trainer is chosen between runs.` });
                     return;
                 }
-                if (!trainerModels(choice.provider).some((m: TrainerModelInfo): boolean => m.id === choice.model)) {
+                const chosen: TrainerModelInfo | undefined = trainerModels(choice.provider).find((m: TrainerModelInfo): boolean => m.id === choice.model);
+                if (!chosen) {
                     sendJson(res, 400, { error: `The ${TRAINER_LABELS[choice.provider]} lists no model ${choice.model}.` });
                     return;
                 }
+                // An effort its model takes (a model that lists none takes any its CLI does).
+                if (choice.effort !== undefined && chosen.efforts !== undefined && !chosen.efforts.includes(choice.effort)) {
+                    sendJson(res, 400, { error: `${chosen.name} takes no ${choice.effort} effort: ${chosen.efforts.join(", ")}, or none for its default.` });
+                    return;
+                }
                 writeTrainerChoice(config.home, choice);
-                config.trainer = { ...config.trainer, provider: choice.provider, command: trainerCommand(choice.provider), model: choice.model };
+                const { effort: _before, ...kept } = config.trainer;
+                config.trainer = { ...kept, provider: choice.provider, command: trainerCommand(choice.provider), model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) };
                 sendJson(res, 200, trainerSettings());
             } else if (req.method === "POST" && path === "/api/laya/warm") {
                 // Laya was chosen for a game: its server starts now, so Play does not wait for it — with the checkpoint

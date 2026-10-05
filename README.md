@@ -432,6 +432,12 @@ choice.
 | Claude Code (`claude`), the default | Haiku, Sonnet, Opus (the default), Fable — each the latest of its family; the UI shows which (`Opus 5.5`), asked of the CLI itself | the training run's own folder only |
 | Codex (`codex`) | the ones it lists on this machine; its newest Sol the default | any file of this user: its sandbox is read-only (no writes, no network) but not held to the run's folder |
 
+Beside the model, the dialog sets the trainer's **effort** — how hard it thinks before it answers (Claude Code: low to
+max; Codex: the levels it lists for the model). Leave it at the CLI's own unless trainings run out of time: one call
+of the trainer is cut off after 30 minutes (`IBGAMER_TRAINER_TIMEOUT_MINUTES`) and is lost whole then. The trainer is
+told its limit in every prompt, and a tuning that ran out of time tells the next attempt so; a lower effort answers
+sooner.
+
 Either way the CLI gets none of this app's keys, writes nothing and saves no session. The difference in what
 they can read matters because a prompt carries text the game's page drew: with Codex, a page could talk the
 trainer into repeating a file of yours in the rules it writes. The choice is kept in `~/.ibgamer/settings.json`,
@@ -515,9 +521,9 @@ the version) — and Laya plays the version's own, the active version's when non
 | `IBGAMER_HOME` | `~/.ibgamer` | the user library (`library/`) and runs (`runs/`) |
 | `IBGAMER_DAEMON_URL` | – | an IronBee DevTools daemon to use, started with this package's `TOOL_PLUGINS` |
 | `IRONBEE_DEVTOOLS_DAEMON_SCRIPT` | the installed package | the DevTools daemon to start |
-| `IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` | `claude-code` / its default (`opus`) | the trainer's CLI (`claude-code` or `codex`) and its model; set, they win over the one chosen in the UI (the Trainer pill, kept in `~/.ibgamer/settings.json`) |
+| `IBGAMER_TRAINER_PROVIDER` / `IBGAMER_TRAINER_MODEL` / `IBGAMER_TRAINER_EFFORT` | `claude-code` / its default (`opus`) / the CLI's own | the trainer's CLI (`claude-code` or `codex`), its model and its effort (`low`, `medium`, `high`, …); set, they win over the one chosen in the UI (the Trainer pill, kept in `~/.ibgamer/settings.json`) |
 | `CLAUDE_CODE_CLI` / `CODEX_CLI` | `claude` / `codex` | the trainer CLIs' executables |
-| `IBGAMER_TRAINER_TIMEOUT_MINUTES` | `30` | how long one call of the trainer may take |
+| `IBGAMER_TRAINER_TIMEOUT_MINUTES` | `30` | how long one call of the trainer may take: one cut off is lost whole (the trainer is told its limit) |
 | `IBGAMER_HF_REPO` / `IBGAMER_HF_REVISION` | `ironbee-ai/ironbee-gamer-library` / `main` | the Hugging Face library, and the branch or commit pulled |
 | `HF_TOKEN` / `HF_ENDPOINT` / `IBGAMER_HF_CLI` | the token `hf auth login` keeps / `https://huggingface.co` / `hf` | reading a private repo; the Hub; the CLI a push uploads with |
 

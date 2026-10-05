@@ -329,7 +329,10 @@ describe("the UI server", (): void => {
         const codex: string = path.join(tools, "codex");
         writeFileSync(codex, "#!/bin/sh\nexit 0\n");
         chmodSync(codex, 0o755);
-        writeFileSync(path.join(tools, "models_cache.json"), JSON.stringify({ models: [{ slug: "gpt-9-sol", display_name: "GPT-9-Sol" }, { slug: "gpt-9-luna" }] }));
+        writeFileSync(
+            path.join(tools, "models_cache.json"),
+            JSON.stringify({ models: [{ slug: "gpt-9-sol", display_name: "GPT-9-Sol", default_reasoning_level: "low", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }, { slug: "gpt-9-luna" }] })
+        );
         const before: { CODEX_HOME?: string; CODEX_CLI?: string } = { CODEX_HOME: process.env.CODEX_HOME, CODEX_CLI: process.env.CODEX_CLI };
         process.env.CODEX_HOME = tools;
         process.env.CODEX_CLI = codex;
@@ -340,7 +343,17 @@ describe("the UI server", (): void => {
             expect(shown.body).toMatchObject({ provider: "claude-code", model: "opus", fromEnv: false });
             const providers: Array<Record<string, unknown>> = shown.body.providers as Array<Record<string, unknown>>;
             expect(providers.map((p: Record<string, unknown>): unknown => p.provider)).toEqual(["claude-code", "codex"]);
-            expect(providers[1]).toMatchObject({ label: "Codex CLI", ok: true, detail: codex, models: [{ id: "gpt-9-sol", name: "GPT-9-Sol", default: true }, { id: "gpt-9-luna", name: "gpt-9-luna" }] });
+            expect(providers[1]).toMatchObject({
+                label: "Codex CLI",
+                ok: true,
+                detail: codex,
+                models: [
+                    { id: "gpt-9-sol", name: "GPT-9-Sol", default: true, efforts: ["low", "high"], defaultEffort: "low" },
+                    { id: "gpt-9-luna", name: "gpt-9-luna" },
+                ],
+            });
+            // No effort chosen: its CLI's own.
+            expect(shown.body.effort).toBeNull();
             // What each reads of the machine is said where it is chosen.
             expect(String(providers[0].reads)).toMatch(/own folder only/);
             expect(String(providers[1].reads)).toMatch(/can read any file of this user/);
@@ -352,7 +365,7 @@ describe("the UI server", (): void => {
             const opus: Record<string, unknown> | undefined = (((await call(t.port, "GET", "/api/trainer")).body.providers as Array<Record<string, unknown>>)[0].models as Array<Record<string, unknown>>).find(
                 (m: Record<string, unknown>): boolean => m.id === "opus"
             );
-            expect(opus).toEqual({ id: "opus", name: "Opus", default: true, answeredBy: "claude-opus-9-1", answeredByName: "Opus 9.1" });
+            expect(opus).toEqual({ id: "opus", name: "Opus", default: true, efforts: ["low", "medium", "high", "xhigh", "max"], answeredBy: "claude-opus-9-1", answeredByName: "Opus 9.1" });
             expect((await call(t.port, "GET", "/api/status")).body.trainer).toMatchObject({ answeredByName: "Opus 9.1" });
             rmSync(path.join(t.root, "settings.json"));
 
@@ -370,6 +383,17 @@ describe("the UI server", (): void => {
             expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: true, detail: "Codex CLI (gpt-9-sol)", provider: "codex", model: "gpt-9-sol" });
             expect(JSON.parse(readFileSync(path.join(t.root, "settings.json"), "utf-8"))).toEqual({ trainer: { provider: "codex", model: "gpt-9-sol" } });
             expect(loadConfig({ IBGAMER_HOME: t.root }).trainer).toMatchObject({ provider: "codex", model: "gpt-9-sol", fromEnv: false });
+
+            // With an effort: one its model takes — kept, said in the status, and given up again by choosing none.
+            const tooMuch: { status: number; body: Record<string, unknown> } = await call(t.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-9-sol", effort: "max" });
+            expect(tooMuch.status).toBe(400);
+            expect(String(tooMuch.body.error)).toBe("GPT-9-Sol takes no max effort: low, high, or none for its default.");
+            expect((await call(t.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-9-sol", effort: "high" })).body).toMatchObject({ model: "gpt-9-sol", effort: "high" });
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toEqual({ ok: true, detail: "Codex CLI (gpt-9-sol, high effort)", provider: "codex", model: "gpt-9-sol", effort: "high" });
+            expect(loadConfig({ IBGAMER_HOME: t.root }).trainer).toMatchObject({ provider: "codex", model: "gpt-9-sol", effort: "high" });
+            expect((await call(t.port, "POST", "/api/trainer", { provider: "codex", model: "gpt-9-sol", effort: null })).body.effort).toBeNull();
+            expect("effort" in loadConfig({ IBGAMER_HOME: t.root }).trainer).toBe(false);
+            expect((await call(t.port, "GET", "/api/status")).body.trainer).toMatchObject({ detail: "Codex CLI (gpt-9-sol)" });
 
             // Named by the environment: shown, not chosen here.
             expect((await call(named.port, "GET", "/api/trainer")).body).toMatchObject({ provider: "claude-code", model: "sonnet", fromEnv: true });

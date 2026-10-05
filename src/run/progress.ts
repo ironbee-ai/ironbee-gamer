@@ -250,8 +250,10 @@ export class ProgressTracker {
             this.results.push(`not kept: ${m[1]}, but ${m[2]} on unseen seeds (best ${m[3]})`);
             this.iterationDone(`not kept: worse on unseen seeds (${m[2]})`);
         } else if ((m = /^the tuner failed: (.*)/.exec(line))) {
-            this.results.push(`no version: the tuner failed (${m[1].slice(0, 80)})`);
-            this.iterationDone("the tuner failed");
+            // Cut off at its time limit, it wrote nothing: said as that, not as a failure of what it wrote.
+            const outOfTime: RegExpExecArray | null = /over its (\d+)-minute limit/.exec(m[1]);
+            this.results.push(outOfTime ? `no version: the tuner ran out of time (its ${outOfTime[1]}-minute limit): nothing of that attempt was kept` : `no version: the tuner failed (${m[1].slice(0, 80)})`);
+            this.iterationDone(outOfTime ? `the tuner ran out of time (${outOfTime[1]} min)` : "the tuner failed");
         } else if ((m = /^playing it failed: (.*)/.exec(line))) {
             this.results.push(`no version: playing it failed (${m[1].slice(0, 80)})`);
             this.iterationDone("playing it failed");

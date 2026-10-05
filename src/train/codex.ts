@@ -33,7 +33,13 @@ export interface CodexModel {
     id: string;
     name: string;
     default?: boolean;
+    /** The reasoning efforts the model takes, as Codex lists them, and the one it uses when none is asked for. */
+    efforts?: string[];
+    defaultEffort?: string;
 }
+
+/** An effort level's name as a CLI takes one. */
+const EFFORT: RegExp = /^[a-z]{2,12}$/;
 
 /** Where the Codex CLI keeps its login and what it fetched (`CODEX_HOME`, else `~/.codex`). */
 export function codexHome(env: NodeJS.ProcessEnv = process.env): string {
@@ -48,14 +54,21 @@ export function codexHome(env: NodeJS.ProcessEnv = process.env): string {
 export function codexModels(home: string = codexHome()): CodexModel[] {
     const models: CodexModel[] = [];
     try {
-        const cache: { models?: Array<{ slug?: unknown; display_name?: unknown; visibility?: unknown; priority?: unknown }> } = JSON.parse(
-            readFileSync(join(home, "models_cache.json"), "utf-8")
-        ) as { models?: Array<{ slug?: unknown; display_name?: unknown; visibility?: unknown; priority?: unknown }> };
-        const listed: Array<{ slug?: unknown; display_name?: unknown; visibility?: unknown; priority?: unknown }> = (Array.isArray(cache.models) ? cache.models : [])
-            .filter((m: { slug?: unknown; visibility?: unknown }): boolean => typeof m?.slug === "string" && m.slug.length > 0 && m.visibility !== "hide")
-            .sort((a: { priority?: unknown }, b: { priority?: unknown }): number => (typeof a.priority === "number" ? a.priority : 0) - (typeof b.priority === "number" ? b.priority : 0));
+        const cache: { models?: CachedModel[] } = JSON.parse(readFileSync(join(home, "models_cache.json"), "utf-8")) as { models?: CachedModel[] };
+        const listed: CachedModel[] = (Array.isArray(cache.models) ? cache.models : [])
+            .filter((m: CachedModel): boolean => typeof m?.slug === "string" && m.slug.length > 0 && m.visibility !== "hide")
+            .sort((a: CachedModel, b: CachedModel): number => (typeof a.priority === "number" ? a.priority : 0) - (typeof b.priority === "number" ? b.priority : 0));
         for (const m of listed) {
-            models.push({ id: m.slug as string, name: typeof m.display_name === "string" && m.display_name ? m.display_name : (m.slug as string) });
+            // Its reasoning efforts: listed as { effort } entries (or plain names), least to most.
+            const efforts: string[] = (Array.isArray(m.supported_reasoning_levels) ? m.supported_reasoning_levels : [])
+                .map((level: unknown): unknown => (level && typeof level === "object" ? (level as { effort?: unknown }).effort : level))
+                .filter((level: unknown): level is string => typeof level === "string" && EFFORT.test(level));
+            models.push({
+                id: m.slug as string,
+                name: typeof m.display_name === "string" && m.display_name ? m.display_name : (m.slug as string),
+                ...(efforts.length > 0 ? { efforts } : {}),
+                ...(typeof m.default_reasoning_level === "string" && EFFORT.test(m.default_reasoning_level) ? { defaultEffort: m.default_reasoning_level } : {}),
+            });
         }
     } catch {
         // no cache yet, or not one this reads
@@ -67,8 +80,21 @@ export function codexModels(home: string = codexHome()): CodexModel[] {
     return models;
 }
 
-/** The arguments of one trainer call: read-only, nothing saved, nothing of the user's configuration, the last message into `lastMessage`. */
-export function codexArgs(model: string, lastMessage: string): string[] {
+/** A model as Codex's cache of them lists it (what is read of it). */
+interface CachedModel {
+    slug?: unknown;
+    display_name?: unknown;
+    visibility?: unknown;
+    priority?: unknown;
+    supported_reasoning_levels?: unknown;
+    default_reasoning_level?: unknown;
+}
+
+/**
+ * The arguments of one trainer call: read-only, nothing saved, nothing of the user's configuration, the last message into
+ * `lastMessage`; `effort`: its reasoning effort (none: the model's own default).
+ */
+export function codexArgs(model: string, lastMessage: string, effort?: string): string[] {
     return [
         "exec",
         "--skip-git-repo-check",
@@ -82,6 +108,7 @@ export function codexArgs(model: string, lastMessage: string): string[] {
         "-o",
         lastMessage,
         ...(model && model !== CODEX_DEFAULT_MODEL ? ["-m", model] : []),
+        ...(effort && EFFORT.test(effort) ? ["-c", `model_reasoning_effort="${effort}"`] : []),
         "-",
     ];
 }
@@ -99,7 +126,7 @@ export function askCodex(trainer: TrainerModel, prompt: string, workDir: string,
     return new Promise<string>((resolve: (text: string) => void, reject: (err: Error) => void): void => {
         const child: ReturnType<typeof execFile> = execFile(
             command,
-            codexArgs(trainer.model, last),
+            codexArgs(trainer.model, last, trainer.effort),
             { cwd: workDir, timeout: timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, env: childEnv(), ...(signal ? { signal } : {}) },
             (err: Error | null, stdout: string, stderr: string): void => {
                 try {

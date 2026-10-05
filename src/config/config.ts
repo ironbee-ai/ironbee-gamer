@@ -135,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GamerConfig {
             provider: trainer.provider,
             command: trainerCommand(trainer.provider, env),
             model: trainer.model,
+            ...(trainer.effort ? { effort: trainer.effort } : {}),
             ...(trainerTimeoutMs !== undefined ? { timeoutMs: trainerTimeoutMs } : {}),
             fromEnv: trainer.fromEnv,
             home,

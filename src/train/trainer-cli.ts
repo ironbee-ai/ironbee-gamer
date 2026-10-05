@@ -5,7 +5,7 @@
  * wins and locks the UI's.
  */
 
-import { askClaude, claudeModelFor, findOnPath, TrainerModel, TrainerProvider } from "./claude";
+import { askClaude, CLAUDE_CODE_EFFORTS, claudeModelFor, DEFAULT_TRAINER_TIMEOUT_MS, findOnPath, TrainerModel, TrainerProvider } from "./claude";
 import { askCodex, codexModels } from "./codex";
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
@@ -15,6 +15,9 @@ export interface TrainerModelInfo {
     id: string;
     name: string;
     default?: boolean;
+    /** The effort levels the model takes, least to most, and the one it uses when none is asked for (when its CLI says). */
+    efforts?: string[];
+    defaultEffort?: string;
 }
 
 /** Claude Code's model aliases: each is the latest model of its family. Opus is picked unless another is chosen. */
@@ -38,10 +41,27 @@ export const TRAINER_READS: Record<TrainerProvider, string> = {
 
 /** A model id as a CLI takes one: no spaces, nothing a shell or a path would read. */
 const MODEL_ID: RegExp = /^[A-Za-z0-9][A-Za-z0-9._:\-]{0,99}$/;
+/** An effort level's name as a CLI takes one. */
+const EFFORT: RegExp = /^[a-z]{2,12}$/;
 
-/** The models a provider's CLI offers (Codex: the ones it lists on this machine). */
+/**
+ * The models a provider's CLI offers (Codex: the ones it lists on this machine), each with the effort levels it takes:
+ * Claude Code's are its CLI's own (`--effort`), Codex's the ones it lists for the model.
+ */
 export function trainerModels(provider: TrainerProvider, env: NodeJS.ProcessEnv = process.env): TrainerModelInfo[] {
-    return provider === TrainerProvider.CODEX ? codexModels(env.CODEX_HOME || undefined) : CLAUDE_CODE_MODELS.map((m: TrainerModelInfo): TrainerModelInfo => ({ ...m }));
+    return provider === TrainerProvider.CODEX
+        ? codexModels(env.CODEX_HOME || undefined)
+        : CLAUDE_CODE_MODELS.map((m: TrainerModelInfo): TrainerModelInfo => ({ ...m, efforts: [...CLAUDE_CODE_EFFORTS] }));
+}
+
+/**
+ * What every prompt of the trainer ends with: its time limit. A call over it is cut off and lost whole — the CLI saves
+ * no session and an answer not finished is none —, and until 2026-10-06 nothing told the trainer so: a tuner with no
+ * losing game to fix thought for 30 minutes and wrote nothing (twice in two trainings).
+ */
+export function timeLimitRule(timeoutMs: number): string {
+    const minutes: number = Math.max(1, Math.round(timeoutMs / 60_000));
+    return `TIME LIMIT: this whole call — reading the files, thinking, and writing the reply — is cut off after ${minutes} minutes, and a reply not finished by then is lost whole (nothing of it is kept, your thinking included). Budget it: do not weigh every alternative, settle on what to do within the first third of the time, and leave the rest for writing the reply in full.`;
 }
 
 /** The model a provider is asked with when none is chosen. */
@@ -60,11 +80,13 @@ export function trainerCommand(provider: TrainerProvider, env: NodeJS.ProcessEnv
  * noted in the trainer's home (Codex is asked for a model by its own name).
  */
 export function askTrainer(trainer: TrainerModel, prompt: string, workDir: string, signal?: AbortSignal): Promise<string> {
+    // Told its time limit, whatever it is asked: the last thing it reads.
+    const timed: string = `${prompt}\n\n${timeLimitRule(trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS)}`;
     if (trainer.provider === TrainerProvider.CODEX) {
-        return askCodex(trainer, prompt, workDir, signal);
+        return askCodex(trainer, timed, workDir, signal);
     }
     const home: string | undefined = trainer.home;
-    return askClaude(trainer, prompt, workDir, signal, home ? (model: string): void => noteTrainerModel(home, TrainerProvider.CLAUDE_CODE, trainer.model, model) : undefined);
+    return askClaude(trainer, timed, workDir, signal, home ? (model: string): void => noteTrainerModel(home, TrainerProvider.CLAUDE_CODE, trainer.model, model) : undefined);
 }
 
 /**
@@ -73,13 +95,17 @@ export function askTrainer(trainer: TrainerModel, prompt: string, workDir: strin
  */
 export function trainerHealth(trainer: TrainerModel): { ok: boolean; detail: string } {
     const label: string = TRAINER_LABELS[trainer.provider ?? TrainerProvider.CLAUDE_CODE];
-    return findOnPath(trainer.command) ? { ok: true, detail: `${label} (${trainer.model})` } : { ok: false, detail: `${trainer.command} is not on PATH: training needs the ${label}` };
+    return findOnPath(trainer.command)
+        ? { ok: true, detail: `${label} (${trainer.model}${trainer.effort ? `, ${trainer.effort} effort` : ""})` }
+        : { ok: false, detail: `${trainer.command} is not on PATH: training needs the ${label}` };
 }
 
 /** The trainer as chosen in the UI and kept in `<home>/settings.json`. */
 export interface TrainerChoice {
     provider: TrainerProvider;
     model: string;
+    /** How hard it thinks (one of the model's effort levels); none: its CLI's own default. */
+    effort?: string;
 }
 
 /** A choice as it may be kept or asked for: a provider there is, and a model id a CLI takes; else why not. */
@@ -91,7 +117,12 @@ export function parseTrainerChoice(value: unknown): TrainerChoice | string {
     if (typeof v.model !== "string" || !MODEL_ID.test(v.model)) {
         return "model is a model id of that provider (letters, digits, . _ : -)";
     }
-    return { provider: v.provider as TrainerProvider, model: v.model };
+    // None (absent, null or empty): the CLI's own default.
+    const effort: unknown = (value as { effort?: unknown }).effort;
+    if (effort !== undefined && effort !== null && effort !== "" && (typeof effort !== "string" || !EFFORT.test(effort))) {
+        return "effort is one of the model's effort levels (low, medium, high, …), or none for its CLI's default";
+    }
+    return { provider: v.provider as TrainerProvider, model: v.model, ...(typeof effort === "string" && effort ? { effort } : {}) };
 }
 
 export function settingsFile(home: string): string {
@@ -123,7 +154,7 @@ export function writeTrainerChoice(home: string, choice: TrainerChoice): void {
     }
     mkdirSync(dirname(file), { recursive: true });
     const draft: string = `${file}.${process.pid}.tmp`;
-    writeFileSync(draft, `${JSON.stringify({ ...settings, trainer: { provider: choice.provider, model: choice.model } }, null, 2)}\n`);
+    writeFileSync(draft, `${JSON.stringify({ ...settings, trainer: { provider: choice.provider, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) } }, null, 2)}\n`);
     renameSync(draft, file);
 }
 
@@ -259,9 +290,9 @@ export async function askClaudeAliases(home: string, command: string, now: numbe
 }
 
 /**
- * The trainer this process asks: the environment's when it names one (`IBGAMER_TRAINER_PROVIDER` and / or
- * `IBGAMER_TRAINER_MODEL`: `fromEnv`, which the UI cannot change), else the one kept in the settings file, else the
- * Claude Code CLI with its default model.
+ * The trainer this process asks: the environment's when it names one (`IBGAMER_TRAINER_PROVIDER`,
+ * `IBGAMER_TRAINER_MODEL` and / or `IBGAMER_TRAINER_EFFORT`: `fromEnv`, which the UI cannot change), else the one kept
+ * in the settings file, else the Claude Code CLI with its default model and its own effort.
  */
 export function resolveTrainer(home: string, env: NodeJS.ProcessEnv = process.env): TrainerChoice & { fromEnv: boolean } {
     const named: string = (env.IBGAMER_TRAINER_PROVIDER ?? "").trim();
@@ -269,9 +300,13 @@ export function resolveTrainer(home: string, env: NodeJS.ProcessEnv = process.en
         throw new Error(`IBGAMER_TRAINER_PROVIDER must be one of ${Object.values(TrainerProvider).join(", ")} (got ${named})`);
     }
     const model: string = (env.IBGAMER_TRAINER_MODEL ?? "").trim();
-    if (named || model) {
+    const effort: string = (env.IBGAMER_TRAINER_EFFORT ?? "").trim();
+    if (effort && !EFFORT.test(effort)) {
+        throw new Error(`IBGAMER_TRAINER_EFFORT must be an effort level of the trainer's model (low, medium, high, …; got ${effort})`);
+    }
+    if (named || model || effort) {
         const provider: TrainerProvider = named ? (named as TrainerProvider) : TrainerProvider.CLAUDE_CODE;
-        return { provider, model: model || defaultTrainerModel(provider, env), fromEnv: true };
+        return { provider, model: model || defaultTrainerModel(provider, env), ...(effort ? { effort } : {}), fromEnv: true };
     }
     const kept: TrainerChoice | undefined = readTrainerChoice(home);
     if (kept) {

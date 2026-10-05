@@ -91,6 +91,11 @@ export interface TrainerModel {
     provider?: TrainerProvider;
     command: string;
     model: string;
+    /**
+     * How hard it thinks before it answers (Claude Code's `--effort`, Codex's reasoning effort): one of the levels its
+     * CLI takes. None: the CLI's own default. Lower answers sooner — a call over its time limit is lost whole.
+     */
+    effort?: string;
     timeoutMs?: number;
     /**
      * The app's home: where the model a call was answered by is noted (trainer-cli.ts) — Claude Code's `opus` is an
@@ -106,14 +111,41 @@ export class TrainerError extends Error {
     }
 }
 
-/** Why a CLI's run failed, in words: over its time limit, or its exit code — and its own last lines, which are the reason. */
-export function cliFailure(name: string, err: Error, stdout: string, stderr: string, timeoutMs: number): TrainerError {
+/**
+ * A call cut off at its time limit: nothing of it is kept — its CLI saves no session, and an answer not finished is
+ * none. `minutes`: the limit it ran into (a training tells its next attempt so).
+ */
+export class TrainerTimeoutError extends TrainerError {
+    constructor(
+        message: string,
+        readonly minutes: number
+    ) {
+        super(message);
+        this.name = "TrainerTimeoutError";
+    }
+}
+
+/** Claude Code's effort levels (`claude --effort`), least to most. */
+export const CLAUDE_CODE_EFFORTS: string[] = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Why a CLI's run failed, in words: over its time limit (`cutOff`: how far it had got, when the caller can tell — its
+ * stream's last lines are no reason then, only what it was doing), stopped by the caller, or its exit code with its own
+ * last lines, which are the reason.
+ */
+export function cliFailure(name: string, err: Error, stdout: string, stderr: string, timeoutMs: number, cutOff?: string): TrainerError {
     const e: Error & { killed?: boolean; signal?: string | null; code?: number | string } = err as Error & { killed?: boolean; signal?: string | null; code?: number | string };
-    const minutes: number = Math.round(timeoutMs / 60_000);
-    const why: string = e.killed || e.signal ? `stopped (${e.signal ?? "killed"}): over its ${minutes}-minute limit` : `exited with ${String(e.code ?? "an error")}`;
+    // Stopped by whoever asked (a run's Stop): no time limit ran out.
+    if (e.code === "ABORT_ERR" || e.name === "AbortError") {
+        return new TrainerError(`${name} was stopped`);
+    }
+    if (e.killed || e.signal) {
+        const minutes: number = Math.round(timeoutMs / 60_000);
+        return new TrainerTimeoutError(`${name} stopped (${e.signal ?? "killed"}): over its ${minutes}-minute limit${cutOff ? ` — ${cutOff}` : ""}`, minutes);
+    }
     // The command line is not the reason: what the CLI said is.
     const detail: string = (stderr || stdout || "").trim().split("\n").slice(-3).join(" ").slice(0, 300);
-    return new TrainerError(`${name} ${why}${detail ? `: ${detail}` : ""}`);
+    return new TrainerError(`${name} exited with ${String(e.code ?? "an error")}${detail ? `: ${detail}` : ""}`);
 }
 
 /**
@@ -165,6 +197,32 @@ export function finalReply(stream: string): string {
         return result.text;
     }
     throw new TrainerError("claude returned no result");
+}
+
+/** How far a call cut off at its time limit had got, by its stream: whether any of its answer was written. */
+export function cutOffAt(stream: string): string {
+    let answering: boolean = false;
+    for (const line of stream.split("\n")) {
+        if (!line.includes('"assistant"')) {
+            continue;
+        }
+        try {
+            const event: { type?: string; message?: { content?: Array<{ type?: string; text?: string }> } } = JSON.parse(line) as {
+                type?: string;
+                message?: { content?: Array<{ type?: string; text?: string }> };
+            };
+            if (event.type === "assistant") {
+                const content: Array<{ type?: string; text?: string }> = event.message?.content ?? [];
+                // After a tool call it reads on: only text after its last one is its answer.
+                answering = content.some((c: { type?: string }): boolean => c.type === "tool_use")
+                    ? false
+                    : answering || content.some((c: { type?: string; text?: string }): boolean => c.type === "text" && typeof c.text === "string" && c.text.trim() !== "");
+            }
+        } catch {
+            // not an event
+        }
+    }
+    return answering ? "its answer was cut off part way" : "it was still reading and thinking: none of its answer was written";
 }
 
 /**
@@ -250,6 +308,7 @@ export function askClaude(trainer: TrainerModel, prompt: string, workDir: string
                 "--verbose",
                 "--model",
                 trainer.model,
+                ...(trainer.effort ? ["--effort", trainer.effort] : []),
                 "--tools",
                 "Read",
                 "--allowedTools",
@@ -269,7 +328,7 @@ export function askClaude(trainer: TrainerModel, prompt: string, workDir: string
                     }
                 }
                 if (err) {
-                    reject(cliFailure("claude", err, stdout, stderr, trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS));
+                    reject(cliFailure("claude", err, stdout, stderr, trainer.timeoutMs ?? DEFAULT_TRAINER_TIMEOUT_MS, cutOffAt(stdout ?? "")));
                     return;
                 }
                 try {

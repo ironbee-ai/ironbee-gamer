@@ -175,8 +175,10 @@ async function loadStatus() {
     // The trainer's pill names its model — the one its alias last answered as, once a call has said (`opus` is whichever
     // Opus is the latest) — and opens where it is chosen (one choice for all games).
     const trainerModel = s.trainer.answeredByName || s.trainer.model;
+    // … and its effort, when one is chosen (none: its CLI's own).
+    const trainerEffort = s.trainer.effort ? ` · ${esc(s.trainer.effort)}` : "";
     pills.push(
-        `<button type="button" class="pill ${s.trainer.ok ? "ok" : "down"}" data-trainer title="${esc(s.trainer.detail)} — click to choose the trainer">Trainer${trainerModel ? ` · ${esc(trainerModel)}` : ""}</button>`
+        `<button type="button" class="pill ${s.trainer.ok ? "ok" : "down"}" data-trainer title="${esc(s.trainer.detail)} — click to choose the trainer">Trainer${trainerModel ? ` · ${esc(trainerModel)}` : ""}${trainerEffort}</button>`
     );
     $("status").innerHTML = pills.join("");
     renderEngines();
@@ -1258,13 +1260,27 @@ function renderTrainerModels() {
     $("trainer-model").innerHTML = models
         .map((m) => `<option value="${esc(m.id)}"${m.id === picked ? " selected" : ""}>${esc(m.answeredByName || m.name)}${m.default ? " (default)" : ""}</option>`)
         .join("");
+    renderTrainerEfforts();
+}
+
+/** The effort levels of the model shown: the one in use when it is the model in use, else none (its CLI's own default). */
+function renderTrainerEfforts() {
+    const s = trainer.settings;
+    const p = trainerProvider();
+    const model = (p?.models || []).find((m) => m.id === $("trainer-model").value);
+    const efforts = model?.efforts || [];
+    const inUse = p?.provider === s.provider && model?.id === s.model ? s.effort || "" : "";
+    const picked = trainer.keep && ["", ...efforts].includes($("trainer-effort").value) ? $("trainer-effort").value : efforts.includes(inUse) ? inUse : "";
+    // None is the CLI's own choice: named where the CLI says what that is (Codex lists each model's).
+    const own = model?.defaultEffort ? `The model's own (${model.defaultEffort})` : "The CLI's own";
+    $("trainer-effort").innerHTML = [`<option value=""${picked === "" ? " selected" : ""}>${esc(own)}</option>`, ...efforts.map((e) => `<option value="${esc(e)}"${e === picked ? " selected" : ""}>${esc(e)}</option>`)].join("");
     renderTrainerDetail();
 }
 
 function renderTrainerDetail() {
     const s = trainer.settings;
     const p = trainerProvider();
-    const locked = s.fromEnv ? " Named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL): start the app without them to choose it here." : "";
+    const locked = s.fromEnv ? " Named by the environment (IBGAMER_TRAINER_PROVIDER / IBGAMER_TRAINER_MODEL / IBGAMER_TRAINER_EFFORT): start the app without them to choose it here." : "";
     // Claude Code's names are aliases, each its family's latest model: which one, as the CLI says (asked when this opens).
     const model = (p?.models || []).find((m) => m.id === $("trainer-model").value);
     const alias =
@@ -1278,7 +1294,8 @@ function renderTrainerDetail() {
     $("trainer-detail").textContent = p ? `${p.ok ? `Installed: ${p.detail}.` : `Not installed: ${p.detail}.`} ${p.reads}${alias}${locked}` : "";
     $("trainer-provider").disabled = s.fromEnv;
     $("trainer-model").disabled = s.fromEnv || !p?.ok;
-    const same = p?.provider === s.provider && $("trainer-model").value === s.model;
+    $("trainer-effort").disabled = s.fromEnv || !p?.ok;
+    const same = p?.provider === s.provider && $("trainer-model").value === s.model && $("trainer-effort").value === (s.effort || "");
     $("trainer-save").disabled = s.fromEnv || !p?.ok || same || !$("trainer-model").value;
 }
 
@@ -1318,13 +1335,14 @@ $("status").addEventListener("click", (event) => {
     }
 });
 $("trainer-provider").addEventListener("change", renderTrainerModels);
-$("trainer-model").addEventListener("change", renderTrainerDetail);
+$("trainer-model").addEventListener("change", renderTrainerEfforts);
+$("trainer-effort").addEventListener("change", renderTrainerDetail);
 $("trainer-close").addEventListener("click", () => $("trainer-dialog").close());
 $("trainer-save").addEventListener("click", async () => {
     $("trainer-error").textContent = "";
     $("trainer-save").disabled = true;
     try {
-        trainer.settings = await api("POST", "/api/trainer", { provider: $("trainer-provider").value, model: $("trainer-model").value });
+        trainer.settings = await api("POST", "/api/trainer", { provider: $("trainer-provider").value, model: $("trainer-model").value, effort: $("trainer-effort").value || null });
         await loadStatus();
         $("trainer-dialog").close();
     } catch (err) {

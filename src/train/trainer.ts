@@ -32,7 +32,7 @@ import { RandomPlayer, RulesTeacher } from "../distill/teacher";
 import { DecisionLog } from "../run/decision-log";
 import { customScriptOf } from "../run/play";
 import { TeacherWriter } from "./teacher-writer";
-import { parseJsonObject, TrainerError, TrainerModel } from "./claude";
+import { parseJsonObject, TrainerError, TrainerModel, TrainerTimeoutError } from "./claude";
 import { RealtimeTraining, setupPrompt, TuneEvidence, tunePrompt } from "./prompts";
 import { runRegressionTests, TestResult } from "./regression";
 import { askTrainer } from "./trainer-cli";
@@ -482,6 +482,8 @@ export class Trainer {
         let latest: { profile: Profile; evaluation: Evaluation; why: string } | undefined;
         let rejectedInARow: number = 0;
         let stopped: boolean = false;
+        /** The tuner's last attempt was cut off at its time limit (minutes): its next one is told so, and to decide sooner. */
+        let ranOutOfTime: number | undefined;
 
         for (let i: number = 1; i <= options.iterations; i++) {
             if (options.signal?.aborted) {
@@ -499,7 +501,8 @@ export class Trainer {
             let candidate: Profile;
             let newTests: RegressionTest[];
             try {
-                ({ candidate, newTests } = await this.tune(game, best, bestEval, latest, history, gameSeconds, trainedHorizonS, options));
+                ({ candidate, newTests } = await this.tune(game, best, bestEval, latest, history, gameSeconds, trainedHorizonS, options, ranOutOfTime));
+                ranOutOfTime = undefined;
             } catch (err: unknown) {
                 if (options.signal?.aborted) {
                     stopped = true;
@@ -508,7 +511,17 @@ export class Trainer {
                 // An engine that failed while the regression tests played (an outage) is not the tuner's failure.
                 const what: string = err instanceof DecisionEngineError ? "playing it failed" : "the tuner failed";
                 this.log(options, `  ${what}: ${err instanceof Error ? err.message : String(err)}`);
-                history.push({ mean: null, note: `${err instanceof DecisionEngineError ? "playing failed" : "tuner failed"}: ${err instanceof Error ? err.message.slice(0, 150) : ""}` });
+                // Cut off at its time limit, the whole attempt is lost (no session is kept, and no answer was finished): the
+                // next one is told, plainly — until 2026-10-06 its history read "tuner failed: claude stopped (killed): …" with
+                // the stream's last line, and nothing asked it to decide sooner.
+                ranOutOfTime = err instanceof TrainerTimeoutError ? err.minutes : undefined;
+                history.push({
+                    mean: null,
+                    note:
+                        err instanceof TrainerTimeoutError
+                            ? `the tuner ran out of time: cut off at its ${err.minutes}-minute limit before its reply was finished — nothing of that attempt was kept`
+                            : `${err instanceof DecisionEngineError ? "playing failed" : "tuner failed"}: ${err instanceof Error ? err.message.slice(0, 150) : ""}`,
+                });
                 if (++rejectedInARow >= MAX_REJECTED_IN_A_ROW) {
                     break;
                 }
@@ -1029,7 +1042,9 @@ export class Trainer {
         history: TrainResult["history"],
         gameSeconds: number,
         trainedHorizonS: number | undefined,
-        options: TrainOptions
+        options: TrainOptions,
+        /** The attempt before this one was cut off at its time limit (minutes): said in the prompt. */
+        ranOutOfTime?: number
     ): Promise<{ candidate: Profile; newTests: RegressionTest[] }> {
         const windows: Array<{ id: string; frames: number; seed?: number; unread?: number[] }> = this.listWindows(game, best);
         let repair: Array<{ test: RegressionTest; failedAt?: unknown }> | undefined;
@@ -1053,6 +1068,7 @@ export class Trainer {
                 ...(attempted ? { attempted } : {}),
                 ...(trainedHorizonS !== undefined && trainedHorizonS < gameSeconds ? { trainedHorizonS } : {}),
                 ...(options.note ? { userNote: options.note } : {}),
+                ...(ranOutOfTime !== undefined ? { ranOutOfTime } : {}),
             });
             writeFileSync(path.join(options.workDir, `tuner-prompt-${history.length}-${attempt + 1}.md`), prompt);
             const started: number = Date.now();

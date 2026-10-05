@@ -104,6 +104,15 @@ describe("ProgressTracker", (): void => {
         ]);
     });
 
+    it("says of a tuner cut off at its time limit that it ran out of time, not that what it wrote failed", (): void => {
+        const t: ProgressTracker = new ProgressTracker(RunKind.TRAIN, { iterations: 2 }, (): number => 0);
+        t.onPhase("measuring v1 on seeds 101, 202, 303");
+        t.onPhase("iteration 1/2: the tuner is reading the runs");
+        t.onLog("  the tuner failed: claude stopped (SIGTERM): over its 30-minute limit — it was still reading and thinking: none of its answer was written");
+        expect(t.progress.stages[1]).toMatchObject({ state: StageState.DONE, detail: "the tuner ran out of time (30 min)" });
+        expect(t.progress.results).toContain("no version: the tuner ran out of time (its 30-minute limit): nothing of that attempt was kept");
+    });
+
     it("ends a run with the stages it never came to skipped, not done: training stops without a word after two failed tunings", (): void => {
         const t: ProgressTracker = new ProgressTracker(RunKind.TRAIN, { iterations: 4 }, (): number => 0);
         t.onPhase("measuring v3 on seeds 101, 202, 303");

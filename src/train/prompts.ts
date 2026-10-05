@@ -175,6 +175,8 @@ export interface TunePromptInput {
     trainedHorizonS?: number;
     /** Notes from the person training the game (userNoteRule). */
     userNote?: string;
+    /** The attempt before this one was cut off at its time limit (minutes), nothing of it kept: this one is to decide sooner. */
+    ranOutOfTime?: number;
 }
 
 /** What a tuner is shown of a played profile. */
@@ -258,7 +260,11 @@ ${input.latest ? `\nLATEST PROFILE TRIED (mean score ${input.latest.result.mean}
 SAVED FAILURE WINDOWS (the raw frames the extractor saw last before a game ended, replayable offline): ${JSON.stringify(input.windows)}
 EXISTING REGRESSION TESTS (a new profile must keep passing them): ${JSON.stringify(input.tests)}
 ${input.repair ? `\nYOUR PREVIOUS ATTEMPT FAILED THESE REGRESSION TESTS. The existing tests always run and cannot be changed: fix the profile so they pass. A test of your own (in newTests) that was wrong you may rewrite or leave out.\n${JSON.stringify(input.repair).slice(0, 20_000)}\n${input.attempted ? `THAT ATTEMPT (its profile and new tests):\n${JSON.stringify({ ...tunableProfile(input.attempted.profile, withTeacher), newTests: input.attempted.newTests })}\n` : ""}` : ""}
-${userNoteRule(input.userNote)}Study the runs: what caused each game to end or stall? Is it the state (missing / wrong / hard-to-use fields, perception bugs), the instructions (wrong or unclear rule), the actions, or the timing (tickMs / decideOn)? Then write an improved profile, starting from the best one. Change what the evidence points to; keep what works.
+${
+    input.ranOutOfTime !== undefined
+        ? `\nYOUR PREVIOUS ATTEMPT RAN OUT OF TIME. It was cut off at its ${input.ranOutOfTime}-minute limit before its reply was finished, and nothing of it was kept — what it had worked out is lost too. This attempt has the same limit. Decide sooner: make the one change you are most confident in (or a few small ones), leave out what would need long study, and write the reply in full.\n`
+        : ""
+}${userNoteRule(input.userNote)}Study the runs: what caused each game to end or stall? Is it the state (missing / wrong / hard-to-use fields, perception bugs), the instructions (wrong or unclear rule), the actions, or the timing (tickMs / decideOn)? Then write an improved profile, starting from the best one. Change what the evidence points to; keep what works.
 Where you fix a failure, add regression tests that pin the fix down. A test runs the extractor over one saved window from its first frame (fresh memory; the first 3 frames are warm-up) and checks a JavaScript expression over \`state\` (and \`choice\`, the engine's decision, only if needsChoice) at the given frames ("all", or a list of frame indices). Tests may only name the windows listed above; a window's \`unread\` frames are ones the page could not be read on — the extractor never saw them, so a test checks nothing there.
 
 Reply with ONLY a JSON object, no prose, no code fence:
