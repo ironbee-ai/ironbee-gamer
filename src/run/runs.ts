@@ -42,6 +42,8 @@ export interface EpisodeSummary {
     endScreenshot?: string;
     /** The profile version this episode played (training plays several). */
     version?: number;
+    /** The play was stopped while this game ran: it is neither over nor out of its time. */
+    stopped?: boolean;
 }
 
 export interface RunRecord {
@@ -108,6 +110,7 @@ export function summarizeEpisode(result: EpisodeResult, version?: number, runDir
         actionCounts: result.actionCounts,
         ...(result.endScreenshot ? { endScreenshot: pathInRun(result.endScreenshot, runDir) } : {}),
         ...(version !== undefined ? { version } : {}),
+        ...(result.stopped ? { stopped: true } : {}),
     };
 }
 

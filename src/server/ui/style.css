@@ -110,6 +110,16 @@ label.note textarea { width: 100%; box-sizing: border-box; font: inherit; resize
 .loading-step { color: var(--muted); font-size: 13px; max-width: 520px; }
 .screen-loading.failed .loading-title { color: var(--bad); }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* A played game's end, over its last frame: why the picture stands still (its time ran out, it was over, it was stopped). */
+.screen-end {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    background: rgba(7, 9, 12, .66); text-align: center; padding: 16px;
+}
+.end-title { font-size: 24px; font-weight: 700; }
+.screen-end.time .end-title { color: var(--ok); }
+.screen-end.over .end-title { color: var(--bad); }
+.end-detail { font-size: 14px; max-width: 520px; }
+.end-next { color: var(--muted); font-size: 13px; }
 .hud {
     position: absolute; top: 8px; left: 8px; display: flex; gap: 14px; padding: 6px 12px;
     background: rgba(10, 12, 16, .78); border: 1px solid var(--line); border-radius: 8px; font-size: 12px;

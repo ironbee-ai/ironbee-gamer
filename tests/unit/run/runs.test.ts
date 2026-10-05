@@ -45,6 +45,11 @@ describe("a run's files", (): void => {
         expect(summarizeEpisode(episode()).endScreenshot).toBeUndefined();
     });
 
+    it("says of a game that it was stopped: neither over nor out of its time, which the screen tells apart", (): void => {
+        expect(summarizeEpisode({ ...episode(), stopped: true }).stopped).toBe(true);
+        expect("stopped" in summarizeEpisode(episode())).toBe(false);
+    });
+
     it("serves a file by its path in the run's directory, and nothing out of it", (): void => {
         const store: RunStore = new RunStore(root);
         const dir: string = store.runDir("run-000001");

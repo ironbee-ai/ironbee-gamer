@@ -142,6 +142,13 @@
   frame as null, and a kept test failed every later candidate whose extractor does not take a null (a window
   saved before then has no marks: every frame is replayed). `collect.noveltyAfterMs` lists sprites / object
   kinds first perceived after the trained horizon.
+- **A game's end, said on the screen** (the UI's live view; `renderEnd`, `endOf` in src/server/ui/app.js): a played game
+  that ends leaves its last frame standing, and one out of its time (`gameSeconds`) shows no end of its own — it looked
+  like a freeze. The screen says which it was over that frame: **Time's up** (the game time played, "as set in Game
+  seconds"), **Game over** or **Stopped** (`EpisodeSummary.stopped`: a game the play was stopped in is neither over nor
+  out of its time), with the score; between a play's games which one is loading, after the last their mean. The phase
+  line says the same instead of "done", and the Episodes tab `survived (time's up)` or `stopped`. It goes with the next
+  game's first tick, or when another run is shown; only a play's games get it (a training's follow one another).
 - **Hooks**: `onPhase`, `onEpisodeStart`, `onTick` (asked ticks always, others at most every 100 ms),
   `onDecision` (every decision the engine answered — the distillation rows, each with the game's `seed` and,
   when the decision acted late, its `lag` (`{minMs, maxMs}`: the simulated range, or the real-time lag the

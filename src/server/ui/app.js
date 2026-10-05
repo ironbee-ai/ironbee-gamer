@@ -609,17 +609,72 @@ function setPhase(text, kind) {
     $("phase-dot").className = `dot ${kind || ""}`;
 }
 
+/** How a game of a play ended, in words: it was stopped, it was over, or its time ran out — the play's Game seconds, not a game that hangs. */
+function endOf(e) {
+    const played = `${e.gameSeconds} s of game time`;
+    if (e.stopped) {
+        return { kind: "stopped", title: "Stopped", detail: `after ${played} — score ${e.score}`, phase: `stopped after ${played}, score ${e.score}` };
+    }
+    if (e.over) {
+        return { kind: "over", title: "Game over", detail: `after ${played} — score ${e.score}`, phase: `game over after ${played}, score ${e.score}` };
+    }
+    return { kind: "time", title: "Time's up", detail: `${played} played, as set in Game seconds — score ${e.score}`, phase: `time's up after ${played}, score ${e.score}` };
+}
+
+/** The play whose games this page shows on the screen, and how many of them it has said the end of. */
+const ending = { runId: undefined, episodes: 0 };
+
+function hideEnd() {
+    $("screen-end").hidden = true;
+}
+
+/**
+ * A game of the play on the screen ended: said over its last frame, which otherwise just stands still — most of all when
+ * its time ran out, where the game itself shows no end. It stays until the play's next game runs (its first tick), or
+ * another run is shown.
+ */
+function renderEnd(run) {
+    if (!run || run.kind !== "play" || run.id !== ending.runId) {
+        hideEnd();
+        return;
+    }
+    const games = run.episodes || [];
+    const last = games[games.length - 1];
+    const running = run.status === "running";
+    // Nothing new ended (the run said something else of itself), or no game was shown yet (its loading screen says why).
+    if (!last || (running && games.length <= ending.episodes) || !$("screen-loading").hidden) {
+        return;
+    }
+    ending.episodes = games.length;
+    const end = endOf(last);
+    const total = run.settings?.episodes ?? games.length;
+    $("screen-end").className = `screen-end ${end.kind}`;
+    $("screen-end-title").textContent = end.title;
+    $("screen-end-detail").textContent = end.detail;
+    $("screen-end-next").textContent = running
+        ? games.length < total
+            ? `Game ${games.length} of ${total} — the next one is loading`
+            : ""
+        : games.length > 1 && run.mean !== undefined
+          ? `${games.length} games played — mean score ${Number(run.mean).toFixed(1)}`
+          : "";
+    $("screen-end").hidden = false;
+}
+
 function renderRun(run) {
     state.run = run;
     renderButtons();
     renderSetup();
     renderProgress();
     renderRules();
+    renderEnd(run);
     if (!run) {
         return;
     }
     const failure = run.status === "failed" && run.error ? `failed: ${run.error}` : "";
-    setPhase(`${run.gameName} — ${failure || run.phase}`, run.status === "running" ? "running" : run.status === "failed" ? "failed" : "");
+    // A play that is done says how its last game ended, not "done" alone: a game out of its time shows no end of its own.
+    const lastGame = run.kind === "play" && run.status !== "running" && !failure ? (run.episodes || []).slice(-1)[0] : undefined;
+    setPhase(`${run.gameName} — ${failure || (lastGame ? endOf(lastGame).phase : run.phase)}`, run.status === "running" ? "running" : run.status === "failed" ? "failed" : "");
     renderEpisodes(run);
     if (run.kind === "train" || run.kind === "distill") {
         $("train-log").textContent = trainLogText(run);
@@ -636,7 +691,7 @@ function renderEpisodes(run) {
             .join(", ");
         const shot = e.endScreenshot ? `<a href="/api/runs/${esc(run.id)}/files/${esc(e.endScreenshot)}" target="_blank">end screen</a>` : "";
         return `<tr><td>${i + 1}</td><td>${e.version ? `v${esc(e.version)}` : run.version ? `v${esc(run.version)}` : ""}</td><td>${esc(e.seed ?? "–")}</td><td><b>${esc(e.score)}</b></td>
-            <td class="${e.over ? "bad" : "ok"}">${e.over ? "game over" : "survived"}</td><td>${esc(e.gameSeconds)}</td>
+            <td class="${e.over ? "bad" : e.stopped ? "muted" : "ok"}">${e.over ? "game over" : e.stopped ? "stopped" : "survived (time's up)"}</td><td>${esc(e.gameSeconds)}</td>
             <td>${e.wallSeconds ? `×${(e.gameSeconds / e.wallSeconds).toFixed(2)}` : "–"}</td><td>${esc(e.decisions)}</td>
             <td>${esc(e.engineMedianMs ?? "–")}</td><td class="muted">${actions}</td><td>${shot}</td></tr>`;
     });
@@ -830,11 +885,21 @@ function connect() {
             } else if (hello) {
                 state.warmed = null;
             }
+            // A play joined in progress (the page opened, or connected again, while it runs): its games are the ones on the
+            // screen, and the end of those still to end is said there.
+            if (hello && r?.status === "running" && r.kind === "play" && ending.runId !== r.id) {
+                ending.runId = r.id;
+                ending.episodes = (r.episodes || []).length;
+            }
             // A run that starts now clears the screen; joining one in progress keeps the frame it sent first.
             const fresh = message.type === "run" && message.run && message.run.id !== state.run?.id && message.run.status === "running";
             if (fresh) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 $("screen-empty").hidden = false;
+                // Its games are the ones on the screen from now on: the end of each is said there.
+                ending.runId = message.run.kind === "play" ? message.run.id : undefined;
+                ending.episodes = 0;
+                hideEnd();
                 if (message.run.kind === "play") {
                     loading.runId = message.run.id;
                     showLoading(`Loading ${message.run.gameName}…`, message.run.phase);
@@ -892,6 +957,10 @@ function connect() {
             // The game runs: its loading screen goes with the first tick too (a daemon without the live view sends no frame).
             if (loading.runId === message.id) {
                 hideLoading();
+            }
+            // The play's next game runs: the end of the one before goes.
+            if (state.run.status === "running") {
+                hideEnd();
             }
             onTick(message.tick);
         } else if (message.type === "log" && state.run?.id === message.id) {
