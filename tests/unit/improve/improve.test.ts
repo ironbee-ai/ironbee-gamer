@@ -311,7 +311,9 @@ describe("playsBetter", (): void => {
             verdict: worseSeeds.length ? Verdict.ENGINE : Verdict.NOTHING,
             why: "",
             rulesWorse: [],
+            versionWorse: [],
             slowWorse: [],
+            slowRulesWorse: [],
             engineWorse: worseSeeds,
             worseSeeds,
             stopped: false,
@@ -323,12 +325,15 @@ describe("playsBetter", (): void => {
         expect(playsBetter(report(6, { 1: 1000, 2: 1200 }, [1]), report(6, { 1: 990, 2: 1200 }, []))).toBe(false);
     });
 
-    it("a new version whose rules lost at the slow end: kept when they play better there, its engine at the soonest no worse than live games vary", (): void => {
-        const slow = (r: CheckReport, means: Record<number, number>, worse: number[]): CheckReport => ({ ...r, slow: { label: "rules", games: [], means }, slowWorse: worse });
-        const before: CheckReport = slow(report(6, { 1: 1000, 2: 1000 }, []), { 1: 500, 2: 1000 }, [1]);
+    it("an engine that lost at the slow end: kept when it plays better there, at the soonest no worse than live games vary — a new version, or Laya taught more", (): void => {
+        const slow = (r: CheckReport, means: Record<number, number>, worse: number[]): CheckReport => ({ ...r, slow: { label: "laya", games: [], means }, slowWorse: worse });
+        const before: CheckReport = slow(report(6, { 1: 1000, 2: 1000 }, [1]), { 1: 500, 2: 1000 }, [1]);
         expect(playsBetter(before, slow(report(7, { 1: 990, 2: 990 }, []), { 1: 1000, 2: 1000 }, []))).toBe(true);
-        // Its engine at the soonest lower than live games vary: not kept.
+        // The same version (Laya taught on the lags): the same terms, though its mean at the soonest is a little lower.
+        expect(playsBetter(before, slow(report(6, { 1: 990, 2: 990 }, []), { 1: 1000, 2: 1000 }, []))).toBe(true);
+        // At the soonest lower than live games vary: not kept.
         expect(playsBetter(before, slow(report(7, { 1: 900, 2: 900 }, []), { 1: 1000, 2: 1000 }, []))).toBe(false);
+        expect(playsBetter(before, slow(report(6, { 1: 900, 2: 900 }, []), { 1: 1000, 2: 1000 }, []))).toBe(false);
         // No better at the slow end: not kept either.
         expect(playsBetter(before, slow(report(7, { 1: 990, 2: 990 }, []), { 1: 500, 2: 1000 }, [1]))).toBe(false);
     });

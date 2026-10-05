@@ -17,7 +17,7 @@
  * and a seed replays the same game frame for frame. Time then moves only by
  * `game_step`. An error the page's own code throws as it boots is reported,
  * not thrown. The page's time zone is UTC.
- * With `freezeClock: false` the page boots and runs in real time.
+ * With `freezeClock: false` the page boots and runs in real time, its boot time counted once what it loads has come.
  *
  * Only http(s) pages: the DevTools daemon answers anyone who can reach its
  * port (it binds every interface, with no auth), so this tool opens no file:,
@@ -69,6 +69,17 @@ const GAME_PROTOCOLS: Set<string> = new Set(["http:", "https:"]);
 const FRAME_NETWORK_WAIT_MS: number = 2_000;
 /** A request open longer than this (a long poll, a stream), or a job off the page's thread, is not waited for. */
 const STALE_REQUEST_MS: number = 5_000;
+/**
+ * Real time, a live boot waits for a request longer than a frozen boot frame does, data coming or not (a slow host's
+ * first byte): nothing else holds a live page's start. One still receiving data is waited for however long it is open.
+ */
+const LIVE_STALE_REQUEST_MS: number = 15_000;
+/**
+ * Real time a boot waits at most for a page still loading: its data still coming (followData), frozen or not, and a live
+ * boot's whole wait for its loading to settle, before its boot time and after it together. A cold load (nothing cached:
+ * a session's first game) brought a 1.8 MB sound over 11–25 s before its menu came.
+ */
+const SLOW_LOAD_WAIT_MS: number = 60_000;
 /** After a boot frame that moved the network, how long what the page's callbacks started gets to show before it is looked at again. */
 const REQUEST_EVENT_GRACE_MS: number = 20;
 /**
@@ -130,15 +141,26 @@ class InFlight {
         this.open.delete(r);
         this.moved++;
     };
+    /** followData: when the page last received data, until when that holds the boot, and the session it is heard on. */
+    private lastData: number = 0;
+    private dataUntil: number = 0;
+    private dataSession: CDPSession | undefined;
+    private readonly onData: () => void = (): void => {
+        this.lastData = Date.now();
+    };
 
-    constructor(private readonly page: Page) {
+    /** `staleMs`: a request or job open longer than this is not waited for (but see followData). */
+    constructor(
+        private readonly page: Page,
+        private readonly staleMs: number = STALE_REQUEST_MS
+    ) {
         page.on("request", this.onRequest);
         page.on("requestfinished", this.onDone);
         page.on("requestfailed", this.onDone);
     }
 
     /**
-     * Waits (real time, at most FRAME_NETWORK_WAIT_MS) until no request and no job younger than STALE_REQUEST_MS is
+     * Waits (real time, at most FRAME_NETWORK_WAIT_MS) until no request and no job younger than `staleMs` is
      * open, then lets the page run its callbacks — which may ask for more (a loader fetching its files one after
      * another, decoding each), and what they start can show a moment after the page answered (an image's callback
      * waits for its decoding). So while the network or the jobs moved since the last look, the page is looked at
@@ -166,14 +188,42 @@ class InFlight {
         }
     }
 
-    private busy(): boolean {
-        return this.fresh(this.open) || this.fresh(this.jobs);
+    /**
+     * Real time: a request open however long is waited for while the page receives data within STALE_REQUEST_MS — a big
+     * file over a slow host —, not one that has gone quiet (a long poll, a stream held open); for `limitMs` at most (a
+     * stream that never ends holds no boot for longer).
+     */
+    async followData(limitMs: number): Promise<void> {
+        this.dataUntil = Date.now() + limitMs;
+        this.dataSession = await this.page
+            .context()
+            .newCDPSession(this.page)
+            .catch((): undefined => undefined);
+        this.dataSession?.on("Network.dataReceived", this.onData);
+        await this.dataSession?.send("Network.enable").catch((): undefined => undefined);
     }
 
-    /** Whether one of these, open since the time it maps to, is younger than STALE_REQUEST_MS (an older one is not waited for). */
+    /** As `settled`, again while anything is still open: a page loading its files one after another, until `until` at most (real time). */
+    async quiet(until: number): Promise<void> {
+        do {
+            await this.settled();
+        } while (this.busy() && Date.now() < until);
+    }
+
+    private busy(): boolean {
+        return this.fresh(this.open) || this.fresh(this.jobs) || this.receiving();
+    }
+
+    /** A request open, and data received within STALE_REQUEST_MS (followData: none heard of otherwise, nor after its limit). */
+    private receiving(): boolean {
+        const now: number = Date.now();
+        return this.open.size > 0 && now - this.lastData < STALE_REQUEST_MS && now < this.dataUntil;
+    }
+
+    /** Whether one of these, open since the time it maps to, is younger than `staleMs` (an older one is not waited for). */
     private fresh(since: Map<unknown, number>): boolean {
         const now: number = Date.now();
-        return [...since.values()].some((at: number): boolean => now - at < STALE_REQUEST_MS);
+        return [...since.values()].some((at: number): boolean => now - at < this.staleMs);
     }
 
     /**
@@ -211,6 +261,10 @@ class InFlight {
         this.page.off("request", this.onRequest);
         this.page.off("requestfinished", this.onDone);
         this.page.off("requestfailed", this.onDone);
+        if (this.dataSession) {
+            this.dataSession.off("Network.dataReceived", this.onData);
+            this.dataSession.detach().catch((): undefined => undefined);
+        }
     }
 }
 
@@ -746,9 +800,9 @@ export class OpenGame implements Tool {
             await page.addInitScript(installTimerNudge);
             state.installed.add("timers");
         }
-        if (freeze && !state.installed.has("decodes")) {
-            // What the page decodes, compiles or reads off its thread as it boots is waited for between boot frames, as
-            // its requests are.
+        if (!state.installed.has("decodes")) {
+            // What the page decodes, compiles or reads off its thread as it boots is waited for as its requests are:
+            // frozen, between boot frames; in real time, before its boot time counts.
             await page.addInitScript(installDecodeCounter);
             state.installed.add("decodes");
         }
@@ -792,8 +846,11 @@ export class OpenGame implements Tool {
             // still starts with a pause.
             await _addGameScripts(page, state, args);
             await _pauseClock(page, GAME_EPOCH_MS);
+            // A file still coming holds every boot frame, however long it has been open (a big file over a slow host):
+            // a boot that ran on without it had the start pressed on the page's loading screen.
             const network: InFlight = new InFlight(page);
             try {
+                await network.followData(SLOW_LOAD_WAIT_MS);
                 response = await page.goto(args.url, { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
                 await _addStyle(page, args.style);
                 for (let t: number = 0; t < (args.bootMs ?? DEFAULT_BOOT_MS); t += FRAME_MS) {
@@ -822,9 +879,22 @@ export class OpenGame implements Tool {
             await page.goto(BLANK_PAGE, { waitUntil: "load" }).catch((): null => null);
             await _cleanSlate(page, session, [args.url, ...leaving]);
             await _addGameScripts(page, state, args);
-            response = await page.goto(args.url, { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
-            await _addStyle(page, args.style);
-            await page.waitForTimeout(args.bootMs ?? DEFAULT_BOOT_MS);
+            // The boot's time counts once what the page loads has come — its files, what it decodes —, as no frozen boot
+            // frame runs before it, and once more after it (what the boot set off, a menu loading its own): a page still
+            // loading after its load event (nothing cached yet) had its start pressed on its loading screen, and played
+            // its whole game on its menu.
+            const network: InFlight = new InFlight(page, LIVE_STALE_REQUEST_MS);
+            try {
+                await network.followData(SLOW_LOAD_WAIT_MS);
+                response = await page.goto(args.url, { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
+                await _addStyle(page, args.style);
+                const until: number = Date.now() + SLOW_LOAD_WAIT_MS;
+                await network.quiet(until);
+                await page.waitForTimeout(args.bootMs ?? DEFAULT_BOOT_MS);
+                await network.quiet(until);
+            } finally {
+                network.dispose();
+            }
         }
         // A new document counts its inputs from zero, under an id of its own.
         const inputs: { doc: string; received: number } | undefined = await inputCount(page);

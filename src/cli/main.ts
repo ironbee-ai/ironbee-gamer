@@ -15,6 +15,10 @@ import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engin
 import { LIVE_LATENCY, liveFloorMs, offeredConfig, playConfigs } from "../game/configs";
 import { GameDefinition, PlanConfig, PlayConfig, Profile, ProfileResults } from "../game/types";
 import { MAX_EPISODES } from "../game/validate";
+import { fetchIndex, hfSource } from "../hf-library/client";
+import { localState, PullPhase, PullProgress, pullGame } from "../hf-library/pull";
+import { pushGames } from "../hf-library/push";
+import { HfGame, HfIndex, HfSource } from "../hf-library/types";
 import { CheckGame, checkPlay, CheckReport, Divergence, LIVE_GAMES_PER_SEED, PAUSED_GAMES_PER_SEED, Verdict } from "../improve/check";
 import { ImproveEngines, ImproveResult, Improver, nothingToCheck } from "../improve/improve";
 import { defaultBuiltInDir, GameSummary, Library, ProfileSummary } from "../library/store";
@@ -1036,6 +1040,78 @@ lib.command("remove")
     .action((gameId: string): void => {
         library(loadConfig()).removeUserPart(gameId);
         console.log(`removed your part of ${gameId}`);
+    });
+
+lib.command("push")
+    .description(
+        "Share games in the Hugging Face library (IBGAMER_HF_REPO): their definitions, profile versions and Laya's checkpoints of the versions they play, with the Hugging Face CLI (hf auth login)"
+    )
+    .argument("[games...]", "game ids (default: every game)")
+    .option("--repo <id>", "the repo (default: IBGAMER_HF_REPO's, else ironbee-ai/ironbee-gamer-library)")
+    .option("--public", "make the repo public when it is not there yet (default: private)")
+    .action(async (games: string[], opts: { repo?: string; public?: boolean }): Promise<void> => {
+        const l: Library = library(loadConfig());
+        const ids: string[] = games.length ? games : l.ids();
+        for (const id of ids) {
+            l.game(id);
+        }
+        const source: HfSource = hfSource(process.env, { ...(opts.repo ? { repo: opts.repo } : {}) });
+        const index: HfIndex = await pushGames(l, ids, {
+            source,
+            cli: process.env.IBGAMER_HF_CLI || "hf",
+            ...(opts.public ? { makePublic: true } : {}),
+            log: (line: string): void => console.log(line),
+        });
+        console.log(`${source.repo} holds ${index.games.length} games: ${index.games.map((g: HfGame): string => g.id).join(", ")}`);
+    });
+
+lib.command("pull")
+    .description("Add games from the Hugging Face library (IBGAMER_HF_REPO), trained: each file checked against the repo's index")
+    .argument("<games...>", "game ids")
+    .option("--repo <id>", "the repo (default: IBGAMER_HF_REPO's, else ironbee-ai/ironbee-gamer-library)")
+    .option("--revision <rev>", "a branch, tag or commit (default: main)")
+    .option("--replace", "replace a game's own training here (versions or Laya checkpoints not pulled)")
+    .action(async (games: string[], opts: { repo?: string; revision?: string; replace?: boolean }): Promise<void> => {
+        const l: Library = library(loadConfig());
+        const source: HfSource = hfSource(process.env, { ...(opts.repo ? { repo: opts.repo } : {}), ...(opts.revision ? { revision: opts.revision } : {}) });
+        const shared: { index: HfIndex; commit: string } | undefined = await fetchIndex(source);
+        if (!shared) {
+            throw new Error(`${source.repo} holds no library yet (no index.json at ${source.revision})`);
+        }
+        const abort: AbortController = new AbortController();
+        process.once("SIGINT", (): void => abort.abort());
+        for (const id of games) {
+            let shown: number = -1;
+            await pullGame(l, source, shared, id, {
+                ...(opts.replace ? { replace: true } : {}),
+                signal: abort.signal,
+                onProgress: (p: PullProgress): void => {
+                    const pct: number = p.totalBytes ? Math.floor((100 * p.doneBytes) / p.totalBytes) : 100;
+                    if (p.phase !== PullPhase.DOWNLOADING || pct >= shown + 10) {
+                        shown = pct;
+                        console.log(`${id}: ${p.phase} ${pct}% of ${Math.round(p.totalBytes / 1_000_000)} MB`);
+                    }
+                },
+            });
+        }
+    });
+
+lib.command("hf")
+    .description("The games of the Hugging Face library (IBGAMER_HF_REPO), and what this library has of each")
+    .option("--repo <id>", "the repo (default: IBGAMER_HF_REPO's, else ironbee-ai/ironbee-gamer-library)")
+    .action(async (opts: { repo?: string }): Promise<void> => {
+        const l: Library = library(loadConfig());
+        const source: HfSource = hfSource(process.env, { ...(opts.repo ? { repo: opts.repo } : {}) });
+        const shared: { index: HfIndex; commit: string } | undefined = await fetchIndex(source);
+        if (!shared) {
+            console.log(`${source.repo} holds no library yet`);
+            return;
+        }
+        console.log(`${source.repo} at ${shared.commit.slice(0, 12)}, updated ${shared.index.updatedAt}`);
+        for (const g of shared.index.games) {
+            const plays: string = g.plays.map((p: { engine: string; live: boolean; version?: number; mean?: number }): string => `${p.engine}${p.live ? " live" : ""}${p.version !== undefined ? ` v${p.version}` : ""}${p.mean !== undefined ? ` ${Number.isInteger(p.mean) ? p.mean : p.mean.toFixed(1)}` : ""}`).join(", ");
+            console.log(`${g.id.padEnd(16)} ${String(Math.round(g.size / 1_000_000)).padStart(5)} MB  ${localState(l, g).padEnd(9)} ${plays}`);
+        }
     });
 
 lib.command("games")

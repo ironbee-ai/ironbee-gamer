@@ -17,7 +17,10 @@
     <aside class="panel library">
         <div class="panel-head">
             <h2>Library</h2>
-            <button type="button" class="ghost" id="add-game">+ Add game</button>
+            <div class="head-actions">
+                <button type="button" class="ghost" id="hf-open" title="Games trained and shared on Hugging Face: download one, trained — it plays at once">⇩ Hugging Face</button>
+                <button type="button" class="ghost" id="add-game">+ Add game</button>
+            </div>
         </div>
         <div id="games" class="games"></div>
     </aside>
@@ -47,7 +50,7 @@
                 <label class="note" title="Optional: what you saw it do, or want it to do. Told to the trainer in its every prompt, for Jev and Laya alike; a version is still kept only when it scores higher.">Notes for the trainer <textarea id="train-note" rows="2" maxlength="2000" placeholder="Optional — what you saw it do wrong, or want it to do"></textarea></label>
                 <div class="buttons">
                     <button type="submit" id="play">▶ Play</button>
-                    <button type="button" id="train" class="secondary" title="Make it play better with the engine and clock chosen above. It plays the game beside its rules and finds what loses — the engine or the rules — and fixes that: Laya taught more, Jev's instructions or the rules trained (the trainer, an LLM, rewrites them). With nothing losing, it trains for a higher score. Then it plays again and keeps the change only if it plays better. With nothing to play yet — a new game, Laya with no model of the version, a clock the game is not played on yet — it trains from there. Notes for the trainer, when written, are your own idea: the version is trained with them.">✦ Train</button>
+                    <button type="button" id="train" class="secondary" title="Make it play better with the engine and clock chosen above. It plays the game with that engine and, where it plays worse, finds whose loss it is — the engine's or its rules' (played beside it) — and fixes that: Laya taught more, Jev's instructions or the rules trained (the trainer, an LLM, rewrites them). With nothing losing, it trains for a higher score. Then it plays again and keeps the change only if it plays better. With nothing to play yet — a new game, Laya with no model of the version, a clock the game is not played on yet — it trains from there. Notes for the trainer, when written, are your own idea: the version is trained with them.">✦ Train</button>
                     <button type="button" id="stop" class="danger" hidden>■ Stop</button>
                 </div>
             </form>
@@ -180,10 +183,9 @@
             <div class="choices engines" id="add-engines">
                 <label><input type="radio" name="add-engine" value="laya"> <b>Laya</b> — local, a decision in ~20–30 ms. The trainer writes the rules as code, then a local model learns them (distillation, ~1 hour on this machine). <span id="add-laya-status" class="muted"></span></label>
                 <label><input type="radio" name="add-engine" value="jev"> <b>Jev</b> — hosted, ~250–300 ms a decision; reads the rules as text. Nothing to distill. <span id="add-jev-status" class="muted"></span></label>
-                <label><input type="radio" name="add-engine" value="rules"> <b>Rules (code)</b> — the trainer writes the rules as code and they play directly: instant, on this machine, nothing to distill. Laya can still learn them later.</label>
             </div>
             <label class="check"><input type="checkbox" id="add-train-now" checked> Start training now, <input id="add-iterations" type="number" min="1" max="20" value="3" class="tiny"> iterations</label>
-            <label class="check" title="For a game that does not wait for the player: trained as Laya plays live (the rules deciding 45–90 ms late: as Laya answers on a quiet machine, and on a busy one); offered live once a version plays there nearly as well as paused. Not for Jev: it answers in hundreds of ms."><input type="checkbox" id="add-train-live"> …for real time (the game does not wait; Laya or Rules (code))</label>
+            <label class="check" title="For a game that does not wait for the player: trained as Laya plays live (the rules deciding 45–90 ms late: as Laya answers on a quiet machine, and on a busy one); offered live once a version plays there nearly as well as paused. Not for Jev: it answers in hundreds of ms."><input type="checkbox" id="add-train-live"> …for real time (the game does not wait; Laya)</label>
             <label class="note" title="Optional: what you want it to do. Told to the trainer in its every prompt; a version is still kept only when it scores higher.">Notes for the trainer <textarea id="add-train-note" rows="2" maxlength="2000" placeholder="Optional — what it should do, in your words"></textarea></label>
         </section>
 
@@ -197,6 +199,18 @@
             <button type="submit" id="add-save" hidden>Add the game</button>
         </div>
     </form>
+</dialog>
+
+<dialog id="hf-dialog" class="hf">
+    <div class="hf-head">
+        <h2>Hugging Face library</h2>
+        <span id="hf-repo" class="muted"></span>
+        <button type="button" class="ghost" id="hf-refresh" title="Read the shared library again">↻</button>
+        <button type="button" class="ghost" id="hf-close">Close</button>
+    </div>
+    <p class="muted">Games trained and shared: their profile versions and Laya's models. A game downloaded is added trained — it plays at once with Laya, and with Jev on your own key.</p>
+    <div id="hf-error" class="error"></div>
+    <div id="hf-list" class="hf-list"></div>
 </dialog>
 
 <script src="/app.js"></script>

@@ -71,7 +71,7 @@ profiles that play it.
 |---|---|---|---|---|---|
 | Chrome Dino ([wayou/t-rex-runner](https://wayou.github.io/t-rex-runner/)) | 2D canvas | 1485 ×3 in 90 s games (v11, trained for real time too; night mode reached in all three) | 1485 ×3 | 51 | 1485 ×3, the same as its rules |
 | Flappy Bird ([floppybird](https://nebez.github.io/floppybird/) by nebez, Apache-2.0) | the game's own state (HTML; its CSS animations run on game time) | 38 ×3 pipes in 60 s (v6, trained for real time too) | 38 ×3 | 3 | 38 ×3, the same as its rules |
-| Pac-Man with ghosts ([Pacman Canvas](https://pacman.platzh1rsch.ch/) by platzh1rsch, CC0) | pixels (a 90-wide colour grid) | 8410 ×3 in 180 s games, never died (v4, trained for real time too) | 8410 ×3 | 940 | 7680 ×3 |
+| Pac-Man ([Pacman Canvas](https://pacman.platzh1rsch.ch/) by platzh1rsch, CC0) | pixels (a 90-wide colour grid) | 8410 ×3 in 180 s games, never died (v4, trained for real time too) | 8410 ×3 | 940 | 7680 ×3 |
 | Doodle Climb ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/doodle-jump/)) | Phaser | 84 %, 100 % of the tower in 60 s | 100 %, 78 %, 100 % | 16 % | 100 %, 100 % |
 | Pop the Lock ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/pop-the-lock/)) | Phaser (rotation) | 63, 59, 54 pops in 60 s | 19, 64, 60 | 6 | 63, 59, 54, the same as its rules |
 | Super Coin Box ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/super-coin-box/)) | Phaser (tilemap) | 109, 113, 94 coins in 60 s (v4, trained for real time too; v5, kept for real time only, plays it live) | 70, 128, 100 | 4 | 152, 115, 115 |
@@ -102,7 +102,7 @@ day Tetris's v4 was trained in points (the trainer told, in its notes, about the
 Dino's v11, Flappy Bird's v6, Super Coin Box's v5 and Infinite Mario's v5 and v6 for real time with each seed
 played at 45, 53 and 60 ms, and Infinite Mario's v7 with Jev deciding.
 
-Doodle Climb, Pop the Lock, Super Coin Box, Tetris, Crazy Snake, Pac-Man with ghosts, Flappy Bird,
+Doodle Climb, Pop the Lock, Super Coin Box, Tetris, Crazy Snake, Pac-Man, Flappy Bird,
 Racer and Infinite Mario were added and trained by this app itself: the trainer set them up from a sample of what the page shows, then tuned them.
 Their game definitions are the only hand-written part.
 
@@ -128,6 +128,26 @@ To share a game, use `ibgamer library export <game> <dir>`, which writes every v
 directory. Use `ibgamer library import <dir>` to add one. A game's extractor is JavaScript. It
 runs in its own V8 context with no Node globals, no `eval`, a time limit, and only JSON crossing
 the boundary. Still, add only games you trust.
+
+### The Hugging Face library
+
+Trained games are shared on Hugging Face, in one model repo with a folder a game
+([ironbee-ai/ironbee-gamer-library](https://huggingface.co/ironbee-ai/ironbee-gamer-library) by default,
+`IBGAMER_HF_REPO` to use another): each game's definition, its profile versions, its windows and samples, and
+Laya's checkpoints of the versions it plays — not every round of every version, not the decision logs. A game
+pulled from it plays at once, trained: Laya with no distillation, Jev with your own key.
+
+- In the UI, **⇩ Hugging Face** above the library lists the shared games — how Laya and Jev play each, its size,
+  and what your library has of it — and downloads one (**Download**, **Update**). A game trained in your library
+  is replaced only after a second click; its decision logs stay.
+- `ibgamer library hf` lists them; `ibgamer library pull <game…>` downloads (`--replace` over your own training).
+  Every file is checked against its sha256 in the repo's `index.json`, all of a pull read at one commit.
+- `ibgamer library push [game…]` shares games (every one by default) with the Hugging Face CLI
+  (`pip install -U huggingface_hub`, then `hf auth login`): a game's folder in a commit that also removes what it
+  no longer holds, then the index. A repo that is not there is made private (`--public` for a public one). Paths of
+  your machine are taken out of what is shared; a file that still names your home folder stops the push.
+
+A private repo is read with `HF_TOKEN`, else the token `hf auth login` keeps.
 
 ### Adding a game
 
@@ -237,7 +257,7 @@ measure. That measure is self-reported, so a tuner could inflate it.
   |---|---|---|---|---|---|
   | Pop the Lock (v5, trained for 45 ms) | 63, 59, 54 | 5, 3, 25 | 3, 1, 2 (at 45 ms: 53, 59, 54) | inputs ≥ 45 ms: rules 64, 60, 54; Laya 64, 59, 54 (without the floor the rules died at 9 s) | rules, Laya (≥ 45 ms) |
   | Crazy Snake (v2, trained for 45–60 ms; before it v1) | 36, 35 (v1: 34, 35) | 36, 35 (v1: 34, 35) | 36, 35 (v1: 34, 35; v2 at 45, 53 and 60 ms: 36, 35 at each) | v1: Laya 32; v2 ≥ 50 ms: rules 39, 35, Laya 31 (dead at 74 s), 35 | rules, Laya (v2, ≥ 50 ms) |
-  | Pac-Man with ghosts (v4, trained for 45–60 ms; before it v2) | 8410 ×3 (v2: 5870 ×3) | 7250, 7270, 7460 (v2: 5920, 5100, 5230) | 6630, 7820, 6140 (v2: 5110, 3130, 5160; v4 at 45, 53 and 60 ms on six seeds: 7527, 6535, 6898 on average, every game to the end) | v2: Laya 5110; v4 ≥ 50 ms: rules 7130, 5460, 5150, Laya 7400, 6350, 6540 | rules, Laya (v4, ≥ 50 ms) |
+  | Pac-Man (v4, trained for 45–60 ms; before it v2) | 8410 ×3 (v2: 5870 ×3) | 7250, 7270, 7460 (v2: 5920, 5100, 5230) | 6630, 7820, 6140 (v2: 5110, 3130, 5160; v4 at 45, 53 and 60 ms on six seeds: 7527, 6535, 6898 on average, every game to the end) | v2: Laya 5110; v4 ≥ 50 ms: rules 7130, 5460, 5150, Laya 7400, 6350, 6540 | rules, Laya (v4, ≥ 50 ms) |
   | Tetris (points; v4, not trained for real time; before it v3) | 31192, 50126 (v3: 13419, 14587) | 30172, 50076 (v3: 12799, 13972) | 30158, 41650 (at 45 ms 6844, 29721; at 53 ms 412, 1754 and at 60 ms 1311, 414, topped out within 112 s; v3: 12797, 13975) | v4, inputs as soon as decided: rules 46787, 52301, Laya 59936, 33710 (at 30–36 ms); v3: Laya 51, 63 rows (before the switch to points) | rules, Laya |
   | Doodle Climb | 84 %, 100 % | 51 %, 100 % | 100 %, 34 % (at 45, 53 and 60 ms: 84 %, 100 %, 100 % and 100 %, 100 %, 95 %) | Laya 84 %, 100 %; rules 84 %, 40 % | rules, Laya (the rules lose some) |
   | Super Coin Box (v2; v4 trained for 45–60 ms; v5 at 45, 53 and 60 ms, kept for real time only) | 87, 80, 126 (v4: 109, 113, 94; v5: 76, 105, 118) | 105, 111, 84 | 116, 52, 70 (v4 at 53 ms: 106, 30, 117; v5 at 45, 53 and 60 ms: 133, 106, 114 on average, every game to the end) | v2: Laya 55, 40, 65 (dead at 28–45 s); v4 ≥ 50 ms: rules 113, 112, 52, Laya 136, 125, 100; v5 ≥ 50 ms: rules 128, 86 (dead at 54 s), 107, Laya 131, 102, 118 | rules, Laya (v5, ≥ 50 ms) |
@@ -328,22 +348,26 @@ What plays while a profile is trained is a choice (`train --no-check --decider �
 - **The rules as code** (`--decider rules`): the profile's `teach(state)`. It is instant, so an evaluation
   takes seconds instead of minutes, and it is the path to a fast local Laya afterwards.
 
-In the UI, **Train** makes the game play better with the engine and clock chosen above — Laya, Rules (code) or Jev,
-live or paused (Jev paused only); `ibgamer train <game> --engine laya --realtime` in the CLI. It is the one button to
-press, whether the game plays badly or well; the app finds what loses and fixes it, nobody diagnoses anything:
-- it plays the game with that engine and clock (live: five games a seed) beside the version's rules on the same
-  clock, and says which seeds the rules play below their record, and which the engine plays below its rules — with
-  the decisions before each loss where the engine chose otherwise than the rules;
-- it fixes the rules first (trained on that clock: live, with live games, so a loss only live play shows is seen),
-  then the engine — Laya taught more where it plays its rules worse (live games for the running clock), Jev's
-  instructions trained with Jev deciding; with nothing playing worse, it trains the version for a higher score;
+In the UI, **Train** makes the game play better with the engine and clock chosen above — Laya or Jev, live or paused
+(Jev paused only); `ibgamer train <game> --engine laya --realtime` in the CLI. It is the one button to press, whether
+the game plays badly or well; the app finds what loses and fixes it, nobody diagnoses anything. The engine is what is
+judged — Laya paused and live, Jev paused: the version's rules (code) are what Laya learns and what says whose a loss
+is, no longer an engine the UI offers (the CLI's `--engine rules` still plays them):
+- it plays the game with that engine and clock (live: five games a seed, then once more with its inputs held to
+  90 ms, as late as a busy machine lands them) beside the version's rules on the same clock, and says which seeds the
+  engine plays worse — below its rules, below the version's record with its rules, or at 90 ms — with the decisions
+  before each loss where the engine chose otherwise than the rules. Its rules losing where the engine holds is said,
+  and fixes nothing;
+- where the engine loses with its rules, it fixes the version (trained on that clock: live, with live games, so a loss
+  only live play shows is seen; across 45–90 ms), then the engine where it loses alone — Laya taught more (live games,
+  45–90 ms late, for the running clock), Jev's instructions trained with Jev deciding; with nothing playing worse, it
+  trains the version for a higher score;
 - it plays again, and keeps the change only if the game plays better: that engine and clock play the new version
   from then on; one that does not is undone (Laya's checkpoint before it comes back, the active version the one before).
 
 With nothing to check yet — a new game, Laya with no model of the version it plays, a clock the game is not played
 on yet — Train trains from there, for the engine chosen:
 - **Jev**: the trainer rewrites the rules Jev reads, Jev deciding;
-- **Rules (code)**: it rewrites the rules as code, the rules deciding;
 - **Laya**: it rewrites the rules as code, then Laya learns the version kept on this machine (a distillation: the
   rules label the states, Laya is fine-tuned on them). Laya with no model of the version it plays yet learns that
   version alone — nothing to train for that.
@@ -352,7 +376,7 @@ on yet — Train trains from there, for the engine chosen:
 trainer's own options (`--decider`, `--seeds`, `--realtime --simulated`, `--plan`, …). `ibgamer laya distill` still
 distils by hand.
 
-**For real time**, a game that does not wait for the player, for Laya or Rules (code): until a version plays live, the
+**For real time**, a game that does not wait for the player, for Laya: until a version plays live, the
 setup checklist's **Train for real time** (and the add-a-game wizard's box; `ibgamer train <game> --realtime` in the
 CLI) trains it — the rules decide 45–90 ms late, as Laya plays live on a quiet machine and on a busy one, on the paused
 clock so every run gives the same result, and every seed is played at 45, 68 and 90 ms: a version must play at every
@@ -386,9 +410,10 @@ with every number and pitfall, is in [research/KNOW-HOW.md](research/KNOW-HOW.md
 | Setup | `TYPESAFE_API_KEY` | `ibgamer laya setup`, then `ibgamer laya distill <game>` | none: a version trained with the rules deciding carries them |
 
 The rules as code play as well as they are written, instantly, from the moment training writes
-them — a baseline for the engines, and a way to play a game (in real time too) before Laya has
-learnt it. They know only what they were written for; an engine that reads the rules as text can
-reason about what the code did not foresee.
+them — a baseline for the engines: what Laya learns, and what a check holds an engine against. The UI
+does not offer them as an engine (Laya and Jev are what is played and judged); `ibgamer play <game>
+--engine rules` still plays them. They know only what they were written for; an engine that reads the
+rules as text can reason about what the code did not foresee.
 
 Jev follows written rules well, but at 275 ms a 90 s Dino game at 30 ms ticks takes ~14 minutes of
 wall time. Laya decides locally in ~25 ms, close to the game's own speed. A small encoder cannot read
@@ -455,6 +480,8 @@ the version) — and Laya plays the version's own, the active version's when non
 | `IBGAMER_DAEMON_URL` | – | an IronBee DevTools daemon to use, started with this package's `TOOL_PLUGINS` |
 | `IRONBEE_DEVTOOLS_DAEMON_SCRIPT` | the installed package | the DevTools daemon to start |
 | `CLAUDE_CODE_CLI` / `IBGAMER_TRAINER_MODEL` | `claude` / `opus` | the trainer |
+| `IBGAMER_HF_REPO` / `IBGAMER_HF_REVISION` | `ironbee-ai/ironbee-gamer-library` / `main` | the Hugging Face library, and the branch or commit pulled |
+| `HF_TOKEN` / `HF_ENDPOINT` / `IBGAMER_HF_CLI` | the token `hf auth login` keeps / `https://huggingface.co` / `hf` | reading a private repo; the Hub; the CLI a push uploads with |
 
 ## Under the hood
 

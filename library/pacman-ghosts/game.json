@@ -1,6 +1,6 @@
 {
   "id": "pacman-ghosts",
-  "name": "Pac-Man (with ghosts)",
+  "name": "Pac-Man",
   "description": "Pac-Man with four ghosts, three lives and power pellets: Pacman Canvas, an HTML5 remake by platzh1rsch.",
   "url": "https://pacman.platzh1rsch.ch/",
   "goal": "Pac-Man. The arrow keys steer Pac-Man through the maze. Eat the pellets (10 points each) and clear the maze. Four ghosts roam it: touching one costs a life, and there are three lives. After a big power pellet the ghosts turn blue for a while and can be eaten for bonus points. Score as many points as you can without losing your lives.",

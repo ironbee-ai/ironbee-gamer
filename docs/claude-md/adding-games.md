@@ -33,10 +33,11 @@
    it; chosen, it must be written: an empty one is refused, not saved as `fromState`; written while the
    trainer's reading is chosen, it is refused too — it would be left out); its label; seconds per game
    (whole, 5–600).
-4. **Engine**: Laya (the rules as code, then distillation), Jev, or Rules (code) — the rules as code
-   play themselves, nothing to distill —, saved as `preferredEngine`. Laya is shown ready, and chosen
+4. **Engine**: Laya (the rules as code, then distillation) or Jev, saved as `preferredEngine` — the
+   rules (code) are not offered as an engine: Laya learns them and a check holds an engine against them
+   (`ibgamer play --engine rules` still plays them). Laya is shown ready, and chosen
    first, by its Python (the status's `engines.laya.python`: a new game needs no checkpoint yet). The
-   first training can start at once (with the rules deciding when Laya or Rules is chosen; with Jev, only
+   first training can start at once (with the rules deciding when Laya is chosen; with Jev, only
    while the status says Jev is ready — Jev decides its every move; any training only while the trainer's
    CLI is there. The Train buttons follow the same rules, and the server refuses such a training with a
    400 naming what Jev or the trainer lacks, before anything runs; `ibgamer train` refuses one without the
@@ -94,9 +95,9 @@ The Engine select keeps the engine WANTED apart from the one it shows: a game op
 played or trained: Play and Train keep the one wanted, never a fallback shown), a pick in the select
 replaces it, and whenever the select is drawn again — a game opened, a run ended, the library changed, the
 status read — it shows the wanted engine as soon as that one can play the game (a training wrote the rules
-as code, a distillation made its checkpoint). Until then, for Play only, Laya or the rules wanted gives way
-to the rules (code) when they can — what the checklist says it plays with — before hosted Jev; any other
-to the first engine that can. The option shown picked again sends no change, and macOS's list sends nothing
+as code, a distillation made its checkpoint). It offers Laya and Jev (`PICKABLE_ENGINES`): the rules, wanted by
+a game before (its config, `preferredEngine` or the engine last wanted), are wanted as Laya, which learns them.
+Until then, for Play only, the engine wanted gives way to the first engine that can. The option shown picked again sends no change, and macOS's list sends nothing
 once it is open: the list used — pressed with the pointer, or a key other than Tab, Escape, Enter (Play on
 macOS), a modifier or a Ctrl/Cmd shortcut — picks the engine it shows, even when it is closed again
 unchanged (the two are not told apart), as the wizard's key list does. The status is read again when a run
@@ -111,12 +112,11 @@ it. Train acts on the Clock chosen too (docs/claude-md/improve.md). Enter in a f
 iterations — Train's field — it is Train (nothing while Train is disabled, as a disabled Play takes no
 Enter).
 
-A game's page shows its **setup checklist**: added (how it is read) → rules trained (version,
-score) → Laya taught (when Laya is the engine it is trained for, or it has a checkpoint) → playable —
-each open step with its button, a running step with its stage, bar and time left. Playable with Jev or
-Laya, and with its rules (code), by the Engine select's own test: some clock offered with it can play (Jev's
-key; Laya's Python and a checkpoint of the version that clock plays; that version's rules as code); else
-with its rules (code) now, if they can, and why the engine is not beside it. **Train** checks how the engine
+A game's page shows its **setup checklist**: added (how it is read) → trained (version, score) → Laya
+taught (when Laya is the engine it is trained for, or it has a checkpoint) → playable → played live (with Laya)
+— each open step with its button, a running step with its stage, bar and time left. Playable with Jev or
+Laya by the Engine select's own test: some clock offered with it can play (Jev's key; Laya's Python and a
+checkpoint of the version that clock plays); else why not, beside it. **Train** checks how the engine
 and clock chosen play, fixes what loses (else trains for a higher score) and checks again (docs/claude-md/improve.md);
 with nothing to check yet it does what the engine chosen needs (src/train/train-for.ts): Jev's rules in words, the
 rules as code, or for Laya the rules as code and then Laya taught the version kept (`LayaTrainingTracker`: the

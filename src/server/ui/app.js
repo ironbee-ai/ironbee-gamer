@@ -2,6 +2,9 @@
 
 const $ = (id) => document.getElementById(id);
 const state = {
+    /** The Hugging Face library as last read (/api/hf), and the game whose replacing waits for a second click. */
+    hf: null,
+    hfConfirm: null,
     games: [],
     selected: null,
     detail: null,
@@ -75,9 +78,21 @@ function engineLabel(kind) {
     return kind === "jev" ? "Jev (hosted)" : kind === "laya" ? "Laya (local)" : kind === "rules" ? "Rules (code)" : String(kind);
 }
 
-/** The engine wanted for the game shown (state.engineWanted) when the status knows it, else the server's default. */
+/**
+ * The engines the Engine list offers: Laya and Jev. The rules (code) are what Laya learns and what a check holds an engine
+ * against, not one to pick here (the CLI still plays them: `--engine rules`).
+ */
+const PICKABLE_ENGINES = ["laya", "jev"];
+
+/** The engine wanted for the game shown (state.engineWanted): its rules (code), wanted before the list dropped them, are Laya's to play. */
+function wantedHere() {
+    return state.engineWanted === "rules" ? "laya" : state.engineWanted;
+}
+
+/** The engine wanted for the game shown when the Engine list offers it, else the server's default when it does, else Laya. */
 function wantedEngine() {
-    return Object.hasOwn(state.status?.engines || {}, state.engineWanted ?? "") ? state.engineWanted : state.status?.defaultEngine;
+    const pickable = (kind) => PICKABLE_ENGINES.includes(kind) && Object.hasOwn(state.status?.engines || {}, kind);
+    return [wantedHere(), state.status?.defaultEngine, "laya"].find(pickable);
 }
 
 /** The engine wanted, remembered for a game opened later that names none: a pick, or a game's own — never a fallback shown. */
@@ -95,11 +110,6 @@ function distilledVersions() {
         .map((m) => Number(m[1]));
 }
 
-/** The profile versions of the game shown that carry their rules as code (newest first): those the rules can play. */
-function codedVersions() {
-    return (state.detail?.profiles || []).filter((p) => p.hasTeacher).map((p) => p.version);
-}
-
 /** The version a config pins for an engine and clock, when the game has it: the Profile select is locked to it (syncVersion). */
 function pinnedVersion(engine, live) {
     const pinned = offered(engine, live)?.version;
@@ -111,9 +121,8 @@ const NOT_OFFERED = "not offered for this game";
 /**
  * Why an engine cannot play the game shown with a clock (live: the clock never pauses), in words; empty: it can. As the
  * server takes a play: offered that way, the engine ready — Laya by its Python, not the status's `engines.laya.ok` (any
- * game's) —, and the version that clock plays (a config's pin, else the one the Profile select moves to: syncVersion)
- * distilled for Laya (a checkpoint a play can take), with its rules as code for the rules. A status not read yet takes
- * the engine as ready, as a training's refusal does.
+ * game's) —, and for Laya the version that clock plays (a config's pin, else the one its checkpoint learnt: syncVersion)
+ * distilled (a checkpoint a play can take). A status not read yet takes the engine as ready, as a training's refusal does.
  */
 function unplayableOn(kind, live) {
     if (!offered(kind, live)) {
@@ -135,15 +144,6 @@ function unplayableOn(kind, live) {
         // Not pinned: the version its checkpoint learnt plays (layaVersion).
         if (pinned !== undefined && !distilled.includes(pinned)) {
             return `no Laya checkpoint of v${pinned}, ${played}`;
-        }
-    } else if (kind === "rules") {
-        const coded = codedVersions();
-        if (!coded.length) {
-            return "no rules as code for this game yet";
-        }
-        // Not pinned: the select moves to a version with them.
-        if (pinned !== undefined && !coded.includes(pinned)) {
-            return `no rules as code in v${pinned}, ${played}`;
         }
     }
     return "";
@@ -168,7 +168,8 @@ async function loadStatus() {
     }
     const s = state.status;
     const pills = [];
-    for (const [kind, health] of Object.entries(s.engines)) {
+    // The engines the Engine list offers: the rules (code) are not one to play, whatever the status lists.
+    for (const [kind, health] of Object.entries(s.engines).filter(([kind]) => PICKABLE_ENGINES.includes(kind))) {
         pills.push(`<span class="pill ${health.ok ? "ok" : "down"}" title="${esc(health.detail)}">${kind === "jev" ? "Jev" : kind === "laya" ? "Laya" : esc(kind)}</span>`);
     }
     pills.push(`<span class="pill ${s.trainer.ok ? "ok" : "down"}" title="${esc(s.trainer.detail)}">Trainer</span>`);
@@ -195,8 +196,8 @@ function offered(engine, live) {
 }
 
 /**
- * The engines: each while some clock it is offered with can play the game (unplayable) — Laya with its Python and a
- * checkpoint of the version that clock plays, the rules with that version's rules as code.
+ * The engines the list offers (PICKABLE_ENGINES): each while some clock it is offered with can play the game (unplayable)
+ * — Laya with its Python and a checkpoint of the version that clock plays, Jev with its key.
  */
 function renderEngines() {
     const s = state.status;
@@ -207,18 +208,17 @@ function renderEngines() {
     // Whenever it is drawn (a game opened, a run ended, the status read again): the engine wanted, once it can play.
     const chosen = wantedEngine();
     engine.innerHTML = Object.keys(s.engines)
+        .filter((kind) => PICKABLE_ENGINES.includes(kind))
         .map((kind) => {
             // A clock it cannot play with is greyed out beside it (syncPace).
             const why = unplayable(kind);
             return `<option value="${esc(kind)}"${kind === chosen && !why ? " selected" : ""}${why ? " disabled" : ""}>${esc(engineLabel(kind))}${why ? ` — ${esc(why)}` : ""}</option>`;
         })
         .join("");
-    // The engine wanted cannot play it now: another is shown, for Play only (the wanted one is shown again once it can).
-    // Laya, or the rules, wanted: the rules (code) when they can — on this machine, as the checklist says it is ready to
-    // play — before hosted Jev. Any other: the first that can.
+    // The engine wanted cannot play it now: the first that can is shown, for Play only (the wanted one is shown again once
+    // it can).
     if (engine.value !== chosen) {
-        const playable = [...engine.options].filter((o) => !o.disabled);
-        const fallback = ((chosen === "laya" || chosen === "rules") && playable.find((o) => o.value === "rules")) || playable[0];
+        const fallback = [...engine.options].find((o) => !o.disabled);
         if (fallback) {
             engine.value = fallback.value;
         }
@@ -229,8 +229,8 @@ function renderEngines() {
 }
 
 /**
- * The clocks the chosen engine can play the game with: another is disabled — not offered, or the version it plays there
- * has no Laya checkpoint, or no rules as code, for those two (unplayableOn) — and a disabled choice moves to one that is not.
+ * The clocks the chosen engine can play the game with: another is disabled — not offered, or for Laya the version it
+ * plays there not distilled (unplayableOn) — and a disabled choice moves to one that is not.
  */
 function syncPace() {
     const pace = $("pace");
@@ -265,17 +265,10 @@ function chosenVersion() {
 
 /**
  * Laya plays a profile version whose states it learnt: the select shows that one and is locked while
- * Laya is the engine. The rules play only a version with its rules as code: the others cannot be picked for them.
+ * Laya is the engine.
  */
 function syncVersion() {
     const select = $("version");
-    const rules = $("engine").value === "rules";
-    const coded = codedVersions().map(String);
-    for (const option of select.options) {
-        const uncoded = rules && option.value !== "" && !coded.includes(option.value);
-        option.disabled = uncoded;
-        option.title = uncoded ? "No rules as code in this version: the rules cannot play it" : "";
-    }
     // A config that names a version plays that one.
     const pinned = pinnedVersion($("engine").value, $("pace").value === "realtime");
     if (pinned !== undefined) {
@@ -291,18 +284,9 @@ function syncVersion() {
         select.title = "Laya plays the profile version its model learnt";
         return;
     }
-    // Not locked: the one picked, else the active one — also after the rules moved it to a version with them as code.
+    // Not locked: the one picked, else the active one.
     if (state.detail?.active) {
         select.value = chosenVersion();
-    }
-    if (rules) {
-        // The rules play the version chosen here: one that carries them as code (newest first).
-        if (coded.length && !coded.includes(select.value)) {
-            select.value = coded[0];
-        }
-        select.disabled = false;
-        select.title = "The rules play the version chosen here (a version with its rules as code)";
-        return;
     }
     select.disabled = false;
     select.title = "";
@@ -542,7 +526,7 @@ function trainNote() {
     if (!shown || !engine || engine === shown) {
         return "";
     }
-    const whose = Object.hasOwn(state.status?.engines || {}, state.engineWanted ?? "") ? "the engine wanted here" : "the server's default engine";
+    const whose = engine === wantedHere() ? "the engine wanted here" : engine === state.status?.defaultEngine ? "the server's default engine" : "the engine the list offers first";
     return `A training is for ${engineLabel(engine)}, ${whose}, not ${engineLabel(shown)}, which the Engine list shows while ${engineLabel(engine)} cannot play: pick ${engineLabel(shown)} there to train for it.`;
 }
 
@@ -554,7 +538,7 @@ function trainNote() {
  */
 function trainRefusal(engine, live = false) {
     if (engine === "jev" && live) {
-        return "Jev is not played with the clock running: a decision takes it ~275 ms. Pick Laya or Rules (code) to train for real time.";
+        return "Jev is not played with the clock running: a decision takes it ~275 ms. Pick Laya to train for real time.";
     }
     const python = state.status?.engines?.laya?.python;
     if (engine === "laya" && python && !python.ok) {
@@ -1123,7 +1107,7 @@ function checkSummary(improve) {
         Object.keys(check.played)
             .map(
                 (s) =>
-                    `${s}: ${check.played[s]}${check.rules?.[s] !== undefined ? ` (rules ${check.rules[s]}${check.slow?.[s] !== undefined ? `, at the slow end ${check.slow[s]}` : ""})` : ""}`
+                    `${s}: ${check.played[s]}${check.slow?.[s] !== undefined ? ` (at the slow end ${check.slow[s]})` : ""}${check.rules?.[s] !== undefined ? ` · rules ${check.rules[s]}` : ""}`
             )
             .join(", ");
     const lines = [`Checked: ${improve.engine}, the clock ${improve.live ? "running" : "paused"}`];
@@ -1416,6 +1400,127 @@ function forgetPage() {
     renderReaderNote();
     renderNext();
 }
+
+// ---------- the Hugging Face library: games trained and shared, downloaded trained ----------
+
+/** What this library has of a shared game, in words (the server's LocalState). */
+const HF_STATE_TEXT = {
+    missing: "Not in your library",
+    "built-in": "In your library, not trained here",
+    installed: "Downloaded · up to date",
+    update: "Downloaded · a newer one is shared",
+    local: "Trained in your library",
+};
+
+/** The button a shared game offers, by what this library has of it (none: up to date). */
+const HF_ACTION = {
+    missing: "⇩ Download",
+    "built-in": "⇩ Download trained",
+    update: "⇩ Update",
+    local: "⇩ Replace with the shared one",
+};
+
+let hfPoll = null;
+
+function hfPulling(game) {
+    return Boolean(game.pull) && (game.pull.phase === "downloading" || game.pull.phase === "installing");
+}
+
+/** How a shared game plays: Laya and Jev, each version with its mean. */
+function hfPlays(game) {
+    return game.plays
+        .filter((p) => p.engine === "laya" || p.engine === "jev")
+        .map((p) => `${p.engine === "laya" ? "Laya" : "Jev"}${p.live ? " live" : ""}${p.version !== undefined ? ` v${p.version}` : ""}${p.mean !== undefined ? `: ${Number.isInteger(p.mean) ? p.mean : p.mean.toFixed(1)} ${game.scoreLabel}` : ""}`)
+        .join(" · ");
+}
+
+function hfAction(game) {
+    if (hfPulling(game)) {
+        const pct = game.pull.totalBytes ? Math.floor((100 * game.pull.doneBytes) / game.pull.totalBytes) : 0;
+        return `<span class="muted">${game.pull.phase === "installing" ? "Installing…" : `Downloading · ${pct}%`}</span><span class="bar-track small"><span style="width:${pct}%"></span></span>`;
+    }
+    const failed = game.pull?.phase === "failed" ? `<span class="error">${esc(game.pull.error)}</span>` : "";
+    // Training of this library's own is replaced only once asked again, here (no browser dialog).
+    if (state.hfConfirm === game.id) {
+        return `<span class="muted">Replace ${esc(game.name)}'s versions and Laya models here? Its decision logs stay.</span><span class="row-buttons"><button type="button" class="secondary" data-hf-cancel="1">Cancel</button><button type="button" data-hf-replace="${esc(game.id)}">Replace</button></span>${failed}`;
+    }
+    const label = HF_ACTION[game.state];
+    return `${label ? `<button type="button" class="secondary" data-hf-pull="${esc(game.id)}">${label}</button>` : `<span class="muted">✓ Up to date</span>`}${failed}`;
+}
+
+function renderHf() {
+    const d = state.hf;
+    $("hf-repo").textContent = d ? `${d.repo}${d.updatedAt ? ` · updated ${d.updatedAt.slice(0, 16).replace("T", " ")}` : ""}` : "Reading…";
+    $("hf-error").textContent = d?.error || "";
+    const games = d?.games || [];
+    $("hf-list").innerHTML = games.length
+        ? games
+              .map(
+                  (g) => `<div class="hf-game">
+            <img src="/api/hf/${esc(g.id)}/thumbnail" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+            <div><b>${esc(g.name)}</b> <span class="muted">${esc(g.id)} · ${Math.round(g.size / 1e6)} MB</span>
+                <div class="muted">${esc(hfPlays(g))}</div>
+                <div class="muted">${esc(HF_STATE_TEXT[g.state] || g.state)}</div></div>
+            <div class="hf-action">${hfAction(g)}</div>
+        </div>`
+              )
+              .join("")
+        : d && !d.error
+          ? `<p class="muted">Nothing is shared yet.</p>`
+          : "";
+}
+
+/** Reads the shared library (again, past the server's minute, when `refresh`); polled while a pull goes on. */
+async function loadHf(refresh = false) {
+    clearTimeout(hfPoll);
+    try {
+        state.hf = await api("GET", `/api/hf${refresh ? "?refresh=1" : ""}`);
+    } catch (err) {
+        state.hf = { repo: state.hf?.repo || "", games: state.hf?.games || [], error: err.message };
+    }
+    renderHf();
+    if ($("hf-dialog").open && state.hf.games.some(hfPulling)) {
+        hfPoll = setTimeout(() => loadHf(), 1500);
+    }
+}
+
+async function startHfPull(id, replace) {
+    state.hfConfirm = null;
+    try {
+        await api("POST", "/api/hf/pull", { gameId: id, replace });
+    } catch (err) {
+        $("hf-error").textContent = err.message;
+    }
+    await loadHf();
+}
+
+$("hf-open").addEventListener("click", () => {
+    state.hfConfirm = null;
+    $("hf-dialog").showModal();
+    renderHf();
+    loadHf();
+});
+$("hf-close").addEventListener("click", () => $("hf-dialog").close());
+$("hf-refresh").addEventListener("click", () => loadHf(true));
+$("hf-dialog").addEventListener("close", () => clearTimeout(hfPoll));
+$("hf-list").addEventListener("click", (event) => {
+    const pull = event.target.closest("[data-hf-pull]");
+    const replace = event.target.closest("[data-hf-replace]");
+    if (event.target.closest("[data-hf-cancel]")) {
+        state.hfConfirm = null;
+        renderHf();
+    } else if (replace) {
+        startHfPull(replace.dataset.hfReplace, true);
+    } else if (pull) {
+        const game = state.hf?.games.find((g) => g.id === pull.dataset.hfPull);
+        if (game?.state === "local") {
+            state.hfConfirm = game.id;
+            renderHf();
+        } else {
+            startHfPull(pull.dataset.hfPull, false);
+        }
+    }
+});
 
 $("add-game").addEventListener("click", () => {
     forgetPage();
@@ -1841,17 +1946,17 @@ function renderSetup() {
     const refusal = trainRefusal(engine, liveChosen());
     const trainWhy = [refusal, trainNote()].filter(Boolean).join(" ");
     if (run?.kind === "train") {
-        steps.push({ busy: true, text: `${run.improve ? "Training" : "Training the rules"} · ${busyText(run)}`, progress: run.progress });
+        steps.push({ busy: true, text: `Training · ${busyText(run)}`, progress: run.progress });
     } else if (trained) {
         const a = d.active;
         steps.push({
             done: true,
-            text: `Rules trained · v${a.version}${a.results ? ` · ${a.results.mean} ${g.score.label}` : ""}`,
+            text: `Trained · v${a.version}${a.results ? ` · ${a.results.mean} ${g.score.label}` : ""}`,
             action: refusal ? null : { id: "train", label: "Train more" },
             why: trainWhy,
         });
     } else {
-        steps.push({ text: "Rules not trained yet", action: refusal ? null : { id: "train", label: "✦ Train" }, why: trainWhy });
+        steps.push({ text: "Not trained yet", action: refusal ? null : { id: "train", label: "✦ Train" }, why: trainWhy });
     }
     if (engine === "laya" || hasLaya) {
         // Not offered while Laya's Python, or the trainer for a version without its rules as code, is not ready: why instead.
@@ -1862,16 +1967,16 @@ function renderSetup() {
             steps.push({ done: true, text: "Laya learned it", action: trained && !unready ? { id: "distill", label: "Distill again" } : null, why: unready });
         } else {
             steps.push({
-                text: trained ? "Laya not taught yet (~1 hour)" : "Laya: after the rules",
+                text: trained ? "Laya not taught yet (~1 hour)" : "Laya: after the training",
                 action: trained && !unready ? { id: "distill", label: "⚡ Distill to Laya" } : null,
                 why: unready,
             });
         }
     }
-    // The engine it plays with besides its rules (code): Jev for a game trained for it, else Laya once it learnt the game
-    // — by the Engine list's own test (unplayable): a clock offered with it that it can play, the engine ready (Jev's key,
-    // Laya's Python; not known yet, it is taken as ready, as a training's refusal takes it) and, for Laya, a checkpoint of
-    // the version that clock plays. The rules likewise, that version with its rules as code. Why not, beside the step.
+    // The engine it plays with: Jev for a game trained for it, else Laya once it learnt the game — by the Engine list's own
+    // test (unplayable): a clock offered with it that it can play, the engine ready (Jev's key, Laya's Python; not known
+    // yet, it is taken as ready, as a training's refusal takes it) and, for Laya, a checkpoint of the version that clock
+    // plays. Why not, beside the step.
     const named = engine === "jev" ? "jev" : hasLaya ? "laya" : null;
     const label = named === "jev" ? "Jev" : "Laya";
     const health = named === "laya" ? state.status?.engines?.laya?.python : named ? state.status?.engines?.[named] : null;
@@ -1879,43 +1984,29 @@ function renderSetup() {
     const ready = trained && named !== null && !namedWhy;
     // Not ready: in the engine's own words (its key, its Python); else why no clock plays it (the version one pins).
     const down = namedWhy && health?.ok === false ? health.detail : namedWhy;
-    const rulesWhy = unplayable("rules");
-    const coded = !rulesWhy;
-    // Rules as code that no clock offered with them plays (a config pins a version without): why, beside the step.
-    const uncoded = !coded && rulesWhy !== NOT_OFFERED && codedVersions().length ? rulesWhy : "";
     steps.push({
-        done: ready || coded,
-        text: ready
-            ? `Ready to play with ${label}${coded ? " or its rules (code)" : ""}`
-            : coded
-                ? named
-                    ? `Ready to play with its rules (code) now; with ${label} once it is ready`
-                    : engine === "rules"
-                        ? "Ready to play with its rules (code)"
-                        : "Ready to play with its rules (code) now; with Laya once it is taught"
-                : down
-                    ? `Playable with ${label} once it is ready`
-                    : "Playable when the steps above are done",
-        why: ready ? "" : [down, uncoded].filter(Boolean).join("; "),
+        done: ready,
+        text: ready ? `Ready to play with ${label}` : down ? `Playable with ${label} once it is ready` : "Playable when the steps above are done",
+        why: ready ? "" : down,
     });
     // Live: a clock that never pauses, offered and playable (the game's configs, else a version trained for real time
     // that kept its score there, pinned with its floor) — else why not, and the training that gets it there.
-    const liveBy = ["laya", "rules"].filter((k) => !unplayableOn(k, true));
+    const liveWhy = unplayableOn("laya", true);
     // The live clock pinned to a version Laya has not learnt (one kept for real time only, say): Distill teaches it that one.
     const liveVersion = offered("laya", true)?.version;
     const unlearnt =
         trained && liveVersion !== undefined && !distilledVersions().includes(liveVersion) && d.profiles.some((p) => p.version === liveVersion && p.hasTeacher);
     const distillLive =
         unlearnt && state.status?.engines?.laya?.python?.ok !== false && run?.kind !== "distill" ? { id: "distill-live", label: `⚡ Distill v${liveVersion} for live` } : null;
-    if (liveBy.length) {
-        const c = offered(liveBy[0], true);
+    if (!liveWhy) {
+        const c = offered("laya", true);
         steps.push({
             done: true,
-            text: `Plays live with ${liveBy.map(engineLabel).join(" or ")}${c?.version !== undefined ? ` · v${c.version}` : ""}${c?.lagMs !== undefined ? ` · inputs ≥ ${c.lagMs} ms` : ""}`,
+            text: `Plays live with Laya${c?.version !== undefined ? ` · v${c.version}` : ""}${c?.lagMs !== undefined ? ` · inputs ≥ ${c.lagMs} ms` : ""}`,
             action: distillLive,
         });
     } else if (trained && run?.kind !== "train") {
-        const why = (!g.configs && d.live?.why) || ["laya", "rules"].map((k) => unplayableOn(k, true)).find((w) => w && w !== NOT_OFFERED) || NOT_OFFERED;
+        const why = (!g.configs && d.live?.why) || liveWhy;
         steps.push({ text: "Not played live yet", action: distillLive || (refusal || engine === "jev" ? null : { id: "train-live", label: "Train for real time" }), why });
     }
     list.innerHTML = steps

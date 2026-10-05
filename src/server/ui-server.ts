@@ -20,6 +20,9 @@ import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engin
 import { describeConfig, LIVE_LATENCY, liveReadiness, LiveReadiness, offeredConfig, playConfigs } from "../game/configs";
 import { GameDefinition, Perception, PlayConfig, Profile } from "../game/types";
 import { InvalidDefinitionError, MAX_EPISODES } from "../game/validate";
+import { fetchIndex, hfSource, resolveUrl } from "../hf-library/client";
+import { localState, PullConflictError, PullPhase, PullProgress, pullGame } from "../hf-library/pull";
+import { HfGame, HfIndex, HfSource } from "../hf-library/types";
 import { defaultBuiltInDir, GameNotFoundError, GameSummary, Library, ProfileSummary } from "../library/store";
 import { DecisionRecord, EpisodeResult, Pace, PlayResult, TickEvent } from "../play/player";
 import { Distiller, DistillOptions, DistillResult, TeacherKind } from "../distill/distiller";
@@ -236,6 +239,26 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
     const ownOrigin: (origin: string | undefined, hostHeader: string | undefined) => boolean = (origin: string | undefined, hostHeader: string | undefined): boolean =>
         originAllowed(origin, hostHeader, host, port);
     const library: Library = new Library(defaultBuiltInDir(), config.libraryDir);
+    // The Hugging Face library (src/hf-library): its index, read again a minute on (or when asked); the pulls going on
+    // and how each ended, by game; the games' pictures, read once.
+    const hfFrom: HfSource = hfSource(process.env);
+    const hf: { read?: { at: number; shared?: { index: HfIndex; commit: string }; error?: string }; pulls: Map<string, PullProgress>; pictures: Map<string, Buffer> } = {
+        pulls: new Map(),
+        pictures: new Map(),
+    };
+    const hfShared: (refresh: boolean) => Promise<{ shared?: { index: HfIndex; commit: string }; error?: string }> = async (
+        refresh: boolean
+    ): Promise<{ shared?: { index: HfIndex; commit: string }; error?: string }> => {
+        if (refresh || !hf.read || Date.now() - hf.read.at > 60_000) {
+            try {
+                const shared: { index: HfIndex; commit: string } | undefined = await fetchIndex(hfFrom);
+                hf.read = { at: Date.now(), ...(shared ? { shared } : { error: `${hfFrom.repo} holds no library yet` }) };
+            } catch (err: unknown) {
+                hf.read = { at: Date.now(), error: err instanceof Error ? err.message : String(err) };
+            }
+        }
+        return hf.read;
+    };
     const runStore: RunStore = new RunStore(config.runsDir);
     const runs: RunRecord[] = runStore.list(KEPT_RUNS);
 
@@ -1406,6 +1429,89 @@ export async function startUiServer(config: GamerConfig): Promise<UiServerHandle
                     return;
                 }
                 sendJson(res, 202, { run: record });
+            } else if (req.method === "GET" && path === "/api/hf") {
+                // The shared games, what this library has of each, and the pulls going on (src/hf-library).
+                const read: { shared?: { index: HfIndex; commit: string }; error?: string } = await hfShared(/[?&]refresh=1\b/.test(req.url ?? ""));
+                const games: Array<Record<string, unknown>> = (read.shared?.index.games ?? []).map((g: HfGame): Record<string, unknown> => ({
+                    id: g.id,
+                    name: g.name,
+                    goal: g.goal,
+                    scoreLabel: g.scoreLabel,
+                    plays: g.plays,
+                    versions: g.versions,
+                    size: g.size,
+                    pushedAt: g.pushedAt,
+                    state: localState(library, g),
+                    pull: hf.pulls.get(g.id) ?? null,
+                }));
+                sendJson(res, 200, {
+                    repo: hfFrom.repo,
+                    revision: hfFrom.revision,
+                    commit: read.shared?.commit ?? null,
+                    updatedAt: read.shared?.index.updatedAt ?? null,
+                    error: read.error ?? null,
+                    games,
+                });
+            } else if (req.method === "POST" && path === "/api/hf/pull") {
+                const body: Record<string, unknown> = (await readJson(req)) as Record<string, unknown>;
+                const id: string = String(body.gameId ?? "");
+                const read: { shared?: { index: HfIndex; commit: string }; error?: string } = await hfShared(false);
+                const game: HfGame | undefined = read.shared?.index.games.find((g: HfGame): boolean => g.id === id);
+                if (!read.shared || !game) {
+                    sendJson(res, 404, { error: read.error ?? `${hfFrom.repo} has no game ${id}` });
+                    return;
+                }
+                const going: PullProgress | undefined = hf.pulls.get(id);
+                if (going && (going.phase === PullPhase.DOWNLOADING || going.phase === PullPhase.INSTALLING)) {
+                    sendJson(res, 409, { error: `${id} is being pulled` });
+                    return;
+                }
+                if (current?.record.gameId === id) {
+                    sendJson(res, 409, { error: `a run plays ${id} now: pull it once the run ends` });
+                    return;
+                }
+                const replace: boolean = body.replace === true;
+                if (!replace && localState(library, game) === "local") {
+                    sendJson(res, 409, { error: `${id} has training of this library's own: a pull replaces it`, needsReplace: true });
+                    return;
+                }
+                hf.pulls.set(id, { gameId: id, phase: PullPhase.DOWNLOADING, doneBytes: 0, totalBytes: game.size });
+                pullGame(library, hfFrom, read.shared, id, { replace, onProgress: (p: PullProgress): void => void hf.pulls.set(id, p) })
+                    .then((): void => {
+                        hub.broadcast({ type: "library" });
+                    })
+                    .catch((err: unknown): void => {
+                        const progress: PullProgress = hf.pulls.get(id) ?? { gameId: id, phase: PullPhase.FAILED, doneBytes: 0, totalBytes: game.size };
+                        hf.pulls.set(id, {
+                            ...progress,
+                            phase: PullPhase.FAILED,
+                            error: err instanceof PullConflictError || err instanceof Error ? err.message : String(err),
+                        });
+                    });
+                sendJson(res, 202, { pull: hf.pulls.get(id) });
+            } else if (req.method === "GET" && (m = /^\/api\/hf\/([a-z0-9-]+)\/thumbnail$/.exec(path))) {
+                // A shared game's picture, read once at the index's commit (a private repo needs the token: not the page's to send).
+                const id: string = m[1];
+                let picture: Buffer | undefined = hf.pictures.get(id);
+                if (!picture) {
+                    const read: { shared?: { index: HfIndex; commit: string }; error?: string } = await hfShared(false);
+                    const game: HfGame | undefined = read.shared?.index.games.find((g: HfGame): boolean => g.id === id);
+                    if (read.shared && game?.files.some((f: { path: string }): boolean => f.path === `games/${id}/thumbnail.png`)) {
+                        const answer: Response = await fetch(resolveUrl(hfFrom, read.shared.commit, `games/${id}/thumbnail.png`), {
+                            headers: hfFrom.token ? { authorization: `Bearer ${hfFrom.token}` } : {},
+                        });
+                        if (answer.ok) {
+                            picture = Buffer.from(await answer.arrayBuffer());
+                            hf.pictures.set(id, picture);
+                        }
+                    }
+                }
+                if (!picture) {
+                    sendJson(res, 404, { error: "no picture" });
+                    return;
+                }
+                res.writeHead(200, { "content-type": "image/png", "cache-control": "max-age=3600" });
+                res.end(picture);
             } else if (req.method === "POST" && path === "/api/runs/stop") {
                 current?.abort.abort();
                 sendJson(res, 200, { stopping: Boolean(current) });

@@ -29,7 +29,7 @@
 
 **For real-time play** (`realtime`, `latency`; CLI `train --no-check --realtime --latency <ms | min-max>`; the UI's
 Train with the clock running while the game is not played live yet — the setup checklist's **Train for real time**,
-and the add-a-game wizard's box — Laya or Rules (code) only, refused for Jev, whose hundreds of ms no game is played
+and the add-a-game wizard's box — Laya (the CLI's `--engine rules` too), refused for Jev, whose hundreds of ms no game is played
 live with): every game
 is played with the clock never paused, the rules decider answering late as the engine that will play
 does. The UI trains simulated (below) at `LIVE_LATENCY` (45–90 ms: Laya's answer and the frame's step, held to
@@ -53,7 +53,7 @@ config pins it; a game with no configs earns it: docs/claude-md/adding-games.md)
 the paused one; a training for Laya teaches Laya the version kept — a live-only one with the lag —, the setup
 checklist's **⚡ Distill vN for live** the live one when it has no Laya yet (`POST /api/runs` with `version`).
 **For the engine chosen** (`trainFor`, src/train/train-for.ts; the UI's Train, `train --engine`): Jev — Jev
-deciding; Rules (code) — the rules deciding; Laya — the rules deciding, then a distillation of the version kept
+deciding; the rules (the CLI's `--engine rules`; no longer an engine the UI offers) — the rules deciding; Laya — the rules deciding, then a distillation of the version kept
 (none when training kept none); Laya with no model of the version it is to play (`layaToTeach`: the active one, for
 real time the one its live config pins) is taught that version alone, nothing trained. Its `results` are the paused scores, with `results.realtime` beside them — the
 unseen seeds' among them (`results.realtime.test`: training plays those in real time too, to decide) —

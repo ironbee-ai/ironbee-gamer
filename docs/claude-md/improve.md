@@ -30,17 +30,21 @@ A version asked for that the game does not have is refused (the server: a 400 be
   live floor is the config's `lagMs`, else the version's (`liveFloorMs`).
 - After each game every state the engine decided on is asked of the rules (`teach`, after the game: in its time it
   would slow a live decision). A decision the rules would have made otherwise is a disagreement; a tie agrees.
-- Findings, a seed below its reference by more than `WORSE_SHARE` (live 10 %, paused 2 %):
-  - `rulesWorse`: the rules below their record on this clock (the running one: as measured in real time, else
-    paused) — the version is what to fix there;
+- The engine is what is played (Laya paused and live, Jev paused), so only where it plays worse is anything fixed;
+  its rules say whose loss it is. Findings, a seed below its reference by more than `WORSE_SHARE` (live 10 %, paused
+  2 %):
+  - `versionWorse`: the engine and its rules both below the version's record on this clock (the running one: as
+    measured in real time, else paused) — the version is what to fix there. `rulesWorse` (the rules below their record,
+    whatever the engine does) is information: where the engine holds, the check says so and fixes nothing;
   - `engineWorse`: the engine below the rules on the same clock (a version without rules, one trained for Jev:
     below its record);
-  - `slowWorse`, live: the rules played once more with their inputs held to the slow end (`slowMs`:
-    `LIVE_LATENCY.maxMs`, 90 ms — as late as a busy machine lands a fast engine's), below their own play at the
-    soonest: the version breaks there, and Laya, which learns from it, with it — the version is what to fix, trained
-    across 45–90 ms. Holding, the check says so.
-- Verdict: `RULES` first (the engine learns from the rules; at the soonest or at the slow end), then `ENGINE`, else
-  `NOTHING`. For each game played
+  - `slowWorse`, live: the engine played once more with its inputs held to the slow end (`slowMs`:
+    `LIVE_LATENCY.maxMs`, 90 ms — as late as a busy machine lands them), below its own play at the soonest. Its rules
+    are played there on those seeds only (`slowRules`): losing too (`slowRulesWorse`), the version breaks at the slow
+    end and is what to fix, trained across 45–90 ms; holding, the engine is — Laya taught on those lags. Holding, the
+    check says so.
+- Verdict: `RULES` (the version, which the engine learns from: below the record, or at the slow end, with its rules),
+  then `ENGINE` (below its rules, or alone at the slow end), else `NOTHING`. For each game played
   below its reference, the decisions in its last 3 s where the engine chose otherwise than the rules
   (`divergences`) — where it went wrong (information only: the fix does not read them).
 - Live, the games the engine lost with its inputs landing more than `LATE_MS` (10 ms) past their floor are said so,
@@ -61,7 +65,8 @@ A version asked for that the game does not have is refused (the server: a 400 be
     simulated real time never shows a loss only live games have), 4 iterations;
   - Jev: Jev deciding, 2 iterations, `activate: false` — the version kept is Jev's, and Jev's config plays it;
   - Laya: then distilled for the version kept (with the lag for a lag-aware one; live DAgger rounds for the
-    running clock). Training kept nothing while Laya plays below its rules where they hold: Laya taught more.
+    running clock). Training kept nothing while Laya plays worse alone (below its rules where they hold, or at the
+    slow end where they do not break: `engineOwn`): Laya taught more.
 - `ENGINE` with Laya: Laya taught more — DAgger from its checkpoint (`resume`, 2 rounds); the running clock:
   `DistillOptions.live`, its student games played live, one at a time, each row with the lag it was decided at
   (`laya distill --live`). A lesson that plays no better (its distillation kept the checkpoint before it, or the check
@@ -71,9 +76,10 @@ A version asked for that the game does not have is refused (the server: a 400 be
 - Checked again, then `playsBetter`. The same version (Laya taught more), held to the same rules: fewer seeds below
   their reference with the mean no lower, or as few and the mean higher by more than 1 %. A new version is held to its
   own fresh record (its rules can no longer be below it): its engine must play better outright, the mean higher by more
-  than 1 % — or, its rules having lost at the slow end before, its rules there better by more than 1 % with its engine
-  at the soonest no lower than live games vary (`SLOW_FIX_TOLERANCE`, 3 %). A training that kept no version, and a distillation that kept the checkpoint before it (the new one played
-  no better paused), end there: nothing new to check.
+  than 1 %. Either, the engine having lost at the slow end before, is kept too when it plays better there by more than
+  1 % and at the soonest no lower than live games vary (`SLOW_FIX_TOLERANCE`, 3 %): a version, or Laya, that holds when
+  a busy machine slows it. A training that kept no version, and a distillation that kept the checkpoint before it (the
+  new one played no better paused), end there: nothing new to check.
   - Better: the version kept is what that engine and clock play from then on — the game's configs (its own, else
     the ones its versions earn) pinned in the user library's game.json; Laya and the rules together.
   - Not better, stopped or failed part way (the check after it too): undone — every round folder of the version but
@@ -89,8 +95,9 @@ A version asked for that the game does not have is refused (the server: a 400 be
 
 ## In the UI and the CLI
 
-- **✦ Train** acts on the engine wanted (picked in the Engine list, else the game's own — never a fallback the list
-  shows while that one cannot play) and the Clock chosen; the version the Profile select plays, when the engine shown
+- **✦ Train** acts on the engine wanted (picked in the Engine list — Laya or Jev: the rules (code) are the check's
+  reference, not an engine the UI offers; `--engine rules` in the CLI —, else the game's own — never a fallback the
+  list shows while that one cannot play) and the Clock chosen; the version the Profile select plays, when the engine shown
   is the one wanted; Train iterations; the notes for the trainer. Greyed out, saying why, without the trainer, Laya's
   Python (Laya) or Jev (Jev), and for Jev on the running clock; the server refuses the same
   (`POST /api/runs` `{ kind: "train", engine, live, iterations, version?, note? }` — `realtime: true` says `live` too).

@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head><title>loading fixture</title></head>
+<body>
+<script>
+    // A loader that starts after the page's load event, as a game's preloader does: ready once what it asks for has come,
+    // as a menu that shows then. Its files one after another (?files=…, each one the network brings in ?ms=…), or one
+    // big file a slow host sends in pieces over ?stream=… ms (as a sound fetched for the Web Audio API).
+    var params = new URLSearchParams(location.search);
+    var files = Number(params.get("files") || 0);
+    var ms = Number(params.get("ms") || 0);
+    var stream = params.get("stream");
+    window.ready = false;
+    window.loaded = 0;
+    function next(i) {
+        if (i >= files) {
+            window.ready = true;
+            return;
+        }
+        var img = new Image();
+        img.onload = img.onerror = function () { window.loaded++; next(i + 1); };
+        img.src = "/held?ms=" + ms + "&file=" + i;
+    }
+    function fetchStream() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/stream?ms=" + stream);
+        xhr.responseType = "arraybuffer";
+        xhr.onload = function () { window.loaded++; window.ready = true; };
+        xhr.send();
+    }
+    window.addEventListener("load", function () { setTimeout(function () { if (stream) { fetchStream(); } else { next(0); } }, 0); });
+</script>
+</body>
+</html>

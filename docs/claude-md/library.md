@@ -42,3 +42,38 @@ Dino's first versions (v1–v3) were converted from the research runs (`research
 every accepted tuning version with its analysis and results, and the continual-training version with its
 five regression tests and their three windows. The later versions, and the other games, were trained by
 this app (`ibgamer train`) and moved into `library/` with their windows and samples.
+
+## The Hugging Face library (src/hf-library/)
+
+One model repo (`IBGAMER_HF_REPO`, default `ironbee-ai/ironbee-gamer-library`), a folder a game:
+`index.json` (`HfIndex`: `format` — a reader refuses a newer one —, `updatedAt`, each game's id, name, `plays`, versions,
+`files` with size and sha256), `README.md` (the model card, generated) and `games/<id>/`.
+
+- `exportGameForHf` (export.ts): `game.json` (the merged definition with `activeVersion`: this library's state.json
+  stays), `profiles/v<N>.json`, `windows/`, `samples/`, `thumbnail.png` — built-in first, the user's on top — and Laya's
+  checkpoints its configs play (`checkpointFor(currentCheckpoints(…), config.version, active)` for each Laya config:
+  not every round of every version, ~650 MB each). Not `decisions/`, not `state.json`. A JSON file naming a path of
+  this machine is rewritten with `scrubLocalPaths` (a string that is one becomes its last part — a checkpoint's
+  `base` is found by name beside it —, the home folder inside a longer one `~`); one naming none keeps its bytes (a
+  tokenizer). A text file that still names the home folder stops the export. `plays`: each config with the version it
+  plays, its floor live, Laya's checkpoint and its mean (Laya's student as distilled, else the version's results).
+- `pushGames` (push.ts): a game at a time — exported into a temporary folder, `hf upload <repo> <folder> games/<id>
+  --delete *` (what the folder no longer holds goes in the same commit: a checkpoint replaced), the folder removed —,
+  then the remote index read, these games put in it (`mergeIndex`, the others kept) and uploaded with the README, last.
+  `--private` unless asked (only a repo that is not there yet takes it). The CLI is `IBGAMER_HF_CLI` (`hf`).
+- `fetchIndex` / `downloadFile` (client.ts): HTTPS, `<HF_ENDPOINT>/<repo>/resolve/<rev>/<path>`, a private repo with
+  `HF_TOKEN` else the token file `hf auth login` writes. The index's commit (`x-repo-commit`) is what every file of a
+  pull is read at. A file is written to `<dest>.part`, hashed as it comes, and renamed into place only with the index's
+  size and sha256; one already there that is is not downloaded again (a pull stopped part way goes on).
+- `pullGame` (pull.ts): downloads into `<userDir>/.<id>.hf-pull/` (kept when a pull stops), writes `hf.json`
+  (`HfInstalled`: repo, commit, files), then `Library.importGame(staging, { replace: true })`. The game's `decisions/`
+  are moved aside and back (never copied: gigabytes). `localState`: `missing`, `built-in` (no versions or checkpoints
+  of the user's own), `installed` / `update` (pulled; the shared files as pulled or not), `local` (trained here:
+  profiles or checkpoints not pulled) — a pull over `local` is refused (`PullConflictError`) unless `replace`.
+- UI: **⇩ Hugging Face** in the library's head — a dialog of the shared games (`GET /api/hf`: the index read again a
+  minute on, `?refresh=1` at once; each game with its `state` and `pull` progress), **Download** / **Update** /
+  **Replace with the shared one** (a second click in the row, no browser dialog) → `POST /api/hf/pull { gameId,
+  replace }` (409: being pulled, a run plays the game, or `needsReplace`), polled while one goes on; a finished pull
+  broadcasts `library`. Pictures through `GET /api/hf/<id>/thumbnail` (a private repo's token stays in the server).
+- CLI: `library push [games…] [--repo] [--public]`, `library pull <games…> [--repo] [--revision] [--replace]`,
+  `library hf` (the shared games and each one's local state).

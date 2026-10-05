@@ -19,6 +19,7 @@ src/
     open.ts                 a game → game_open request; rawFormat (for prompts); perceivedKinds (novelty keys)
     configs.ts              playConfigs (a game's configs, else those its versions earn) / offeredConfig / describeConfig; LIVE_LATENCY, liveFloorMs, liveReadiness
   library/store.ts          Library: built-in + user roots, versions, active, windows, files, import/export
+  hf-library/               the Hugging Face library: export (what plays a game, paths scrubbed), push (hf upload), client (HTTPS + sha256), pull (into the library)
   reader/page-reader.ts     PageReaderWriter: the trainer writes a page expression for the game's own state, checked on the page
   play/
     player.ts               Player: episodes, the step loop, fruitless marking, askWhen, pace, evidence, decide(); plan mode's loop

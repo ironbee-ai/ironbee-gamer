@@ -1,11 +1,12 @@
 /**
  * Train's check (with something to check: improve.ts): how a game plays with an engine on a clock, and what is to be
- * fixed when it plays badly — found by the app, never by the person playing. The engine's games are played beside the
- * version's rules on the same clock, its reference. Where the rules play a seed well and the engine does not, the
- * engine is what to fix (Laya taught more on that clock, Jev's instructions trained); where the rules themselves play
- * worse than their record (the clock running: than they were measured in real time), the rules are. Before each game
- * the engine plays worse, the decisions where it chose otherwise than the rules would have on the same state show where
- * it went wrong. Nothing here knows a game.
+ * fixed when it plays badly — found by the app, never by the person playing. The engine is what is played, so only
+ * where it plays worse is anything fixed; the version's rules, played on the same clock beside it, say whose loss it
+ * is. Where the rules play a seed well and the engine does not, the engine is what to fix (Laya taught more on that
+ * clock, Jev's instructions trained); where they lose with it — below their record (the clock running: as they were
+ * measured in real time), or at the slow end of a live engine's lag —, the version is. The rules losing where the engine
+ * holds is said, and fixes nothing. Before each game the engine plays worse, the decisions where it chose otherwise than
+ * the rules would have on the same state show where it went wrong. Nothing here knows a game.
  */
 
 import { GameBrowser } from "../devtools/client";
@@ -21,9 +22,9 @@ import { DEFAULT_TRAIN_SEEDS } from "../train/trainer";
 export enum Verdict {
     /** It plays as well as its reference: nothing found. */
     NOTHING = "nothing",
-    /** The engine plays worse than the rules on the same clock (or than its record, a version without rules). */
+    /** The engine plays worse than the rules on the same clock (or than its record, a version without rules), or alone at the slow end. */
     ENGINE = "engine",
-    /** The rules play worse than their record on this clock: the version is what to train. */
+    /** The engine plays worse with its rules — below the version's record, or at the slow end: the version is what to train. */
     RULES = "rules",
 }
 
@@ -82,19 +83,24 @@ export interface CheckReport {
     rules?: CheckSide;
     /** The version's recorded scores per seed the rules are held to: in real time as measured there, else paused. */
     record?: Record<number, number>;
-    /** What to fix first: the rules, which the engine learns from, then the engine. */
+    /** What to fix first where the engine plays worse: the version (its rules), which the engine learns from, then the engine. */
     verdict: Verdict;
     /** In words, every finding, with the seeds and the numbers. */
     why: string;
-    /** Seeds the rules play below their record on this clock. */
+    /** Seeds the rules play below their record on this clock (where the engine's losses come from; alone, nothing to fix). */
     rulesWorse: number[];
+    /** Seeds the engine and its rules both play below the version's record on this clock: the version is what to fix there. */
+    versionWorse: number[];
     /**
-     * Real time, the version's rules once more with their inputs held to `slowMs` (as late as a busy machine lands a fast
-     * engine's: LIVE_LATENCY's slow end) — and the seeds they play below their own play at the soonest there: a version to
-     * train across the range, or Laya, which learns from them, cannot hold there either.
+     * Real time, the engine once more with its inputs held to `slowMs` (as late as a busy machine lands a fast engine's:
+     * LIVE_LATENCY's slow end), and the seeds it plays below its own play at the soonest there. Where it does, its rules are
+     * played there too (`slowRules`, those seeds only): losing there as well (`slowRulesWorse`), the version breaks at the
+     * slow end and is what to fix (trained across the range); holding, the engine is (Laya taught on those lags).
      */
     slow?: CheckSide;
     slowWorse: number[];
+    slowRules?: CheckSide;
+    slowRulesWorse: number[];
     /** Seeds the engine plays below the rules on the same clock (or, a version without rules, below its record). */
     engineWorse: number[];
     /** Every seed played below its reference, the rules' and the engine's: what a fix must lessen. */
@@ -117,7 +123,7 @@ export interface CheckOptions {
     live: boolean;
     /** Real time: how late a lag-aware version's inputs land at the soonest (its config's lagMs). */
     minLagMs?: number;
-    /** Real time: the rules are played once more with their inputs held to this lag (`slow`); none: not. */
+    /** Real time: the engine is played once more with its inputs held to this lag (`slow`), its rules where it loses there (`slowRules`); none: not. */
     slowMs?: number;
     /** Default: the seeds the version was measured on. */
     seeds?: number[];
@@ -216,14 +222,15 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
     /** The engine's decisions per game it played, labelled by the rules: kept until the reference says which games went wrong. */
     const askedOf: Map<CheckGame, Asked[]> = new Map();
 
-    const playSide: (side: DecisionEngine, label: string, labelByRules: boolean, floorMs?: number) => Promise<CheckSide> = async (
+    const playSide: (side: DecisionEngine, label: string, labelByRules: boolean, floorMs?: number, only?: number[]) => Promise<CheckSide> = async (
         side: DecisionEngine,
         label: string,
         labelByRules: boolean,
-        floorMs: number | undefined = options.minLagMs
+        floorMs: number | undefined = options.minLagMs,
+        only: number[] = seeds
     ): Promise<CheckSide> => {
         const games: CheckGame[] = [];
-        for (const seed of seeds) {
+        for (const seed of only) {
             for (let i: number = 0; i < perSeed && !stopped; i++) {
                 const asked: Array<Asked & { state?: unknown }> = [];
                 const browser: GameBrowser = openBrowser();
@@ -284,13 +291,17 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         return { label, games, means: meansOf(games) };
     };
 
-    // Real time, the rules once more at the slow end — the version's own (an engine checked plays them beside it).
-    const slowMs: number | undefined = live && teacher && options.slowMs !== undefined && options.slowMs > (options.minLagMs ?? 0) ? options.slowMs : undefined;
+    // Real time, the engine once more at the slow end — as a busy machine slows it; its rules there only where it loses.
+    const slowMs: number | undefined = live && options.slowMs !== undefined && options.slowMs > (options.minLagMs ?? 0) ? options.slowMs : undefined;
     options.onStart?.(seeds.length * perSeed * ((!checkingRules && teacher ? 2 : 1) + (slowMs !== undefined ? 1 : 0)));
     const played: CheckSide = await playSide(engine, engine.label, !checkingRules && teacher !== undefined);
     const rules: CheckSide | undefined = !checkingRules && teacher && !stopped ? await playSide(teacher, teacher.label, false) : undefined;
-    const slow: CheckSide | undefined =
-        slowMs !== undefined && teacher && !stopped ? await playSide(teacher, `${teacher.label}, inputs at ${slowMs} ms`, false, slowMs) : undefined;
+    const slow: CheckSide | undefined = slowMs !== undefined && !stopped ? await playSide(engine, `${engine.label}, inputs at ${slowMs} ms`, false, slowMs) : undefined;
+    const slowWorse: number[] = slow ? seeds.filter((s: number): boolean => worse(slow.means[s], played.means[s], share)) : [];
+    const slowRules: CheckSide | undefined =
+        slowWorse.length && !checkingRules && teacher && !stopped ? await playSide(teacher, `${teacher.label}, inputs at ${slowMs} ms`, false, slowMs, slowWorse) : undefined;
+    // The rules checked are the engine: where it loses at the slow end, they do.
+    const slowRulesWorse: number[] = checkingRules ? slowWorse : slowRules && rules ? slowWorse.filter((s: number): boolean => worse(slowRules.means[s], rules.means[s], share)) : [];
     const record: Record<number, number> | undefined = recordOf(profile, live);
     const clock: string = live ? "with the clock running" : "with the clock paused";
     const labelled: number = played.games.reduce((n: number, g: CheckGame): number => n + (askedOf.has(g) ? g.decisions : 0), 0);
@@ -298,7 +309,7 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
     const same: CheckGame[] = (rules ?? played).games;
     const sameGames: boolean =
         !live && seeds.length > 1 && same.length > 1 && same.every((g: CheckGame): boolean => g.score === same[0].score && g.decisions === same[0].decisions);
-    const base: Omit<CheckReport, "verdict" | "why" | "rulesWorse" | "slowWorse" | "engineWorse" | "worseSeeds"> = {
+    const base: Omit<CheckReport, "verdict" | "why" | "rulesWorse" | "versionWorse" | "slowWorse" | "slowRulesWorse" | "engineWorse" | "worseSeeds"> = {
         gameId: game.id,
         version: profile.version,
         engine: engine.kind,
@@ -306,33 +317,55 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
         played,
         ...(rules ? { rules } : {}),
         ...(slow ? { slow } : {}),
+        ...(slowRules ? { slowRules } : {}),
         ...(record ? { record } : {}),
         ...(labelled > 0 ? { disagreement: Number((disagreed / labelled).toFixed(3)) } : {}),
         ...(sameGames ? { sameGames: true } : {}),
         stopped,
     };
     if (stopped) {
-        return { ...base, verdict: Verdict.NOTHING, why: "stopped before every game was played: nothing concluded", rulesWorse: [], slowWorse: [], engineWorse: [], worseSeeds: [] };
+        return {
+            ...base,
+            verdict: Verdict.NOTHING,
+            why: "stopped before every game was played: nothing concluded",
+            rulesWorse: [],
+            versionWorse: [],
+            slowWorse: [],
+            slowRulesWorse: [],
+            engineWorse: [],
+            worseSeeds: [],
+        };
     }
 
     const seedsText: (worseOnes: number[]) => string = (worseOnes: number[]): string => (worseOnes.length === 1 ? `seed ${worseOnes[0]}` : `seeds ${worseOnes.join(", ")}`);
     const findings: string[] = [];
-    // The rules below their record on this clock: the version is what to fix there.
+    // The rules below their record on this clock — the version is what to fix only where the engine plays below it too:
+    // the engine is what is played, and one that holds is fine whatever its rules do.
     const rulesSide: CheckSide | undefined = checkingRules ? played : rules;
     const rulesWorse: number[] = rulesSide && record ? seeds.filter((s: number): boolean => worse(rulesSide.means[s], record[s], share)) : [];
-    if (rulesSide && record && rulesWorse.length > 0) {
+    const versionWorse: number[] = record ? rulesWorse.filter((s: number): boolean => checkingRules || worse(played.means[s], record[s], share)) : [];
+    const measured: string = live && profile.results?.realtime ? " (measured with the lag simulated)" : "";
+    if (rulesSide && record && versionWorse.length > 0) {
         findings.push(
-            `the rules play ${seedsText(rulesWorse)} ${clock} below their record: ${list(rulesWorse, rulesSide.means)} against ${list(rulesWorse, record)}` +
-                `${live && profile.results?.realtime ? " (measured with the lag simulated)" : ""}`
+            checkingRules
+                ? `the rules play ${seedsText(versionWorse)} ${clock} below their record: ${list(versionWorse, rulesSide.means)} against ${list(versionWorse, record)}${measured}`
+                : `${engine.label} and its rules play ${seedsText(versionWorse)} ${clock} below the version's record: ${list(versionWorse, played.means)} ` +
+                      `(the rules ${list(versionWorse, rulesSide.means)}) against ${list(versionWorse, record)}${measured}`
         );
     }
-    // The rules at the slow end below their own play at the soonest: as late as a busy machine lands a fast engine's inputs,
-    // the version breaks — and Laya, which learns from them, with it. The version is what to fix: trained across the range.
-    const slowWorse: number[] = slow && rulesSide ? seeds.filter((s: number): boolean => worse(slow.means[s], rulesSide.means[s], share)) : [];
-    if (slow && rulesSide && slowWorse.length > 0) {
+    // The engine at the slow end below its own play at the soonest: as late as a busy machine lands its inputs, it breaks.
+    // Its rules there say whose it is: breaking too, the version's (trained across the range); holding, the engine's.
+    if (slow && slowWorse.length > 0) {
+        const own: number[] = slowWorse.filter((s: number): boolean => !slowRulesWorse.includes(s));
         findings.push(
-            `the rules play ${seedsText(slowWorse)} with their inputs held to ${slowMs} ms below their play at the soonest: ` +
-                `${list(slowWorse, slow.means)} against ${list(slowWorse, rulesSide.means)} — as late as a busy machine lands a fast engine's`
+            `${engine.label} plays ${seedsText(slowWorse)} with its inputs held to ${slowMs} ms below its play at the soonest: ` +
+                `${list(slowWorse, slow.means)} against ${list(slowWorse, played.means)} — as late as a busy machine lands them` +
+                (checkingRules
+                    ? ""
+                    : slowRules && slowRulesWorse.length > 0
+                        ? `; its rules break there too (${list(slowRulesWorse, slowRules.means)} against ${list(slowRulesWorse, rulesSide?.means ?? {})}): the version is what to fix`
+                        : "") +
+                (!checkingRules && slowRules && own.length > 0 ? `; its rules hold there (${list(own, slowRules.means)}): the engine is what to teach` : "")
         );
     }
     // The engine below the rules on the same clock — or, a version without rules (one trained for Jev), below its record.
@@ -375,24 +408,33 @@ export async function checkPlay(openBrowser: () => GameBrowser, library: Library
                 (evidence.length ? `; before the end it went otherwise than the rules — ${evidence.join("; ")}` : "")
         );
     }
-    // What to fix first: the rules (the engine learns from them) — at the soonest, or at the slow end —, then the engine.
-    const verdict: Verdict = rulesWorse.length > 0 || slowWorse.length > 0 ? Verdict.RULES : engineWorse.length > 0 ? Verdict.ENGINE : Verdict.NOTHING;
+    // What to fix — only where the engine plays worse: the version first (the engine learns from it), where it and its rules
+    // fall below the record or break at the slow end together; then the engine, below its rules or alone at the slow end.
+    const engineSlow: number[] = slowWorse.filter((s: number): boolean => !slowRulesWorse.includes(s));
+    const verdict: Verdict =
+        versionWorse.length > 0 || slowRulesWorse.length > 0 ? Verdict.RULES : engineWorse.length > 0 || engineSlow.length > 0 ? Verdict.ENGINE : Verdict.NOTHING;
     if (verdict !== Verdict.NOTHING) {
-        const worseSeeds: number[] = [...new Set([...rulesWorse, ...slowWorse, ...engineWorse])].sort((a: number, b: number): number => a - b);
-        return { ...base, verdict, rulesWorse, slowWorse, engineWorse, worseSeeds, why: findings.join("; and ") };
+        const worseSeeds: number[] = [...new Set([...versionWorse, ...slowWorse, ...engineWorse])].sort((a: number, b: number): number => a - b);
+        return { ...base, verdict, rulesWorse, versionWorse, slowWorse, slowRulesWorse, engineWorse, worseSeeds, why: findings.join("; and ") };
     }
     const against: Record<number, number> | undefined = checkingRules ? record : (rules?.means ?? record);
     return {
         ...base,
         verdict: Verdict.NOTHING,
-        rulesWorse: [],
+        rulesWorse,
+        versionWorse: [],
         slowWorse: [],
+        slowRulesWorse: [],
         engineWorse: [],
         worseSeeds: [],
         why:
             (against
                 ? `${engine.label} plays every seed ${clock} as well as ${!checkingRules && rules ? "the rules" : "its record"}: ${list(seeds, played.means)} against ${list(seeds, against)}`
                 : `${engine.label} played ${list(seeds, played.means)} ${clock}, with nothing to hold it to (no rules beside it, no record)`) +
-            (slow ? `; the rules hold with their inputs at ${slowMs} ms too: ${list(seeds, slow.means)}` : ""),
+            (slow ? `; it holds with its inputs at ${slowMs} ms too: ${list(seeds, slow.means)}` : "") +
+            // Its rules alone below their record: nothing to fix — the engine is what plays, and it does not.
+            (!checkingRules && rulesSide && record && rulesWorse.length > 0
+                ? `; its rules alone play ${seedsText(rulesWorse)} below their record (${list(rulesWorse, rulesSide.means)} against ${list(rulesWorse, record)}): nothing to fix there`
+                : ""),
     };
 }

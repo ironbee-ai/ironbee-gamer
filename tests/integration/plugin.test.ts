@@ -80,6 +80,7 @@ describeLive("game tools in a DevTools daemon", (): void => {
             "navigate.html",
             "timers.html",
             "chain.html",
+            "loading.html",
             "throws.html",
             "stray.html",
             "decode.html",
@@ -138,6 +139,20 @@ describeLive("game tools in a DevTools daemon", (): void => {
                     res.writeHead(404);
                     res.end();
                 }, Number(new URL(req.url ?? "", url).searchParams.get("ms") ?? 0));
+                return;
+            }
+            if (at === "/stream") {
+                // A big file a slow host sends in pieces over ?ms=…: data all the way, the last piece at the end.
+                const pieces: number = 20;
+                let sent: number = 0;
+                res.writeHead(200, { "content-type": "application/octet-stream" });
+                const timer: NodeJS.Timeout = setInterval((): void => {
+                    res.write(Buffer.alloc(1024));
+                    if (++sent === pieces) {
+                        clearInterval(timer);
+                        res.end();
+                    }
+                }, Number(new URL(req.url ?? "", url).searchParams.get("ms") ?? 0) / pieces);
                 return;
             }
             if (at === "/redirect") {
@@ -667,6 +682,31 @@ describeLive("game tools in a DevTools daemon", (): void => {
             expect(await afterBoot("idb.html", "window.saved")).toEqual([1, 1, 1, 1, 1]);
         }
     });
+
+    it("boots a real-time page once what it loads after its load event has come: its files one after another, a slow host's first byte, and a big file still coming", async (): Promise<void> => {
+        const booted: (query: string) => Promise<{ raw: unknown; ms: number }> = async (query: string): Promise<{ raw: unknown; ms: number }> => {
+            const started: number = Date.now();
+            await client.open({ url: `${url}loading.html?${query}`, adapters: [], read: "({ ready: window.ready, loaded: window.loaded })", score: "({ over: false, score: 0 })", bootMs: 100, freezeClock: false });
+            return { raw: (await client.step({})).raw, ms: Date.now() - started };
+        };
+        // Four files of 400 ms: the start is not pressed on the loading screen, 100 ms into a 1.6 s load.
+        const chain: { raw: unknown; ms: number } = await booted("files=4&ms=400");
+        expect(chain.raw).toEqual({ ready: true, loaded: 4 });
+        expect(chain.ms).toBeGreaterThanOrEqual(1_600);
+        // One file of 6 s, nothing coming until then: past the 5 s a frozen boot frame gives a request.
+        expect((await booted("files=1&ms=6000")).raw).toEqual({ ready: true, loaded: 1 });
+        // One file coming in pieces over 17 s, as a cold load's sound did: waited for while its data comes, however long.
+        const big: { raw: unknown; ms: number } = await booted("stream=17000");
+        expect(big.raw).toEqual({ ready: true, loaded: 1 });
+        expect(big.ms).toBeGreaterThanOrEqual(17_000);
+    }, 90_000);
+
+    it("boots a frozen page through a big file still coming: every boot frame waits while its data comes, however long it has been open", async (): Promise<void> => {
+        const started: number = Date.now();
+        // One file coming in pieces over 7 s: past the 5 s a boot frame gives a request with no data coming.
+        expect(await afterBoot("loading.html?stream=7000", "({ ready: window.ready, loaded: window.loaded })")).toEqual({ ready: true, loaded: 1 });
+        expect(Date.now() - started).toBeGreaterThanOrEqual(7_000);
+    }, 60_000);
 
     it("starts what a page set off as it loaded in the boot's first frame, however long the load took", async (): Promise<void> => {
         for (const ms of [10, 300]) {

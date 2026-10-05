@@ -220,3 +220,17 @@ button.small { padding: 2px 8px; font-size: 12px; }
 .stages li.current .mark { color: var(--warn); animation: pulse 1.2s infinite; }
 .stages li.skipped { opacity: .6; }
 .progress-view .results { margin-top: 8px; font-size: 12.5px; }
+
+/* The library's header buttons; the Hugging Face library's dialog. */
+.library .panel-head { flex-wrap: wrap; gap: 6px; }
+.head-actions { display: flex; gap: 6px; }
+.head-actions button { white-space: nowrap; }
+dialog.hf { width: min(780px, 94vw); }
+.hf-head { display: flex; align-items: center; gap: 10px; }
+.hf-head h2 { margin: 0; }
+.hf-head #hf-repo { flex: 1; }
+.hf-list { display: flex; flex-direction: column; gap: 8px; max-height: 64vh; overflow: auto; margin-top: 6px; }
+.hf-game { display: grid; grid-template-columns: 76px 1fr auto; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.hf-game img { width: 76px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--line); }
+.hf-game .hf-action { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 170px; text-align: right; }
+.hf-game .hf-action .row-buttons { display: flex; gap: 6px; }

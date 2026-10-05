@@ -73,7 +73,7 @@
   simulated and at the rules' own 6 ms live, and plays as with the clock paused held to 45 ms (rules 64,
   60, 54; Laya 64, 59, 54).
   Real time does not replay (Flappy's Laya: 34 one run, 15 the next): single games are indicative. Measured live
-  (2026-09-28/29): Snake, Tetris and Pac-Man with ghosts play with Laya about as with the clock
+  (2026-09-28/29): Snake, Tetris and Pac-Man play with Laya about as with the clock
   paused; Doodle loses some score; Super Coin Box's Laya (v2, not lag-aware) loses about half on its
   training seeds and dies early; Flappy (v3) is lost with either engine; Dino and Pop the Lock play only
   with a lag-aware version held to its lag. A fine-tuning sharing the GPU stretches a decision past 100 ms.

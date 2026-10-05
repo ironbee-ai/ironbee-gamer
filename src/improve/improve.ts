@@ -137,10 +137,10 @@ function sideMean(side: CheckSide): number {
 /**
  * Whether `after` plays better than `before`. The same version (Laya taught more) is held to the same rules: fewer seeds
  * below their reference with the mean no lower, or as few and the mean higher by more than MEAN_RISES. A new version is
- * held to its own, fresh record — its rules can no longer be below it —, so its engine must play better outright; or, its
- * rules having lost at the slow end before (`slowWorse`), its rules there must play better by more than MEAN_RISES with
- * its engine at the soonest no worse than live games vary (SLOW_FIX_TOLERANCE): a version trained to hold when a busy
- * machine slows the engine, as well as it played where it does not.
+ * held to its own, fresh record — its rules can no longer be below it —, so its engine must play better outright. Either,
+ * the engine having broken at the slow end before (`slowWorse`), also when it plays better there by more than MEAN_RISES
+ * and at the soonest no worse than live games vary (SLOW_FIX_TOLERANCE): a version trained, or Laya taught, to hold when a
+ * busy machine slows it, as well as it played where it does not — even with its mean at the soonest a little lower.
  */
 export function playsBetter(before: CheckReport, after: CheckReport): boolean {
     if (after.stopped) {
@@ -148,14 +148,13 @@ export function playsBetter(before: CheckReport, after: CheckReport): boolean {
     }
     const was: number = meanOf(before);
     const now: number = meanOf(after);
-    if (after.version === before.version && after.worseSeeds.length < before.worseSeeds.length) {
-        return now >= was;
+    if (after.version === before.version && after.worseSeeds.length < before.worseSeeds.length && now >= was) {
+        return true;
     }
     if ((after.version !== before.version || after.worseSeeds.length <= before.worseSeeds.length) && now > was * MEAN_RISES) {
         return true;
     }
     return (
-        after.version !== before.version &&
         before.slowWorse.length > 0 &&
         before.slow !== undefined &&
         after.slow !== undefined &&
@@ -224,6 +223,12 @@ function configFor(config: PlayConfig | undefined, version: number): PlayConfig 
     return config && (config.version === undefined || config.version === version) ? config : undefined;
 }
 
+/** The seeds where the engine alone plays worse: below its rules where they hold, or at the slow end where they do not break. */
+function engineOwn(report: CheckReport): number[] {
+    const slowOwn: number[] = report.slowWorse.filter((s: number): boolean => !report.slowRulesWorse.includes(s));
+    return [...new Set([...report.engineWorse, ...slowOwn])].filter((s: number): boolean => !report.versionWorse.includes(s));
+}
+
 /** A lesson, as what was done says it. */
 function lessonText(lesson: LayaLesson): string {
     return lesson === LayaLesson.FROM_THE_BASE ? "Laya learnt the version again from the base model" : "Laya taught more";
@@ -258,7 +263,7 @@ export class Improver {
             engine,
             live: options.live,
             ...(minLagMs !== undefined ? { minLagMs } : {}),
-            // The rules at the slow end too: as late as a busy machine lands a fast engine's inputs.
+            // The engine at the slow end too: as late as a busy machine lands its inputs.
             ...(options.live ? { slowMs: LIVE_LATENCY.maxMs } : {}),
             ...(options.gamesPerSeed !== undefined ? { gamesPerSeed: options.gamesPerSeed } : {}),
             ...(options.signal ? { signal: options.signal } : {}),
@@ -318,8 +323,9 @@ export class Improver {
                     if (options.engine === EngineKind.LAYA) {
                         await this.distillFor(options, game, trained, done);
                     }
-                } else if (options.engine === EngineKind.LAYA && before.engineWorse.some((s: number): boolean => !before.rulesWorse.includes(s))) {
-                    // No version played better, yet Laya plays below its rules where they hold: Laya taught more there.
+                } else if (options.engine === EngineKind.LAYA && engineOwn(before).length > 0) {
+                    // No version played better, yet Laya plays below its rules where they hold (or alone at the slow end): Laya
+                    // taught more there.
                     lessons = this.keepAside(options, game, version);
                     await this.teachLaya(options, game, version, lessons, done);
                 }
@@ -539,11 +545,13 @@ export class Improver {
     /** The version that engine and clock play from now on: the game's configs (its own, else those its versions earn) with it pinned. */
     private pin(game: GameDefinition, kind: EngineKind, live: boolean, version: number, done: string[]): void {
         const library: Library = this.deps.library;
-        const configs: PlayConfig[] = game.configs ?? playConfigs(game, library.profiles(game.id));
+        // Read again, not as this run began: a run of the game for another engine, beside this one, may have pinned its own since.
+        const current: GameDefinition = library.game(game.id);
+        const configs: PlayConfig[] = current.configs ?? playConfigs(current, library.profiles(game.id));
         const same: (c: PlayConfig) => boolean = (c: PlayConfig): boolean => Boolean(c.live) === live && (c.engine === kind || (kind === EngineKind.LAYA && c.engine === EngineKind.RULES));
         // Laya plays the version its rules taught it: the rules on the same clock play it too.
         const pinned: PlayConfig[] = configs.map((c: PlayConfig): PlayConfig => (same(c) ? { ...c, version } : c));
-        library.saveGame({ ...library.game(game.id), configs: pinned });
+        library.saveGame({ ...current, configs: pinned });
         done.push(`${kind}${kind === EngineKind.LAYA ? " and the rules" : ""} now play v${version} with the clock ${live ? "running" : "paused"}`);
     }
 

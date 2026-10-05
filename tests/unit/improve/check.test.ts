@@ -56,14 +56,24 @@ describe("checkPlay", (): void => {
         expect(report.rules).toBeUndefined();
     });
 
-    it("reports every finding: the rules below their record, and the engine below the rules — the rules to fix first", async (): Promise<void> => {
+    it("reports every finding: the engine and its rules below the version's record, and the engine below the rules — the version to fix first", async (): Promise<void> => {
         const record: Profile = version({ results: { mean: 80, scores: [80, 80], seeds: [1, 2], gameSeconds: 5, measuredAt: "x" } });
         const report: CheckReport = await check(record, new FakeEngine((): string => "NOOP"));
         expect(report.verdict).toBe(Verdict.RULES);
         expect(report.rulesWorse).toEqual([1, 2]);
+        expect(report.versionWorse).toEqual([1, 2]);
         expect(report.engineWorse).toEqual([1, 2]);
         expect(report.worseSeeds).toEqual([1, 2]);
-        expect(report.why).toMatch(/^the rules play seeds 1, 2 .* below their record.*; and fake plays seeds 1, 2 .* below the rules/);
+        expect(report.why).toMatch(/^fake and its rules play seeds 1, 2 .* below the version's record: .* \(the rules 50, 50\) against 80, 80.*; and fake plays seeds 1, 2 .* below the rules/);
+    });
+
+    it("fixes nothing where only the rules lose: the engine is what is played, and one that holds is fine — said, with the numbers", async (): Promise<void> => {
+        const report: CheckReport = await check(version({ teacher: "function teach(s) { return 'NOOP'; }" }), new FakeEngine(jumpWhenClose));
+        expect(report.verdict).toBe(Verdict.NOTHING);
+        expect(report.rulesWorse).toEqual([1, 2]);
+        expect(report.versionWorse).toEqual([]);
+        expect(report.worseSeeds).toEqual([]);
+        expect(report.why).toMatch(/; its rules alone play seeds 1, 2 below their record \(\d+, \d+ against 50, 50\): nothing to fix there$/);
     });
 
     it("finds nothing to fix in an engine that plays as the rules do, and says so with the numbers — and that its seeds played the very same game", async (): Promise<void> => {
@@ -76,10 +86,11 @@ describe("checkPlay", (): void => {
     });
 
     it("live, says the engine's inputs landed late in the games it lost, and its time a decision: its speed, not its lessons", async (): Promise<void> => {
+        // Slower than the jump's window by far (250 ms): it loses even when a busy test run slows the game's timers too.
         const slow: FakeEngine = new FakeEngine(jumpWhenClose);
         const ask: FakeEngine["ask"] = slow.ask.bind(slow);
         slow.ask = async (...a: Parameters<FakeEngine["ask"]>): ReturnType<FakeEngine["ask"]> => {
-            await new Promise((resolve: (v: unknown) => void): unknown => setTimeout(resolve, 120));
+            await new Promise((resolve: (v: unknown) => void): unknown => setTimeout(resolve, 250));
             return ask(...a);
         };
         const play: (minLagMs?: number) => Promise<CheckReport> = (minLagMs?: number): Promise<CheckReport> =>
@@ -101,26 +112,49 @@ describe("checkPlay", (): void => {
         expect(unfloored.why).not.toMatch(/landed late/);
     }, 30_000);
 
-    it("live, plays the rules once more at the slow end: losing there, they are the version's to fix (trained across the range); holding, it says so", async (): Promise<void> => {
-        const play: (slowMs: number) => Promise<CheckReport> = (slowMs: number): Promise<CheckReport> =>
-            checkPlay((): FakeGame => new RealtimeFakeGame(), library, {
-                game: fakeGameDefinition(),
-                profile: version({ results: { mean: 20, scores: [20, 20], seeds: [1, 2], gameSeconds: 2, measuredAt: "x" } }),
-                engine: new FakeEngine(jumpWhenClose),
-                live: true,
-                slowMs,
-                gamesPerSeed: 1,
-            });
-        // Held to 800 ms, the rules jump into the obstacle: below their own play at the soonest.
-        const late: CheckReport = await play(800);
+    /** Live, one game a seed, the engine held to `slowMs` once more; `onGame` sees each game as it ends. */
+    function playLive(engine: DecisionEngine, slowMs: number, onGame?: (side: string) => void): Promise<CheckReport> {
+        return checkPlay((): FakeGame => new RealtimeFakeGame(), library, {
+            game: fakeGameDefinition(),
+            profile: version({ results: { mean: 20, scores: [20, 20], seeds: [1, 2], gameSeconds: 2, measuredAt: "x" } }),
+            engine,
+            live: true,
+            slowMs,
+            gamesPerSeed: 1,
+            ...(onGame ? { onGame } : {}),
+        });
+    }
+
+    it("live, plays the engine once more at the slow end: losing there with its rules, the version is what to fix (trained across the range); holding, it says so", async (): Promise<void> => {
+        // Held to 800 ms, the engine jumps into the obstacle — and its rules, played there where it lost, too.
+        const late: CheckReport = await playLive(new FakeEngine(jumpWhenClose), 800);
         expect(late.slow?.games).toHaveLength(2);
         expect(late.slowWorse).toEqual([1, 2]);
+        expect(late.slowRules?.games).toHaveLength(2);
+        expect(late.slowRulesWorse).toEqual([1, 2]);
         expect(late.verdict).toBe(Verdict.RULES);
-        expect(late.why).toMatch(/the rules play seeds 1, 2 with their inputs held to 800 ms below their play at the soonest/);
-        // Held to 10 ms, they jump in time: nothing to fix there, and the check says they hold.
-        const soon: CheckReport = await play(10);
+        expect(late.why).toMatch(/fake plays seeds 1, 2 with its inputs held to 800 ms below its play at the soonest: .*; its rules break there too .*: the version is what to fix/);
+        // Held to 10 ms, it jumps in time: nothing to fix, its rules not played there, and the check says it holds.
+        const soon: CheckReport = await playLive(new FakeEngine(jumpWhenClose), 10);
         expect(soon.slowWorse).toEqual([]);
-        expect(soon.why).toMatch(/the rules hold with their inputs at 10 ms too/);
+        expect(soon.slowRules).toBeUndefined();
+        expect(soon.verdict).toBe(Verdict.NOTHING);
+        expect(soon.why).toMatch(/it holds with its inputs at 10 ms too/);
+    }, 60_000);
+
+    it("live, an engine that loses at the slow end where its rules hold is the one to teach", async (): Promise<void> => {
+        // Right at the soonest, it never jumps once its games there are played: at the slow end it alone loses.
+        let played: number = 0;
+        const engine: FakeEngine = new FakeEngine((s: unknown, c: Record<string, string>): string => (played >= 2 ? "NOOP" : jumpWhenClose(s, c)));
+        const report: CheckReport = await playLive(engine, 10, (side: string): void => {
+            played += side === "fake" ? 1 : 0;
+        });
+        expect(report.slowWorse).toEqual([1, 2]);
+        expect(report.slowRulesWorse).toEqual([]);
+        expect(report.versionWorse).toEqual([]);
+        expect(report.verdict).toBe(Verdict.ENGINE);
+        expect(report.worseSeeds).toEqual([1, 2]);
+        expect(report.why).toMatch(/; its rules hold there \(\d+, \d+\): the engine is what to teach/);
     }, 60_000);
 
     it("holds an engine playing a version without rules (one trained for Jev) to the version's record", async (): Promise<void> => {
