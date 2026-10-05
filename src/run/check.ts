@@ -9,6 +9,7 @@
 
 import { GameBrowser } from "../devtools/client";
 import { ScoreReading, StepRequest, StepResult } from "../devtools/protocol";
+import { pausedTickMs } from "../game/configs";
 import { openRequest } from "../game/open";
 import { GameAction, GameDefinition, Profile } from "../game/types";
 import { guardState } from "../play/guard";
@@ -105,7 +106,8 @@ async function playOnce(browser: GameBrowser, game: GameDefinition, profile: Pro
     const ids: string[] = (profile?.actions ?? []).map((a: GameAction): string => a.id);
     const extractor: Extractor | undefined = profile ? new Extractor(profile.extractor, options.seed) : undefined;
     const teacher: Teacher | undefined = profile?.teacher ? new Teacher(profile.teacher, ids) : undefined;
-    const tickMs: number = profile?.tickMs ?? DEFAULT_TICK_MS;
+    // As the player plays it with the clock paused: the version's tick, the paused clock's shortest at least.
+    const tickMs: number = profile ? pausedTickMs(profile) : DEFAULT_TICK_MS;
     await browser.open(openRequest(game, { seed: options.seed, ...(options.customScript ? { customScript: options.customScript } : {}) }));
     for (const s of inputSteps(game.start)) {
         await browser.step(s);

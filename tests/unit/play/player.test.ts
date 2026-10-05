@@ -2,6 +2,7 @@ import { OpenRequest, OpenResult, StepRequest, StepResult } from "../../../src/d
 import { RulesTeacher } from "../../../src/distill/teacher";
 import { DecisionEngine, EngineHealth, Question } from "../../../src/engine";
 import { SystemOneResponse } from "../../../src/engine/systemone";
+import { MIN_PAUSED_TICK_MS } from "../../../src/game/configs";
 import { DecideOn, GameDefinition, InputStep, Profile } from "../../../src/game/types";
 import { DecisionRecord, EpisodeResult, isExtractorErrorState, Pace, Player, PlayOptions, PlayResult, TickEvent, WindowFrameInfo } from "../../../src/play/player";
 import { FakeEngine, jumpWhenClose, PlanFakeEngine, ScriptedPlanEngine } from "../../helpers/fake-engine";
@@ -974,11 +975,12 @@ describe("Player", (): void => {
             let n: number = 0;
             // The first question's answers (asked three times) are no action; then WAIT.
             const { result, browser } = await play({ profile: fakeProfile(tapGame), seconds: 1, engine: new FakeEngine((): string => (n++ < 3 ? "FLY" : "WAIT")) });
-            expect(browser.steps[1]).toEqual({ advanceMs: 20 });
+            // No input, the tick alone: the fake runner's 20 ms, played at the paused clock's shortest.
+            expect(browser.steps[1]).toEqual({ advanceMs: MIN_PAUSED_TICK_MS });
             expect(browser.steps.filter((s: StepRequest): boolean => s.click !== undefined)).toHaveLength(0);
             expect(result.episodes[0].actionCounts.TAP).toBeUndefined();
             expect(result.episodes[0].invalidAnswers).toBe(1);
-            expect(result.episodes[0].steps).toBe(49);
+            expect(result.episodes[0].steps).toBe(Math.ceil(1_000 / MIN_PAUSED_TICK_MS) - 1);
         });
 
         it("keeps playing when the rules as code fail on a state: the last decision stands", async (): Promise<void> => {
@@ -1079,10 +1081,39 @@ describe("Player", (): void => {
         expect(criteria[4].JUMP).toMatch(/CHOSEN 2 TIMES IN A ROW WITH NO EFFECT/);
     });
 
+    it("with the clock paused plays a version at its tick, the paused clock's shortest at least — real time simulated and a tick asked for keep theirs", async (): Promise<void> => {
+        const advances = (browser: FakeGame): number[] => [...new Set(browser.steps.map((s: StepRequest): number => s.advanceMs ?? 0).filter((ms: number): boolean => ms > 0))];
+        // The fake runner's own tick is 20 ms: a local engine's decision does not fit it, and a game watched at its own
+        // speed would fall behind — it is played at the shortest tick, a version with a longer one at its own.
+        expect(advances((await play({ seconds: 1 })).browser)).toEqual([MIN_PAUSED_TICK_MS]);
+        expect(advances((await play({ seconds: 1, profile: fakeProfile({ tickMs: 60 }) })).browser)).toEqual([60]);
+        const with_ = async (extra: Partial<PlayOptions>): Promise<{ advances: number[]; steps: number }> => {
+            const browser: FakeGame = new FakeGame();
+            const result: PlayResult = await new Player(browser, new FakeEngine(jumpWhenClose)).play({
+                game: fakeGameDefinition(),
+                profile: fakeProfile(),
+                episodes: 1,
+                gameSeconds: 1,
+                seeds: [7],
+                pace: Pace.TURN,
+                ...extra,
+            });
+            return { advances: advances(browser), steps: result.episodes[0].steps };
+        };
+        // A tick asked for (`ibgamer play --tick`) is played as given.
+        expect((await with_({ tickMs: 20 })).advances).toEqual([20]);
+        // Real time simulated plays as real time does, at the version's own tick: nothing asked, a frame comes its 20 ms
+        // and the step's own 2–6 ms after the last — more frames in a second than the paused clock's shortest tick shows.
+        const simulated: { steps: number } = await with_({ profile: fakeProfile({ askWhen: "false" }), simulatedLag: { minMs: 45, maxMs: 45 } });
+        expect(simulated.steps).toBeGreaterThan(1_000 / 26 - 2);
+        expect(simulated.steps).toBeGreaterThan(Math.ceil(1_000 / MIN_PAUSED_TICK_MS));
+    });
+
     it("counts every step of a long episode, not only the ticks it keeps", async (): Promise<void> => {
         const { result } = await play({ seconds: 25 });
         expect(result.episodes[0].over).toBe(false);
-        expect(result.episodes[0].steps).toBe(1_250);
+        // 25 s at the paused clock's shortest tick (the fake runner's own is 20 ms).
+        expect(result.episodes[0].steps).toBe(Math.ceil(25_000 / MIN_PAUSED_TICK_MS));
         expect(result.episodes[0].lastTicks).toHaveLength(25);
     });
 
@@ -1101,9 +1132,9 @@ describe("Player", (): void => {
             }
         }
         const { result } = await play({ browser: new Unscored(), seconds: 1, episodes: 2 });
-        // The frames from 500 ms on, 20 ms apart, in each game.
-        expect(result.episodes.map((e: EpisodeResult): number | undefined => e.scoreErrors)).toEqual([26, 26]);
-        expect(result.scoreErrors).toBe(52);
+        // The frames from 500 ms on, 32 ms apart (the paused clock's shortest tick), in each game.
+        expect(result.episodes.map((e: EpisodeResult): number | undefined => e.scoreErrors)).toEqual([17, 17]);
+        expect(result.scoreErrors).toBe(34);
         expect(result.episodes[0].score).toBe(0);
         const plain: PlayResult = (await play({ seconds: 1 })).result;
         expect(plain.scoreErrors).toBeUndefined();

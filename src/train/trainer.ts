@@ -19,7 +19,7 @@
 import { GameBrowser } from "../devtools/client";
 import { StepRequest, StepResult } from "../devtools/protocol";
 import { DecisionEngine, DecisionEngineError } from "../engine";
-import { LIVE_LATENCY, liveFloors } from "../game/configs";
+import { LIVE_LATENCY, liveFloors, MIN_PAUSED_TICK_MS } from "../game/configs";
 import { openRequest, perceivedKinds } from "../game/open";
 import { DecideOn, FailureWindow, GameAction, GameDefinition, Perception, PlanConfig, Profile, ProfileResults, RegressionTest } from "../game/types";
 import { validateProfile, validateRegressionTest } from "../game/validate";
@@ -67,8 +67,11 @@ const RAW_SAMPLE_WHAT: string =
 const MAX_SETUP_CROPS: number = 60;
 /** Pixel perception: the most frequent grid colours the setup sample summary lists. */
 const PIXEL_SUMMARY_COLOURS: number = 12;
-/** The tickMs the trainer may write, rounded and clamped into it (never refused): a frame to half a second of game time. */
-const MIN_TRAINED_TICK_MS: number = 16;
+/**
+ * The tickMs the trainer may write, rounded and clamped into it (never refused): the paused clock's shortest tick (two
+ * frames: a shorter one is not played with the clock paused) to half a second of game time.
+ */
+const MIN_TRAINED_TICK_MS: number = MIN_PAUSED_TICK_MS;
 const MAX_TRAINED_TICK_MS: number = 500;
 /** The maxHoldMs the tuner may write, rounded and clamped into it as its tickMs is: the range a profile's validation takes. */
 const MIN_TRAINED_HOLD_MS: number = 10;
@@ -245,9 +248,13 @@ function invalidAnswersOf(games: Array<{ invalidAnswers: number; firstInvalidAns
     return { count: games.reduce((a: number, g: { invalidAnswers: number }): number => a + g.invalidAnswers, 0), ...(first !== undefined ? { first } : {}) };
 }
 
-/** A tickMs as the trainer wrote it, whole and within MIN/MAX_TRAINED_TICK_MS (16.7 is 17); not a number, `fallback`. */
+/**
+ * A tickMs as the trainer wrote it, whole and within MIN/MAX_TRAINED_TICK_MS (40.4 is 40, 16.7 is the shortest); not a
+ * number, `fallback` — within them too: a version kept from one with a shorter tick is saved with the tick it was played at.
+ */
 function tickOf(value: unknown, fallback: number): number {
-    return typeof value === "number" && Number.isFinite(value) ? Math.min(MAX_TRAINED_TICK_MS, Math.max(MIN_TRAINED_TICK_MS, Math.round(value))) : fallback;
+    const tickMs: number = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+    return Math.min(MAX_TRAINED_TICK_MS, Math.max(MIN_TRAINED_TICK_MS, Math.round(tickMs)));
 }
 
 /** A maxHoldMs as the tuner wrote it, whole and within MIN/MAX_TRAINED_HOLD_MS; not a number, `fallback` (none: the player's default). */
@@ -1103,7 +1110,7 @@ export class Trainer {
                 instructions: reply.instructions,
                 actions: reply.actions,
                 decideOn: reply.decideOn ?? best.decideOn,
-                // Rounded and clamped as the setup's: a tick of 16.7 is no reason to fail an iteration. So is the longest hold,
+                // Rounded and clamped as the setup's: a tick of 40.4 or 16 is no reason to fail an iteration. So is the longest hold,
                 // into the range the validation takes: one out of it failed the iteration after a long tuner call.
                 tickMs: tickOf(reply.tickMs, best.tickMs),
                 ...(maxHoldMs !== undefined ? { maxHoldMs } : {}),

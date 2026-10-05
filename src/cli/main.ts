@@ -12,7 +12,7 @@ import { DevtoolsClient, GameBrowser } from "../devtools/client";
 import { DaemonHandle, ensureDaemon, freePort } from "../devtools/daemon";
 import { Adapter, ProbeResult } from "../devtools/protocol";
 import { createEngine, DecisionEngine, EngineHealth, EngineKind } from "../engine";
-import { LIVE_LATENCY, liveFloorMs, offeredConfig, playConfigs } from "../game/configs";
+import { LIVE_LATENCY, liveFloorMs, offeredConfig, pausedTickMs, playConfigs } from "../game/configs";
 import { GameDefinition, PlanConfig, PlayConfig, Profile, ProfileResults } from "../game/types";
 import { MAX_EPISODES } from "../game/validate";
 import { fetchIndex, hfSource } from "../hf-library/client";
@@ -186,6 +186,7 @@ program
     .option("--no-log-decisions", "do not keep the engine's decisions as distillation data")
     .option("--plan-every <ms>", "real time, a profile that plans: a new request at least this often, several in flight (reacts sooner, asks more)", int("ms", 20, 5_000))
     .option("--lag <ms>", "real time simulated on the paused clock: each decision lands this late (ms, or a range 30-45) in game time — the same result every run", latencyRange)
+    .option("--tick <ms>", "game time between two decisions, instead of the one the version is played at — for trying: the decisions are not kept", int("tick", 16, 500))
     .action(
         async (
             gameId: string,
@@ -203,6 +204,7 @@ program
                 logDecisions: boolean;
                 planEvery?: number;
                 lag?: { minMs: number; maxMs: number };
+                tick?: number;
             }
         ): Promise<void> => {
             const config: GamerConfig = loadConfig();
@@ -239,13 +241,19 @@ program
                 browser = new DevtoolsClient({ baseUrl: daemon.baseUrl });
                 const abort: AbortController = new AbortController();
                 process.once("SIGINT", (): void => abort.abort());
-                const log: DecisionLog | undefined = opts.logDecisions && engine.kind === EngineKind.JEV ? new DecisionLog(lib, gameId, profile, engine.label) : undefined;
+                // Another tick than the one the version is played at (--tick) is tried, not the version played: its rows are
+                // kept by the version's content, which the tick is no part of, so none of that play's decisions is kept.
+                const playedTick: number = opts.realtime || opts.lag ? profile.tickMs : pausedTickMs(profile);
+                const ownTick: boolean = opts.tick === undefined || opts.tick === playedTick;
+                const log: DecisionLog | undefined = opts.logDecisions && ownTick && engine.kind === EngineKind.JEV ? new DecisionLog(lib, gameId, profile, engine.label) : undefined;
                 // Plan mode (a profile with `plan`, in real time) asks for plans: none of its answers is a decision row.
                 const plans: boolean = opts.realtime === true && profile.plan !== undefined;
-                console.log(`${game.name}: profile v${profile.version}, ${engine.label}${log ? (plans ? " — plans are not kept as decisions" : ` — decisions kept in ${log.file}`) : ""}`);
+                const ticked: string = ownTick ? "" : ` at a ${opts.tick} ms tick (played at ${playedTick} ms otherwise)`;
+                console.log(`${game.name}: profile v${profile.version}${ticked}, ${engine.label}${log ? (plans ? " — plans are not kept as decisions" : ` — decisions kept in ${log.file}`) : ""}`);
                 const result: PlayResult = await playGame(browser, engine, lib, {
                     game,
                     profile,
+                    ...(ownTick ? {} : { tickMs: opts.tick as number }),
                     episodes: opts.episodes ?? game.budgets.episodes,
                     gameSeconds: opts.seconds ?? game.budgets.gameSeconds,
                     ...(opts.seed !== undefined ? { seeds: [opts.seed] } : {}),

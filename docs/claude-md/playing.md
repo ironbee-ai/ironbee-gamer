@@ -32,7 +32,7 @@
   check (same state signature twice after the same action marks that action's criterion "ignored") →
   `askWhen` (a Predicate over the state; false keeps the last decision without asking) → `decide()`
   → input (the action's keys held, its pointer held — sent only while a pointer action is or was just in force — a click only when just decided) → game time:
-  - `decideOn: tick`: one `game_step` of `tickMs`.
+  - `decideOn: tick`: one `game_step` of `tickMs` (with the clock paused, 32 ms at least: below).
   - `decideOn: change`: sub-steps of `max(16, tickMs/3)` until the state signature changes, at most `maxHoldMs`.
 
   The state signature (`play/guard.ts`) is the state without its counters: a field whose key has `tick`, `count`,
@@ -91,6 +91,25 @@
   and wrong for an extractor that takes the time between frames from the lag (Dino v7: 320 at 45 ms;
   now 646–1486, live 947–1494). It is still an approximation (Super Coin Box's Laya: 101, 70, 94 simulated
   at 33 ms, 55, 40, 65 live): offer a live config only after playing it live for real.
+- **The paused clock's shortest tick** (`MIN_PAUSED_TICK_MS`, 32 ms: two of the page's frames; `pausedTickMs`,
+  src/game/configs.ts): with the clock paused a version is played at its `tickMs`, 32 ms at least — a play, a
+  measurement, a training's games, the teacher's and the student's, Train's check, `ibgamer check` alike. A decision of
+  the local engine and the step after it take ~28 ms: at a shorter tick a game watched at its own speed (`watch`) falls
+  behind it, and nothing makes that up. Measured 2026-10-05 with Laya, `watch`: Dino v11 at its 16 ms tick ran at 0.60
+  of the game's speed (90 s of game in 150 s), at 32 ms at 1.00, 1485 ×3 on its seeds either way (5,625 decisions a
+  game against 2,813); Pop the Lock v5 63, 59, 54 either way (0.96 and 0.97 of its speed: it asks ~60 times a game,
+  and a decision asked seldom takes Laya 48 ms); Flappy Bird v7 38 ×3 at 16 ms and 21, 38, 38 at 32 (0.92 and 0.97):
+  its extractor rates waiting as if the next frame shown were the next one drawn, so the frame a flap had to land on
+  was one it was never shown — its rules lost the same game. Trained again at that tick (Train, the same day) its v8
+  lets a later flap land only on the frames shown: 38 ×3 again, on the seeds it never saw too, and Laya learnt it
+  (38 ×3, 0.97 of the game's speed); Dino's and Pop the Lock's Laya, played on at 32 ms beside their rules, chose
+  otherwise in none of 6,012 and 228 states, and learnt nothing new. In real time, and real
+  time simulated, a version plays its own tick: a decision comes every max(tick, lag) there, and the live configs were
+  measured so. The trainer writes no shorter tick (docs/claude-md/training.md), and the UI says where a version's own
+  is shorter (`16 ms (paused: 32 ms)`).
+- **Another tick, tried** (CLI `play --tick <ms>`, 16–500): the version played with that much game time between two
+  decisions, as given (the shortest tick not held to) — what a tick buys or costs, without a new version. Its
+  decisions are not kept (a version's rows are kept by its content, which the tick is no part of).
 - **Does it replay?** `ibgamer check <game> [--seed] [--seconds] [--parallel]` (`run/check.ts`) plays the
   seed twice, the profile's rules deciding (keys and pointer held as the player holds them, a round's end
   taken on with `resume` as the player takes it on), and compares every frame's raw input and reading: the same

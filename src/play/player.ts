@@ -22,7 +22,7 @@
 import { GameBrowser } from "../devtools/client";
 import { OpenRequest, ScoreReading, StepRequest, StepResult } from "../devtools/protocol";
 import { ChoiceAnswer, DecisionEngine, InvalidAnswerError, Question, validateChoice } from "../engine";
-import { liveFloorMs } from "../game/configs";
+import { liveFloorMs, pausedTickMs } from "../game/configs";
 import { openRequest, perceivedKinds } from "../game/open";
 import { DecideOn, GameAction, GameDefinition, PlanConfig, Profile } from "../game/types";
 import { sleep } from "../util/time";
@@ -236,6 +236,11 @@ export interface PlayOptions {
      * whatever the machine does.
      */
     simulatedLag?: { minMs: number; maxMs: number };
+    /**
+     * The game time between two decisions, instead of the profile's — as given, the paused clock's shortest tick
+     * (pausedTickMs) not held to: for trying a version at another tick (`ibgamer play --tick`).
+     */
+    tickMs?: number;
     signal?: AbortSignal;
     hooks?: PlayHooks;
 }
@@ -442,6 +447,11 @@ export class Player {
         /** Real time simulated on the paused clock: the lag each decision lands after its frame, in game time. */
         const simulated: { minMs: number; maxMs: number } | undefined =
             !realtime && options.simulatedLag && options.simulatedLag.maxMs > 0 ? options.simulatedLag : undefined;
+        /**
+         * The game time between two decisions: with the clock paused the version's tick, the paused clock's shortest at
+         * least; in real time, and real time simulated, its own (a decision comes every max(tick, lag) there).
+         */
+        const tickMs: number = options.tickMs ?? (realtime || simulated ? profile.tickMs : pausedTickMs(profile));
         const lagMs: () => number = (): number => {
             if (simulated) {
                 lastLag = Math.round(latencyAt({ ...simulated, ...(seed !== undefined ? { seed } : {}) }, gameMs));
@@ -923,7 +933,7 @@ export class Player {
                             ...(answer ? { probabilities: answer.probabilities } : {}),
                         });
                     }
-                    if (t % Math.max(1, Math.round(1_000 / profile.tickMs)) === 0) {
+                    if (t % Math.max(1, Math.round(1_000 / tickMs)) === 0) {
                         samples.push(record);
                     }
                     lastChoice = action.id;
@@ -946,10 +956,10 @@ export class Player {
                     if (action) {
                         landing.push({ at: Math.max(gameMs + wait, landing.length ? landing[landing.length - 1].at : 0), input });
                     }
-                    current = observe(await runLanding(Math.max(profile.tickMs, wait) + stepTimeAt(seed, simulatedSteps++)));
+                    current = observe(await runLanding(Math.max(tickMs, wait) + stepTimeAt(seed, simulatedSteps++)));
                 } else if (profile.decideOn === DecideOn.CHANGE) {
                     const before: string = current.signature;
-                    const sub: number = Math.max(MIN_SUB_STEP_MS, Math.round(profile.tickMs / 3));
+                    const sub: number = Math.max(MIN_SUB_STEP_MS, Math.round(tickMs / 3));
                     let held: number = 0;
                     let first: boolean = true;
                     do {
@@ -958,7 +968,7 @@ export class Player {
                         held += sub;
                     } while (held < maxHoldMs && current.signature === before && !current.reading.over && gameMs < budgetMs);
                 } else {
-                    current = observe(await step({ ...input, advanceMs: profile.tickMs }));
+                    current = observe(await step({ ...input, advanceMs: tickMs }));
                 }
             }
         }

@@ -1651,13 +1651,16 @@ describe("Trainer: what fails, and where it is recorded", (): void => {
 
     it("rounds and clamps a tickMs the tuner wrote, as the setup's, rather than failing the iteration on it", (): void => {
         const trainer: Trainer = new Trainer({ library, engine: new FakeEngine(jumpWhenClose), openBrowser: (): GameBrowser => new FakeGame(), trainer: { command: "claude", model: "opus" } });
-        const tickOf = (tickMs: unknown): number =>
-            ((trainer as any).candidateFrom(parseJsonObject(tunerReply({ tickMs })), fakeProfile({ tickMs: 32 }), { gameId: "fake-runner", iterations: 1, workDir: root }) as Profile).tickMs;
-        expect(tickOf(16.7)).toBe(17);
-        expect(tickOf(3)).toBe(16);
+        const tickOf = (tickMs: unknown, best: number = 48): number =>
+            ((trainer as any).candidateFrom(parseJsonObject(tunerReply({ tickMs })), fakeProfile({ tickMs: best }), { gameId: "fake-runner", iterations: 1, workDir: root }) as Profile).tickMs;
+        expect(tickOf(40.4)).toBe(40);
+        // No shorter than the paused clock's shortest tick: a local engine's decision would not fit it.
+        expect(tickOf(16.7)).toBe(32);
+        expect(tickOf(3)).toBe(32);
         expect(tickOf(9_000)).toBe(500);
-        // Not a number: the best version's.
-        expect(tickOf("fast")).toBe(32);
+        // Not a number: the best version's — as it is played with the clock paused, when its own is shorter.
+        expect(tickOf("fast")).toBe(48);
+        expect(tickOf("fast", 16)).toBe(32);
     });
 
     it("rounds and clamps a maxHoldMs the tuner wrote into the range a profile takes, rather than failing the iteration on it", (): void => {

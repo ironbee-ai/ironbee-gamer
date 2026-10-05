@@ -17,6 +17,22 @@ import { GameDefinition, PlayConfig, Profile, ProfileResults } from "./types";
 export const LIVE_LATENCY: { minMs: number; maxMs: number } = { minMs: 45, maxMs: 90 };
 
 /**
+ * The shortest tick a version is played at with the clock paused, and the shortest the trainer writes: two of the page's
+ * 16 ms frames. A decision of the local engine and the step after it take ~28 ms; at a shorter tick a game watched at its
+ * own speed (Pace.WATCH) falls behind it. Measured 2026-10-05 with Laya: Dino at its 16 ms tick ran at 0.60 of its speed
+ * (90 s of game in 150 s), at 32 ms at 1.00, with the same score on its seeds.
+ */
+export const MIN_PAUSED_TICK_MS: number = 32;
+
+/**
+ * The game time between two decisions of a version played with the clock paused: its own tick, MIN_PAUSED_TICK_MS at
+ * least. In real time, and real time simulated, a version plays its own: there a decision comes every max(tick, lag).
+ */
+export function pausedTickMs(profile: Pick<Profile, "tickMs">): number {
+    return Math.max(MIN_PAUSED_TICK_MS, profile.tickMs);
+}
+
+/**
  * Live, the floors a round of `games` holds its inputs to, spread evenly from `minMs` to `maxMs` (none, or no wider: every
  * game at `minMs`) — each game as an engine that answers that late, or a busy machine, lands them.
  */

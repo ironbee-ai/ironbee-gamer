@@ -468,9 +468,14 @@ function renderProfiles() {
     }
 }
 
+/** The shortest tick a version is played at with the clock paused (src/game/configs.ts, MIN_PAUSED_TICK_MS). */
+const MIN_PAUSED_TICK_MS = 32;
+
 function renderProfileDetail(p) {
+    // A version with a shorter tick is played at the paused clock's shortest: its own counts in real time only.
+    const paused = p.tickMs < MIN_PAUSED_TICK_MS ? ` (paused: ${MIN_PAUSED_TICK_MS} ms)` : "";
     $("profile-detail").innerHTML = `
-        <h3>v${esc(p.version)} <small class="muted">${esc(p.decideOn)} · ${esc(p.tickMs)} ms${p.maxHoldMs ? ` · hold ≤ ${esc(p.maxHoldMs)} ms` : ""}${p.askWhen ? " · askWhen" : ""}</small></h3>
+        <h3>v${esc(p.version)} <small class="muted">${esc(p.decideOn)} · ${esc(p.tickMs)} ms${paused}${p.maxHoldMs ? ` · hold ≤ ${esc(p.maxHoldMs)} ms` : ""}${p.askWhen ? " · askWhen" : ""}</small></h3>
         <table class="table"><thead><tr><th>Action</th><th>Input</th><th>Description</th></tr></thead><tbody>
         ${p.actions.map((a) => `<tr><td><b>${esc(a.id)}</b></td><td>${a.click ? "click" : esc((a.keys || []).join(" + ") || "—")}</td><td>${esc(a.description)}</td></tr>`).join("")}
         </tbody></table>

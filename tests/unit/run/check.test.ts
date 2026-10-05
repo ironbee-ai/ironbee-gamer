@@ -1,5 +1,6 @@
 import { GameBrowser } from "../../../src/devtools/client";
 import { StepRequest } from "../../../src/devtools/protocol";
+import { pausedTickMs } from "../../../src/game/configs";
 import { InputStep, Profile } from "../../../src/game/types";
 import { checkReplay, CheckResult, firstDifference } from "../../../src/run/check";
 import { fakeGameDefinition, FakeGame, fakeProfile, RoundsFakeGame } from "../../helpers/fake-game";
@@ -12,7 +13,8 @@ describe("checkReplay", (): void => {
         for (const parallel of [false, true]) {
             const result: CheckResult = await checkReplay((): GameBrowser => new FakeGame(), fakeGameDefinition(), fakeProfile({ teacher: RIGHT }), { seed: 101, gameSeconds: 3, parallel });
             expect(result.diverged).toBeUndefined();
-            expect(result.frames).toBeGreaterThan(100);
+            // 3 s at the paused clock's shortest tick (the fake runner's own is 20 ms).
+            expect(result.frames).toBeGreaterThan(90);
             expect(result.ends[0]).toBe(result.ends[1]);
         }
     });
@@ -28,7 +30,8 @@ describe("checkReplay", (): void => {
             }
         }
         const result: CheckResult = await checkReplay((): GameBrowser => new Wobbly(), fakeGameDefinition(), fakeProfile({ teacher: RIGHT }), { seed: 101, gameSeconds: 3 });
-        expect(result.diverged).toMatchObject({ frame: 25, gameMs: 500, where: 'raw[3].t: "browser 0" ≠ "browser 1"' });
+        // The first frame from 500 ms on, 32 ms apart (the paused clock's shortest tick).
+        expect(result.diverged).toMatchObject({ frame: 16, gameMs: 512, where: 'raw[3].t: "browser 0" ≠ "browser 1"' });
     });
 
     it("plays a pointer action as the player does: held while it is in force, let go when another is", async (): Promise<void> => {
@@ -49,10 +52,10 @@ describe("checkReplay", (): void => {
         const result: CheckResult = await checkReplay(openBrowser, fakeGameDefinition(), profile, { seed: 101, gameSeconds: 2 });
         expect(result.diverged).toBeUndefined();
         const pointer: unknown[] = browsers[0].steps
-            .filter((s: StepRequest): boolean => s.advanceMs === profile.tickMs && s.observe === false)
+            .filter((s: StepRequest): boolean => s.advanceMs === pausedTickMs(profile) && s.observe === false)
             .map((s: StepRequest): unknown => s.pointer);
         // Held while charging (held again, it stays down), let go once when the obstacle is past, nothing said while waiting.
-        expect(pointer.filter((p: unknown): boolean => p === true).length).toBeGreaterThan(10);
+        expect(pointer.filter((p: unknown): boolean => p === true).length).toBeGreaterThan(5);
         expect(pointer).toContain(false);
         expect(pointer.every((p: unknown, i: number): boolean => (p === false ? pointer[i - 1] === true : p === undefined ? pointer[i - 1] !== true : true))).toBe(true);
     });

@@ -127,7 +127,8 @@ failure window), and training stops once the best version's mean reaches it.
    arrows) and a second screenshot (`screenshot-play.png`). A sample summary (`watching` + `blindPlay`;
    canvas2d: a sprite catalog + crops; Phaser: object kinds + dumps) goes into the work dir and the
    library's `samples/`, and the setup prompt asks for `{ extractor, actions, notes, tickMs }`. v1 =
-   generic instructions + the notes (`origin: setup`), its tickMs rounded and clamped to 16–500. The
+   generic instructions + the notes (`origin: setup`), its tickMs rounded and clamped to 32–500 (the paused clock's shortest tick,
+   docs/claude-md/playing.md, to half a second: a shorter one is not played with the clock paused). The
    extractor must run on at least one sample. With the rules deciding (`teacher` asked for too), the teacher
    is checked before it plays, as the teacher writer checks one: it must compile and answer every state the
    extractor made of those samples (guarded, as a decider gets them) — one repair round
@@ -144,7 +145,9 @@ failure window), and training stops once the best version's mean reaches it.
    latest rejected candidate and why it was not kept, the history, the windows and the existing tests.
    The reply (`analysis, instructions,
    extractor, actions, decideOn, tickMs, maxHoldMs, askWhen, newTests`) must validate and compile (its
-   tickMs rounded and clamped as the setup's: a 16.7 is no reason to fail an iteration); every
+   tickMs rounded and clamped as the setup's: a 40.4 or a 16 is no reason to fail an iteration — a candidate that
+   names none takes the best's, as it is played with the clock paused, so one kept from a 16 ms version says 32; the
+   prompts give the floor and why); every
    regression test (old + new) must pass offline — one repair round with the failures and the failed
    attempt (the existing tests cannot change, its own new ones can), else the iteration fails. A test
    whose decision is an answer that is no action, its teacher failing on the state or a state too large for

@@ -328,7 +328,16 @@ describe("Distiller", (): void => {
         const played: Played[] = recordPlays();
         const tuned: Tuned[] = [];
         const lines: string[] = [];
-        const result: DistillResult = await distiller(tuned).distill({ ...OPTIONS, lag, workDir: path.join(root, "work"), hooks: { onLog: (l: string): number => lines.push(l) } });
+        // 220 states wanted: with the clock paused the fake runner's 20 ms tick is played at the paused clock's shortest
+        // (32 ms), 94 states a game of 3 s — two such games show the 110 wanted of them (116), four lagged ones theirs
+        // (104 after two).
+        const result: DistillResult = await distiller(tuned).distill({
+            ...OPTIONS,
+            minRows: 220,
+            lag,
+            workDir: path.join(root, "work"),
+            hooks: { onLog: (l: string): number => lines.push(l) },
+        });
         expect(result.profileVersion).toBe(v2.version);
         const laggedSeed = (seed: number): boolean => played.find((p: Played): boolean => p.seed === seed)?.lag !== undefined;
         for (const p of played.filter((g: Played): boolean => g.lag !== undefined)) {
@@ -337,13 +346,13 @@ describe("Distiller", (): void => {
 
         // The teacher's games, in pairs: while both kinds of state are short, one game of each pair is lagged, the other one
         // in the next pair — the lag meets the random moves (the second game of a pair) and the teacher's own path; once the
-        // paused states are enough, lagged games only, until half the distinct states wanted (200 of 400) are made with it.
+        // paused states are enough, lagged games only, until half the distinct states wanted (110 of 220) are made with it.
         const teacherGames: Played[] = played.filter((p: Played): boolean => p.seed >= 10_000 && p.seed < 1_000_000);
         expect(teacherGames.map((p: Played): boolean => laggedSeed(p.seed))).toEqual([false, true, true, false, true, true]);
         const wanders = (p: Played): boolean => (p.engine as any).epsilon > 0;
         expect(teacherGames.map(wanders)).toEqual([false, true, false, true, false, true]);
         expect(lines).toContain("  no labelled state is there yet");
-        expect(lines).toContainEqual(expect.stringMatching(/^teacher games 10000, 10001 \(lagged\): .* — \d+\/200 made with the lag, \d+ distinct labelled states$/));
+        expect(lines).toContainEqual(expect.stringMatching(/^teacher games 10000, 10001 \(lagged\): .* — \d+\/110 made with the lag, \d+ distinct labelled states$/));
         expect(lines).toContainEqual(expect.stringMatching(/^ {2}the teacher played 6 games, 4 of them with the lag: \d+ of the \d+ distinct labelled states are made with it$/));
         // Every row keeps its game's seed, and a lagged game's its lag: its states were made for the lag its decisions landed at.
         const teacherRows: Array<{ seed: number; lag?: unknown; state: { lag: number } }> = readFileSync(tuned[0].data[0], "utf-8")
@@ -355,7 +364,7 @@ describe("Distiller", (): void => {
             expect(laggedSeed(r.seed) ? r.state.lag >= 45 && r.state.lag <= 60 && r.lag !== undefined : r.state.lag === 0 && r.lag === undefined).toBe(true);
         }
         expect(teacherRows.filter((r: { lag?: unknown }): boolean => r.lag !== undefined).every((r: { lag?: unknown }): boolean => JSON.stringify(r.lag) === JSON.stringify(lag))).toBe(true);
-        expect(new Set(teacherRows.filter((r: { lag?: unknown }): boolean => r.lag !== undefined).map((r: { state: unknown }): string => JSON.stringify(r.state))).size).toBeGreaterThanOrEqual(200);
+        expect(new Set(teacherRows.filter((r: { lag?: unknown }): boolean => r.lag !== undefined).map((r: { state: unknown }): string => JSON.stringify(r.state))).size).toBeGreaterThanOrEqual(110);
 
         // The round's two Laya games: one lagged. The teacher labelled what the student visited in both, seeds and lag kept.
         const studentGames: Played[] = played.filter((p: Played): boolean => p.seed >= 1_000_000);

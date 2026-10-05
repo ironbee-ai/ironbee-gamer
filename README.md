@@ -60,6 +60,7 @@ ibgamer play dino --seconds 30       # plays in the terminal; --watch paces it t
 ibgamer train flappy-bird           # checks how it plays, fixes what loses (else trains for a higher score), keeps it only if it plays better
 ibgamer check pacman-ghosts          # plays a seed twice: the same frame for frame, or where it first differs
 ibgamer play pop-the-lock --lag 45   # real time simulated on the paused clock: each decision lands 45 ms late, every run the same
+ibgamer play dino --tick 48          # tried with 48 ms of game time between two decisions instead of the version's tick
 ```
 
 ## The library
@@ -228,8 +229,9 @@ measure. That measure is self-reported, so a tuner could inflate it.
 ## How a game is played
 
 - **A frozen clock.** Playwright's clock is installed before the page loads. After boot, time
-  stops, and each step runs exactly `tickMs` of game time. The engine's latency costs no game
-  time, so a real-time game becomes turn-based.
+  stops, and each step runs exactly `tickMs` of game time (32 ms at least: a decision of the local
+  engine takes about that long, and a game watched at its own speed must not fall behind it). The
+  engine's latency costs no game time, so a real-time game becomes turn-based.
 - **One step per decision.** Each step is one round trip to the browser: the input, then the
   game time, then the raw input and the score. `decideOn: "change"` holds an action until the
   state changes (a maze game's turn window). `askWhen` skips the engine while nothing is happening,
