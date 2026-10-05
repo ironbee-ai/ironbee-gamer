@@ -62,7 +62,7 @@ src/
 laya/
   finetune.py               distil a game's decisions into a Laya checkpoint (MPS/CUDA/CPU)
   serve.py                  serve checkpoints by name over /v1/systemone
-library/                    the built-in games (dino — with its research history —, flappy-bird (floppybird), pacman-ghosts, doodle-jump, pop-the-lock, super-coin-box, tetris, snake, racer, mario)
+library/                    the built-in games (dino — with its research history —, flappy-bird (floppybird), pacman-ghosts, doodle-jump, pop-the-lock, super-coin-box, tetris, snake, racer, mario, breakout — added through the UI's wizard)
 research/                   the research prototype and KNOW-HOW.md, kept as they were
 tests/                      unit/<area>, integration/ (live daemon, IBGAMER_E2E=1), helpers/, fixtures/runner.html
 ```

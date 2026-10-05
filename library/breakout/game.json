@@ -1,0 +1,46 @@
+{
+  "id": "breakout",
+  "name": "Breakout",
+  "description": "Breakout: a paddle, a ball and rows of bricks to break. Three lives, an extra one for every wall cleared, level after level. Drawn on a 2D canvas; read through the game's own state.",
+  "url": "https://jakesgordon.com/games/breakout",
+  "goal": "Space to start, left/right (or A/D) held down to move the paddle, and up/down to change level on the menu; Space during a game launches the ball at once instead of waiting for the 'ready... set.. go!' countdown. Keep the ball in play with the paddle and break every brick: higher rows score more, and clearing them all gives an extra life (5 at most) and the next level. A ball that drops past the paddle costs a life; you start with 3 and the game ends when the last one is lost.",
+  "perception": {
+    "adapter": "custom",
+    "read": "(() => { try { const G = (typeof Game !== 'undefined' && Game) ? Game.current : null; if (!G || !G.court || !G.paddle || !G.ball || !G.score) return { playing: false, screen: 'loading' }; const r = n => (typeof n === 'number' && isFinite(n)) ? Math.round(n * 10) / 10 : 0; const st = G.current, c = G.court, p = G.paddle, b = G.ball, s = G.score; const played = b.countdown !== undefined; const out = { playing: st === 'game', screen: st === 'game' ? 'playing' : (st === 'menu' ? (played ? 'gameover' : 'menu') : 'loading'), over: st === 'menu' && played, score: +s.score || 0, highscore: +s.highscore || 0, lives: +s.lives || 0, level: (+G.level || 0) + 1 }; if (st !== 'game') return out; const cols = (c.cfg && c.cfg.xchunks) || 30; const live = (c.bricks || []).filter(k => k && !k.hit && k.pos); let maxRow = -1; for (const k of live) if (k.pos.y > maxRow) maxRow = k.pos.y; const grid = []; for (let y = 0; y <= maxRow; y++) grid.push(new Array(cols).fill('.')); for (const k of live) for (let x = k.pos.x1; x <= k.pos.x2 && x < cols; x++) grid[k.pos.y][x] = k.c; const spd = +b.speed || 0, rad = +b.radius || 0; let landX = null; if (b.moving && b.dy > 0) { const ty = p.y - rad, lo = c.left + rad, span = c.right - rad - lo; if (b.y <= ty && span > 0) { const x = b.x + (b.dx / b.dy) * (ty - b.y); const m = (((x - lo) % (2 * span)) + 2 * span) % (2 * span); landX = r(lo + (m > span ? 2 * span - m : m)); } } out.court = { left: c.left, right: c.right, top: c.top, bottom: c.bottom, cell: c.chunk, canvasW: G.width, canvasH: G.height }; out.paddle = { x: r(p.x), y: r(p.y), w: r(p.w), h: r(p.h), cx: r(p.x + p.w / 2), speed: r(p.speed), dir: (p.dright || 0) - (p.dleft || 0), minX: r(p.minX), maxX: r(p.maxX) }; out.ball = { x: r(b.x), y: r(b.y), r: r(rad), vx: r(b.dx * spd), vy: r(b.dy * spd), speed: r(spd), moving: !!b.moving, countdown: b.countdown || 0, landX: landX }; out.bricks = { left: live.length, total: c.numbricks || 0, rows: grid.map(a => a.join('')), lowest: live.slice().sort((a, d) => (d.y - a.y) || (a.x - d.x)).slice(0, 12).map(k => ({ x: k.x, y: k.y, w: k.w, h: k.h })) }; return out; } catch (e) { return { playing: false, screen: 'error', error: String(e).slice(0, 120) }; } })()",
+    "format": "Canvas pixels (800x600), x to the right and y downward, velocities in px/s: always {playing, screen: 'loading'|'menu'|'playing'|'gameover' (gameover = the menu shown again after a game; Space starts a new one), over, score, highscore, lives, level (1-based)}. While playing it adds court {left,right,top,bottom,cell,canvasW,canvasH} (walls on the left, right and top, no floor: the ball is lost once it leaves the canvas bottom), paddle {x,y = top-left, w,h, cx = centre x, speed, dir -1/0/1, minX..maxX = range of x}, ball {x,y = centre, r, vx,vy, speed, moving (false = resting on the paddle before launch), countdown (3/2 = waiting, 1 = just launched, 0 = none), landX = centre x where it will reach paddle height when falling, side-wall bounces included and bricks ignored, else null} and bricks {left, total, rows = strings from the court top down, one char per cell-sized square (column i at x = court.left + i*cell, row j at y = court.top + j*cell), '.' empty and a run of one same letter = one brick, lowest = up to 12 live bricks nearest the paddle as {x,y,w,h}}."
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "bootMs": 4000,
+  "start": [
+    {
+      "waitMs": 2000,
+      "advanceMs": 500
+    },
+    {
+      "press": [
+        "Space"
+      ],
+      "advanceMs": 500
+    }
+  ],
+  "score": {
+    "expression": "(() => { try { const G = (typeof Game !== 'undefined' && Game) ? Game.current : null; if (!G || !G.score) return { over: false, score: 0 }; return { over: G.current === 'menu' && !!G.ball && G.ball.countdown !== undefined, score: +G.score.score || 0 }; } catch (e) { return { over: false, score: 0 }; } })()",
+    "label": "points"
+  },
+  "budgets": {
+    "gameSeconds": 60,
+    "episodes": 1,
+    "trainSeconds": 60
+  },
+  "tags": [
+    "arcade",
+    "paddle",
+    "bricks",
+    "own state"
+  ],
+  "credits": "Javascript Breakout by Jake Gordon (MIT), played where its author hosts it: jakesgordon.com/games/breakout",
+  "preferredEngine": "laya"
+}
