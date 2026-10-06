@@ -17,10 +17,10 @@ no hooks the game exposes.
 You can watch the game being played in a local web UI. Each decision is shown beside it: the
 state the engine saw, the action it chose and the probabilities.
 
-![The web UI while Laya plays Flappy Bird: the library on the left, the game's live view in the middle, and on the right the decision just made, the state it was made on and the profile's rules](docs/images/ui.png)
+[![The web UI while Laya plays Flappy Bird: the library on the left, the game's live view in the middle, and on the right each decision as it is made, the state it was made on and the profile's rules](docs/images/ui.gif)](docs/images/ui.png)
 
-*Laya playing Flappy Bird in the UI. On the right: the decision just made (`flap`), the state it was made on, and
-the rules the trainer wrote.*
+*Laya playing Flappy Bird in the UI, thirty seconds of it. On the right: each decision as it is made (`flap` or
+`wait`), the state it was made on, and the rules the trainer wrote. Click it for a still at full size.*
 
 ```
 page (canvas / engine)
