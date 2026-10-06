@@ -17,6 +17,11 @@ no hooks the game exposes.
 You can watch the game being played in a local web UI. Each decision is shown beside it: the
 state the engine saw, the action it chose and the probabilities.
 
+![The web UI while Laya plays Flappy Bird: the library on the left, the game's live view in the middle, and on the right the decision just made, the state it was made on and the profile's rules](docs/images/ui.png)
+
+*Laya playing Flappy Bird in the UI: 17 s into the game, 44 decisions so far at 26 ms each. On the right, the decision
+just made (`flap`), the state it was made on, and the rules the trainer wrote.*
+
 ```
 page (canvas / engine)
   └─ perception adapter ── generic, per rendering tech (2D canvas draw recorder, Phaser / PixiJS / Cocos dump,
@@ -79,6 +84,11 @@ ibgamer play dino --tick 48          # tried with 48 ms of game time between two
 
 The library lists every game the app knows how to reach, start and measure, together with the
 profiles that play it.
+
+![Twelve game screens in a grid: Chrome Dino, Flappy Bird, Pac-Man at two levels, Doodle Climb, Pop the Lock, Super Coin Box, Tetris, Crazy Snake, Racer, Infinite Mario and Breakout](docs/images/games.png)
+
+*The eleven built-in games, each part way through a game Laya is playing (Pac-Man twice: its first level, and a later
+one with the ghosts on the run).*
 
 | Game | Perception | Its rules as code, the training seeds | Seeds it was never trained on | Random play | Laya, distilled |
 |---|---|---|---|---|---|
