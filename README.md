@@ -92,7 +92,7 @@ profiles that play it.
 | Crazy Snake ([Phaser examples](https://noowxela.github.io/phaser-examples/games/ready/crazy-snake/)) | Phaser (the game's own state) | 36, 35 coins in 90 s (v2, trained for real time too) | 34, 41, 34 | 0 | 39, 35 |
 | Racer ([Javascript Racer](https://jakesgordon.com/games/racer/) by Jake Gordon, MIT) | the game's own state (a page reader) | 3383, 3263, 3192 road segments in 60 s (v4, trained for real time too) | 3436, 3432, 3401 | 61 | 3383, 3263, 3192, the same as its rules |
 | Infinite Mario ([mariohtml5](https://kenspiretech.github.io/mariohtml5/main.html) by Robert Kleffner, Unlicense) | the game's own state (a page reader) | 1267, 1264, 1268: each level won (tiles run, +1000 for winning the level; v6, trained for real time too; Jev plays v7) | 1270, 1272, 1262, each won | 22 | 1267, 1264, 1268, the same as its rules |
-| Breakout ([Javascript Breakout](https://jakesgordon.com/games/breakout) by Jake Gordon, MIT) | the game's own state (a page reader) | 3550, 3265, 3455 points in 60 s, each played to the end of its time (v1) | 3740, 4130, 3375 | 360 | 2550, 3195, 2900 |
+| Breakout ([Javascript Breakout](https://jakesgordon.com/games/breakout) by Jake Gordon, MIT) | the game's own state (a page reader) | 3550, 3265, 3455 points in 60 s, each played to the end of its time (v1) | 3740, 4130, 3375 | 360 | 3550, 3265, 3455, the same as its rules |
 
 Measured on 2026-09-29, the clock paused (`ibgamer measure`, `ibgamer laya eval`): the training seeds
 are the ones versions are compared on, the others (1001, 2002, 3003) are never shown to the tuner,
@@ -121,7 +121,9 @@ Racer and Infinite Mario were added and trained by this app itself: the trainer 
 Their game definitions are the only hand-written part. Breakout was added on 2026-10-06 wholly through the UI — **+ Add
 game**, the trainer reading the game's code for its state, its score and its start — and trained once: its first
 version was kept (a candidate that scored 4203 on the training seeds played the unseen ones worse, 3595 against
-3748, and was turned away), and Laya learnt it.
+3748, and was turned away), and Laya learnt it — 2550, 3195, 2900 at first; **Train**, pressed once more for Laya, found
+it below its rules on all three seeds and taught it more (two rounds of its own games, the rules correcting 331 and
+234 of 10,000 decisions): 3550, 3265, 3455, the same as its rules.
 
 The library has two roots that act as one:
 
