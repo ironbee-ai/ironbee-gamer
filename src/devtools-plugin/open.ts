@@ -37,6 +37,7 @@ import { installPhaserAdapter } from "./page/phaser";
 import { installPixelsAdapter } from "./page/pixels";
 import { installPixiAdapter } from "./page/pixi";
 import { installProbe } from "./page/probe";
+import { installThreeAdapter } from "./page/three";
 import { seedRandom } from "./page/seed";
 import { clearSessionStorage } from "./page/storage";
 import { installTimerNudge } from "./page/timers";
@@ -93,6 +94,7 @@ const INSTALLERS: Record<Adapter, () => void> = {
     [Adapter.PHASER]: installPhaserAdapter,
     [Adapter.PIXI]: installPixiAdapter,
     [Adapter.COCOS]: installCocosAdapter,
+    [Adapter.THREE]: installThreeAdapter,
     [Adapter.PIXELS]: installPixelsAdapter,
     [Adapter.PROBE]: installProbe,
 };

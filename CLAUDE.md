@@ -26,7 +26,7 @@ then learns them by distillation.
 - **Engines** (Jev, Laya, distillation) — @docs/claude-md/engines.md
 - **Train: check, fix, check again** (the one button: an engine on a clock checked beside its rules, what loses fixed or a higher score trained, checked again — nobody diagnoses by hand) — @docs/claude-md/improve.md
 - **The game tools** (the DevTools plugin, page-side adapters) — @docs/claude-md/devtools-plugin.md
-- **Adding a game** (the wizard, the page reader, the PixiJS adapter, run progress) — @docs/claude-md/adding-games.md
+- **Adding a game** (the wizard, the page reader, the PixiJS and Three.js adapters, run progress) — @docs/claude-md/adding-games.md
 - **Real-time plans for a slow engine** (the design, built 2026-09-29; read when working on them) — docs/design/realtime-plans.md
 
 ## Tech Stack

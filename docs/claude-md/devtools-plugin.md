@@ -54,7 +54,9 @@ from crypto before it: `game_open` adds it after them, so the ids stay each docu
 Sets `__ibgamer.seeded`), `pixi` (v4–v8: catches `window.PIXI` on assignment, wraps the renderers'
 `render` to keep the root it is handed, dumps drawn objects with bounds, fill and tint — see
 adding-games.md), `cocos` (Creator 2.x / 3.x, cocos2d-js: walks the scene `cc.director` runs when a
-dump is asked for, nothing installed before the page's scripts), `pixels` (`grab(w, h?)`: the largest
+dump is asked for, nothing installed before the page's scripts), `three` (any Three.js build, a module or
+bundled one too: an event target at `window.__THREE_DEVTOOLS__`, which Three.js announces its scenes and renderers
+to, each renderer's `render` wrapped to note what it draws with which camera — see adding-games.md), `pixels` (`grab(w, h?)`: the largest
 canvas scaled into a colour grid, 3 hex digits a cell; WebGL contexts made with
 `preserveDrawingBuffer: true` so a frozen page still reads back — see adding-games.md).
 

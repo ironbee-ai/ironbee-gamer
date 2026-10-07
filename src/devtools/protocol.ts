@@ -14,6 +14,8 @@ export enum Adapter {
     PIXI = "pixi",
     /** Dumps a Cocos (Creator 2.x / 3.x, cocos2d-js) game's running scene. */
     COCOS = "cocos",
+    /** Dumps a Three.js game's main scene (the objects nearest its camera, where each shows) and the page's text over it. */
+    THREE = "three",
     /** The largest canvas as a small colour grid: any game a canvas shows, WebGL included. */
     PIXELS = "pixels",
     /** Notes which rendering tech and engine a page uses (adding a game). */
@@ -49,6 +51,8 @@ export function adapterReadExpression(adapter: Adapter, options: { maps?: boolea
             return `window.${PAGE_NAMESPACE}.pixi.dump()`;
         case Adapter.COCOS:
             return `window.${PAGE_NAMESPACE}.cocos.dump()`;
+        case Adapter.THREE:
+            return `window.${PAGE_NAMESPACE}.three.dump()`;
         case Adapter.PIXELS: {
             const grid: PixelGrid = options.grid ?? { width: DEFAULT_PIXEL_GRID_WIDTH };
             return `window.${PAGE_NAMESPACE}.pixels.grab(${Math.round(grid.width)}${grid.height !== undefined ? `, ${Math.round(grid.height)}` : ""})`;

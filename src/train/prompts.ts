@@ -122,11 +122,16 @@ export function setupPrompt(input: SetupPromptInput): string {
                     ? "Every step, a generic PixiJS adapter gives a dump of the display tree the game renders (it knows nothing about this game)"
                     : game.perception.adapter === Perception.COCOS && !game.perception.read
                         ? "Every step, a generic Cocos engine adapter gives a dump of the scene the game runs (it knows nothing about this game)"
-                        : game.perception.adapter === Perception.PIXELS
-                            ? "Every step, the game's canvas is read as a small colour grid (nothing on this page says what is drawn). Find things by " +
-                              "their colours, as the screenshots show them: the cells of a colour and their bounding boxes, a colour's centre or lowest " +
-                              "row. Keep the state small — positions, distances, counts, never the grid itself"
-                            : "Every step, the game's own reader gives its raw input (the game's state as its code keeps it)";
+                        : game.perception.adapter === Perception.THREE && !game.perception.read
+                            ? "Every step, a generic Three.js adapter gives a dump of the 3D scene the game draws — the objects nearest its camera, " +
+                              "in world units and where each shows on the canvas — and the page's text over the game (it knows nothing about this game). " +
+                              "Find the player's object by its name, its group, its looks, or as the one a chasing camera keeps in the same place on the " +
+                              "canvas; work out speeds and headings from the positions of earlier frames (memory)"
+                            : game.perception.adapter === Perception.PIXELS
+                                ? "Every step, the game's canvas is read as a small colour grid (nothing on this page says what is drawn). Find things by " +
+                                  "their colours, as the screenshots show them: the cells of a colour and their bounding boxes, a colour's centre or lowest " +
+                                  "row. Keep the state small — positions, distances, counts, never the grid itself"
+                                : "Every step, the game's own reader gives its raw input (the game's state as its code keeps it)";
     return `You are setting up a fast game-playing loop for a browser game you have never seen the code of.
 
 GOAL (the game's instructions, from the player): "${game.goal}"

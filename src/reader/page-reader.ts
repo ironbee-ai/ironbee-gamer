@@ -19,14 +19,14 @@
  */
 
 import { GameBrowser } from "../devtools/client";
-import { Adapter, OpenRequest, ProbeResult, StepResult, Viewport } from "../devtools/protocol";
+import { Adapter, adapterReadExpression, OpenRequest, ProbeResult, StepResult, Viewport } from "../devtools/protocol";
 import { InputStep, Perception } from "../game/types";
 import { validateGame } from "../game/validate";
 import { inputSteps } from "../play/rounds";
 import { parseJsonObject, TrainerError } from "../train/claude";
 
 import { lookup, LookupAddress, LookupOptions } from "dns";
-import { copyFileSync, mkdirSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { BlockList, isIP } from "net";
 import path from "path";
 
@@ -43,6 +43,8 @@ const FETCH_TIMEOUT_MS: number = 15_000;
 const MAX_READING_CHARS: number = 20_000;
 const CHECK_STEPS: number = 6;
 const CHECK_STEP_MS: number = 500;
+/** The Three.js adapter's scene summary as the page first showed, beside the page's code (a Three.js page only). */
+const THREE_SCENE_FILE: string = "three-scene.json";
 /**
  * The boot a page being added boots in: looked at (the UI's probe, the reader's look: the clock running, real time),
  * checked (the reader's check: game time) and played (the add-a-game wizard saves it as the game's `bootMs`, in
@@ -80,7 +82,7 @@ export interface ReaderProposal {
      * game's goal — the wizard's How to play, which the person adding the game checks or rewrites.
      */
     goal?: string;
-    /** The perception the reader goes with: Phaser pages keep the Phaser adapter (the game instance helper). */
+    /** The perception the reader goes with: Phaser pages keep the Phaser adapter (the game instance helper), Three.js pages the Three.js one (the scene helper). */
     adapter: Perception;
     notes?: string;
     /** What the reader returned on the page over a few seconds of game time. */
@@ -362,7 +364,7 @@ function scriptFile(index: number, url: string): string {
     return `${String(index).padStart(2, "0")}-${base.endsWith(".js") || base.endsWith(".mjs") ? base : `${base}.js`}`;
 }
 
-export function readerPrompt(input: { url: string; probe: ProbeResult; files: Array<{ path: string; what: string }>; phaser: boolean }): string {
+export function readerPrompt(input: { url: string; probe: ProbeResult; files: Array<{ path: string; what: string }>; phaser: boolean; three?: boolean }): string {
     const { probe } = input;
     return `You are writing the perception for an automated player of a browser game: ONE JavaScript expression, evaluated in the game's page before every decision, that returns the game's current state as plain JSON.
 
@@ -379,10 +381,27 @@ Find where the game keeps its state — a global game object, the current scene 
 - "start": what a player does to begin a game, if the code says (a key the menu waits for, a button to click), as input steps: [{"press": ["Space"], "advanceMs": 500}] or [{"click": {"x": 0.5, "y": 0.6}, "advanceMs": 500}] (x, y: fractions of the page's largest canvas, where the clicks land — of the page body when it has none) — [] when it starts by itself, null when you cannot tell.
 - "goal": how the game is played, as its player would be told, in two or three plain sentences: the controls (which keys or clicks do what), the aim, and what ends a game. Use the page's own words where it has them (page.json's "text", its menus and messages in the code), and what the code does where it has none. It names no strategy — only the game's rules. null if you cannot tell.
 - "notes": what you found, two or three sentences.
-${input.phaser ? "\nThis page is a Phaser game, and this app installs a helper before the page runs: window.__ibgamer.phaser.game() returns the Phaser game instance (Phaser 2 or 3), even when the page keeps it in a closure. Start from it when the game is not a global.\n" : ""}
+${input.phaser ? "\nThis page is a Phaser game, and this app installs a helper before the page runs: window.__ibgamer.phaser.game() returns the Phaser game instance (Phaser 2 or 3), even when the page keeps it in a closure. Start from it when the game is not a global.\n" : ""}${input.three ? `\n${THREE_HELPER}\n` : ""}
 Reply with ONLY a JSON object, no prose, no code fence:
 {"read": "...", "format": "...", "score": "..." | null, "start": [...] | null, "goal": "..." | null, "notes": "..."}`;
 }
+
+/** A page Three.js runs on: it sets `__THREE__` as it loads, a module or bundled build too. */
+function isThreePage(probe: ProbeResult): boolean {
+    return probe.suggested === Adapter.THREE || probe.engines.includes("THREE") || probe.engines.includes("__THREE__");
+}
+
+/** What the reader of a Three.js page is told of the adapter installed before the page runs. */
+const THREE_HELPER: string =
+    "This page is a Three.js game, and this app installs a helper before the page runs that catches its scenes and renderers, even when the " +
+    "page keeps them in a module or a closure: window.__ibgamer.three.scene() returns the main scene (the largest one the game's canvas " +
+    "draws), window.__ibgamer.three.camera() the camera it is drawn with, window.__ibgamer.three.renderer() the renderer — each undefined " +
+    "before the game has made it. Objects are Three.js Object3D: name, type, position / rotation (local), matrixWorld.elements[12..14] (world " +
+    "position), children, parent, userData (where many games keep their own state: speed, health, the player's flag). " +
+    "window.__ibgamer.three.dump() is a generic summary (the objects nearest the camera with their names, world and screen positions, and the " +
+    "page's text over the game); when ./three-scene.json is listed, it is that summary as the page first showed. Start from the scene when the " +
+    "game's state is not a global: find the player's object (its name, its userData), the things around it, and read the rest (speed, " +
+    "progress, the screen shown) from userData or the page's own elements.";
 
 function repairPrompt(previous: string, reply: Reply, check: Check): string {
     return `${previous}
@@ -443,8 +462,13 @@ export class PageReaderWriter {
         options.onPhase?.("opening the page and collecting its code");
         const probe: ProbeResult = await this.look(options);
         const phaser: boolean = probe.suggested === Adapter.PHASER || probe.engines.includes("Phaser");
+        const three: boolean = !phaser && isThreePage(probe);
         const files: Array<{ path: string; what: string }> = await this.collect(probe, options.url, options.workDir);
-        const prompt: string = readerPrompt({ url: options.url, probe, files, phaser });
+        if (three && existsSync(path.join(options.workDir, THREE_SCENE_FILE))) {
+            files.push({ path: `./${THREE_SCENE_FILE}`, what: "the Three.js helper's summary of the scene as the page first showed it (window.__ibgamer.three.dump())" });
+        }
+        const adapters: Adapter[] = phaser ? [Adapter.PHASER] : three ? [Adapter.THREE] : [];
+        const prompt: string = readerPrompt({ url: options.url, probe, files, phaser, three });
         writeFileSync(path.join(options.workDir, "reader-prompt.md"), prompt);
 
         // A start's clicks land where the game's will once it is added (the wizard saves this target).
@@ -453,11 +477,11 @@ export class PageReaderWriter {
         options.onPhase?.("the trainer reads the page's code and writes a reader (a few minutes)");
         let reply: Reply = replyOf(await this.deps.ask(prompt, options.workDir, options.signal));
         options.onPhase?.("checking the reader on the page");
-        let check: Check = await this.check(reply, phaser, clickTarget, options);
+        let check: Check = await this.check(reply, adapters, clickTarget, options);
         if (!check.ok) {
             options.onPhase?.("the reader failed its check: the trainer repairs it");
             reply = replyOf(await this.deps.ask(repairPrompt(prompt, reply, check), options.workDir, options.signal));
-            check = await this.check(reply, phaser, clickTarget, options);
+            check = await this.check(reply, adapters, clickTarget, options);
             if (!check.ok) {
                 throw new TrainerError(`the reader the trainer wrote does not read this game: ${check.problem}`);
             }
@@ -469,7 +493,7 @@ export class PageReaderWriter {
             ...(reply.score ? { score: reply.score } : {}),
             ...(reply.start ? { start: reply.start } : {}),
             ...(reply.goal ? { goal: reply.goal } : {}),
-            adapter: phaser ? Perception.PHASER : Perception.CUSTOM,
+            adapter: phaser ? Perception.PHASER : three ? Perception.THREE : Perception.CUSTOM,
             ...(reply.notes ? { notes: reply.notes } : {}),
             samples: check.samples,
             scores: check.scores,
@@ -480,8 +504,25 @@ export class PageReaderWriter {
     private async look(options: PageReaderOptions): Promise<ProbeResult> {
         const browser: GameBrowser = this.deps.openBrowser();
         try {
-            await browser.open({ url: options.url, adapters: [Adapter.PROBE], freezeClock: false, bootMs: PROBE_BOOT_MS, ...(options.viewport ? { viewport: options.viewport } : {}) });
+            // The Three.js adapter goes in with the probe (it acts only where Three.js runs): its scene summary is the reader's to see.
+            await browser.open({
+                url: options.url,
+                adapters: [Adapter.PROBE, Adapter.THREE],
+                read: adapterReadExpression(Adapter.THREE),
+                freezeClock: false,
+                bootMs: PROBE_BOOT_MS,
+                ...(options.viewport ? { viewport: options.viewport } : {}),
+            });
             const probe: ProbeResult = await browser.probe();
+            const scene: unknown = isThreePage(probe)
+                ? await browser
+                    .step({})
+                    .then((s: StepResult): unknown => s.raw)
+                    .catch((): undefined => undefined)
+                : undefined;
+            if (scene && typeof scene === "object") {
+                writeFileSync(path.join(options.workDir, THREE_SCENE_FILE), JSON.stringify(scene, null, 1));
+            }
             const shot: string | undefined = await browser.screenshot(options.workDir, "page").catch((): undefined => undefined);
             if (shot) {
                 copyFileSync(shot, path.join(options.workDir, "screenshot.png"));
@@ -545,7 +586,7 @@ export class PageReaderWriter {
      * The reader on the page as the added game will be played: the clock frozen, its boot, its start (clicking
      * `clickTarget`), then a few steps of game time.
      */
-    private async check(reply: Reply, phaser: boolean, clickTarget: string | undefined, options: PageReaderOptions): Promise<Check> {
+    private async check(reply: Reply, adapters: Adapter[], clickTarget: string | undefined, options: PageReaderOptions): Promise<Check> {
         const browser: GameBrowser = this.deps.openBrowser();
         const samples: unknown[] = [];
         const scores: unknown[] = [];
@@ -553,7 +594,7 @@ export class PageReaderWriter {
         try {
             const request: OpenRequest = {
                 url: options.url,
-                adapters: phaser ? [Adapter.PHASER] : [],
+                adapters,
                 read: reply.read,
                 ...(reply.score ? { score: reply.score } : {}),
                 bootMs: PROBE_BOOT_MS,

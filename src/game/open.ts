@@ -44,6 +44,21 @@ export function rawFormat(game: GameDefinition): string {
                 "type is what draws it (Sprite, Label, Graphics); x, y are the top-left of its box in the game's design pixels, from the top-left of the screen " +
                 "(y down); a is its rotation in degrees, clockwise (when not 0); tex names its sprite frame or image; name is the node's name in the scene."
             );
+        case Perception.THREE:
+            if (game.perception.read) {
+                return game.perception.format ?? "what the game's own read expression returns.";
+            }
+            return (
+                "a dump of the game's Three.js scene: { version, camera: { type, x, y, z, yaw, pitch, fov? } | null, canvas: { w, h }, total, " +
+                "objects: [{ type, name?, group?, geo?, x, y, z, r?, yaw?, d?, sx?, sy?, off?, col?, tex?, n?, parts? }], hud: [{ t, x, y, id? }] } | null (no scene yet). " +
+                "objects are what is drawn (Mesh, Sprite, Points, Line), the nearest the camera first (at most 120 of `total`): x, y, z its world position " +
+                "(y up, the game's own units); r its size (bounding radius); yaw the way it faces, in degrees about y (0 along +z, 90 along +x); d its distance to the camera; sx, sy " +
+                "where it shows on the canvas (CSS pixels from the top-left), off when it is outside the picture or behind the camera; name its own name, " +
+                "group the nearest named object it is part of; geo its geometry's kind (BoxGeometry, …); col its material's colour, tex its texture; n an " +
+                "instanced mesh's count; parts how many pieces drawn at that very place (one model's meshes: a car's body and lights) it stands for, " +
+                "named as the first. The camera's yaw and pitch are where it looks. hud is the page's own text shown over the game (a speedometer, " +
+                "a timer, a menu), placed as sx, sy are."
+            );
         case Perception.PIXELS:
             return (
                 "the game's canvas as a small colour grid: { w, h, box: { x, y, width, height } (the canvas on the page), px }, px a string of w*h cells, " +
@@ -59,7 +74,7 @@ export function rawFormat(game: GameDefinition): string {
 export function openRequest(game: GameDefinition, options: { seed?: number; customScript?: string; realtime?: boolean } = {}): OpenRequest {
     const adapter: Perception = game.perception.adapter;
     const adapters: Adapter[] =
-        adapter === Perception.CANVAS2D ? [Adapter.CANVAS2D] : adapter === Perception.PHASER ? [Adapter.PHASER] : adapter === Perception.PIXI ? [Adapter.PIXI] : adapter === Perception.COCOS ? [Adapter.COCOS] : adapter === Perception.PIXELS ? [Adapter.PIXELS] : [];
+        adapter === Perception.CANVAS2D ? [Adapter.CANVAS2D] : adapter === Perception.PHASER ? [Adapter.PHASER] : adapter === Perception.PIXI ? [Adapter.PIXI] : adapter === Perception.COCOS ? [Adapter.COCOS] : adapter === Perception.THREE ? [Adapter.THREE] : adapter === Perception.PIXELS ? [Adapter.PIXELS] : [];
     const read: string | undefined =
         adapter === Perception.CANVAS2D
             ? adapterReadExpression(Adapter.CANVAS2D)
@@ -69,9 +84,11 @@ export function openRequest(game: GameDefinition, options: { seed?: number; cust
                     ? (game.perception.read ?? adapterReadExpression(Adapter.PIXI))
                     : adapter === Perception.COCOS
                         ? (game.perception.read ?? adapterReadExpression(Adapter.COCOS))
-                        : adapter === Perception.PIXELS
-                            ? adapterReadExpression(Adapter.PIXELS, game.perception.grid ? { grid: game.perception.grid } : {})
-                            : game.perception.read;
+                        : adapter === Perception.THREE
+                            ? (game.perception.read ?? adapterReadExpression(Adapter.THREE))
+                            : adapter === Perception.PIXELS
+                                ? adapterReadExpression(Adapter.PIXELS, game.perception.grid ? { grid: game.perception.grid } : {})
+                                : game.perception.read;
     const seeded: boolean = game.seedable !== false && options.seed !== undefined;
     return {
         url: game.url,
@@ -99,7 +116,10 @@ export function perceivedKinds(game: GameDefinition, raw: unknown): Array<{ key:
             }
         }
     } else if (
-        (game.perception.adapter === Perception.PHASER || game.perception.adapter === Perception.PIXI || game.perception.adapter === Perception.COCOS) &&
+        (game.perception.adapter === Perception.PHASER ||
+            game.perception.adapter === Perception.PIXI ||
+            game.perception.adapter === Perception.COCOS ||
+            game.perception.adapter === Perception.THREE) &&
         raw &&
         typeof raw === "object"
     ) {
@@ -107,9 +127,11 @@ export function perceivedKinds(game: GameDefinition, raw: unknown): Array<{ key:
         if (Array.isArray(objects)) {
             for (const o of objects as Array<Record<string, unknown>>) {
                 if (o) {
+                    // A 3D object is told by its name (or the named object it is part of) more than by a texture.
+                    const kind: unknown = game.perception.adapter === Perception.THREE ? (o.name ?? o.group ?? o.tex ?? o.geo) : o.tex;
                     out.push({
-                        key: `${String(o.type)}/${String(o.tex ?? "")}${o.frame !== undefined ? `#${String(o.frame)}` : ""}`,
-                        example: { x: o.x, y: o.y, w: o.w, h: o.h },
+                        key: `${String(o.type)}/${String(kind ?? "")}${o.frame !== undefined ? `#${String(o.frame)}` : ""}`,
+                        example: game.perception.adapter === Perception.THREE ? { x: o.x, y: o.y, z: o.z, sx: o.sx, sy: o.sy } : { x: o.x, y: o.y, w: o.w, h: o.h },
                     });
                 }
             }

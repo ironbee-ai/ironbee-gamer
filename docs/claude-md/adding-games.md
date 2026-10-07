@@ -11,6 +11,7 @@
    beside a WebGL game is not a 2D game):
    - a 2D canvas → `canvas2d` (the draw recorder);
    - Phaser → the Phaser dump; PixiJS (the `PIXI` global) → the PixiJS dump; Cocos (`cc.director`) → the Cocos dump;
+     Three.js (`THREE`, or the `__THREE__` revision a module or bundled build sets) on a WebGL canvas → the Three.js dump;
    - any other canvas (WebGL from an engine without an adapter, a bundled engine) → `pixels`
      (below), with the page reader (below) offered as the sharper way — it is offered for every game.
 2. **Start**: it starts by itself, a key, or a click — picked on the screenshot, stored as
@@ -176,8 +177,12 @@ field is kept and the note says so): the game's goal is needed, and the one addi
 it is what the trainer and the engine are told the game is.
 
 The proposal becomes `perception: { adapter, read, format }` — `phaser` on a Phaser page (its
-game-instance helper stays installed), else `custom` — and, when given, the score expression and the
-start.
+game-instance helper stays installed), `three` on a Three.js page (its scene helpers stay installed), else
+`custom` — and, when given, the score expression and the start. On a Three.js page the look installs the
+Three.js adapter with the probe and keeps its dump as `three-scene.json` for the trainer, whose prompt names
+the helpers: `window.__ibgamer.three.scene()`, `.camera()`, `.renderer()`, `.dump()` — the game's objects
+(their names, `userData`) where its code keeps them in a module, as Midtown Madness 2's 1 MB bundle does (an
+"engine" the reader does not copy, and no global).
 
 ## WebGL without a reader: the PixiJS adapter (src/devtools-plugin/page/pixi.ts)
 
@@ -225,6 +230,33 @@ screen pixels, and 3D meshes are not listed at all (pixel perception reads a 3D 
 live on Creator 1.9, 2.0 and 3.4 builds: a background, a tinted dialog box and its label's text; on
 3.4 (a 1920×1280 design shown at 960×640) a title, two buttons and three sprites exactly where the
 screenshot has them at that scale.
+
+## The Three.js adapter (src/devtools-plugin/page/three.ts)
+
+Any Three.js build, a module or bundled one too (no `THREE` global): installed before the page's scripts, it puts
+an event target at `window.__THREE_DEVTOOLS__` (one the Three.js browser extension put there is listened to as it
+is), where Three.js announces every `Scene` and `WebGLRenderer` it makes (`observe`) and its revision (`register`).
+Each renderer's own `render` (set on the instance) is wrapped to note the scene it draws, the camera, and whether it
+went to the screen (no render target). The dump is of the main scene — the largest one the largest canvas's
+renderer drew of late (its last 8 scenes: a minimap's, a post-processing quad's are smaller), through the camera it
+drew it to the screen with, else the last (a composer draws the world into a target) —: `{ version, camera: { type,
+x, y, z, yaw, pitch, fov? } | null, canvas: { w, h }, total, objects: [{ type, name?, group?, geo?, x, y, z, r?, yaw?,
+d?, sx?, sy?, off?, col?, tex?, n?, parts? }], hud: [{ t, x, y, id? }] }`. Objects are what is drawn (Mesh, Sprite,
+Points, Line; visible, on the camera's layers), at most 20,000 nodes looked at and the 120 nearest the camera listed:
+world position (y up), `r` the bounding radius, `yaw` the object's +z in degrees about y (0 along +z, 90 along +x;
+the camera's, where it looks, likewise), `d` the distance to the camera, `sx`, `sy` where it shows on the canvas (CSS
+pixels; `off` outside the picture or behind the camera), `group` the nearest named ancestor, the material's colour
+and texture, an instanced mesh's count. Pieces drawn at the very same place (one model's meshes: a car's body and
+its lights, a tyre and its rim) are one entry, `parts` how many. `hud` is the page's own short texts over the game
+(a 3D game draws its speedometer and menus as page elements), placed as `sx`, `sy`. Before a frame is drawn, the
+largest scene announced (or a page global holds), world positions only. `scene()`, `camera()`, `renderer()` hand them
+to a reader written for one game.
+
+Checked live (2026-10-06) on Midtown Madness 2 (gorjan.rocks, Three.js r168 bundled, a 1 MB module): on the menu its
+car preview (`BODY_H`, `wheel_FL`…) and the menu's texts; in a race, on the frozen clock, the city (~2,550 drawn
+meshes), the player's car right in front of the camera (`BODY_H`, `vpbulletgreen_sd.png`), traffic and a police car
+(`vpcop_ca_sdlft.png`), pedestrians (`SkinnedMesh`) and the speedometer (`speed-number`): ArrowUp took it to 45 and
+56, ArrowLeft turned the camera's yaw 0 → 35.
 
 ## Run progress (src/run/progress.ts)
 
