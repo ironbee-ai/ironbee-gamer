@@ -156,7 +156,7 @@ function perception(value: unknown, where: string): GamePerception {
     if (value.maps !== undefined) {
         out.maps = Boolean(value.maps);
     }
-    if ((adapter === Perception.PHASER || adapter === Perception.PIXI || adapter === Perception.COCOS) && value.read !== undefined) {
+    if ((adapter === Perception.PHASER || adapter === Perception.PIXI || adapter === Perception.COCOS || adapter === Perception.THREE) && value.read !== undefined) {
         out.read = str(value.read, `${where}.read`);
         out.format = str(value.format, `${where}.format`);
     }

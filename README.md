@@ -25,6 +25,7 @@ state the engine saw, the action it chose and the probabilities.
 ```
 page (canvas / engine)
   └─ perception adapter ── generic, per rendering tech (2D canvas draw recorder, Phaser / PixiJS / Cocos dump,
+                           a Three.js scene dump,
                            any canvas as a small colour grid), or a reader of the game's own state the
                            trainer wrote from the page's code
   └─ extract(raw, memory) ── per game, written by the trainer (an LLM), < 1 ms
@@ -47,33 +48,83 @@ removed.
 
 ## Quick start
 
+Four steps: install, start the UI, set up Laya (the local engine), and play. You need **Node.js 22+**; Laya
+also needs **Python 3.10+**.
+
+### 1. Install
+
 ```bash
 npm install
 npm run build
-npm link                             # once: puts the `ibgamer` command on your PATH
-ibgamer laya setup                   # once: a Python environment for Laya, the local engine (needs python3)
-npm run ui                           # the web UI at http://127.0.0.1:1986 (the same as `ibgamer ui`)
+npm link            # optional: puts the `ibgamer` command on your PATH
 ```
 
-Without `npm link`, `npm start -- <command>` runs the same commands (`npm start -- play dino --seconds 30`).
+Without `npm link`, run any command as `npm start -- <command>` (`npm start -- play dino`).
 
-In the UI, **⇩ Hugging Face** downloads the trained games — each with its profile versions and Laya's model
-(about 700 MB a game). Then pick a game and press **Play**. The browser is headless by default, and the
-live view shows it. Use `--headed` to see the real window. Until the game's first frame (a Laya
-server to start, the browser, the page to load: several seconds) the screen says which step it is on
+### 2. Start the UI
+
+```bash
+npm run ui          # the same as `ibgamer ui`
+```
+
+Open **http://127.0.0.1:1986**. The UI runs as long as that terminal does: keep it open while you play or train
+(a training can take hours), and stop it with **Ctrl+C**. To pick up a change (a `git pull`, a new `.env`):
+stop it, `npm run build`, start it again. Another port: `IBGAMER_UI_PORT=2000 npm run ui`.
+
+The browser the games run in is headless; the UI's live view shows it (`ibgamer play … --headed`, or
+`IBGAMER_HEADLESS=false`, opens the real window).
+
+### 3. Set up Laya, the local engine
+
+Laya is a small model that runs on your machine and decides a move in ~20–30 ms (Jev, the hosted engine,
+takes ~300 ms and needs a key). It is fine-tuned per game, so it needs two things:
+
+1. **Its Python environment, once:**
+
+   ```bash
+   ibgamer laya setup                                     # makes ~/.ibgamer/laya-venv (pip install laya, torch…)
+   ibgamer laya setup --python /opt/homebrew/bin/python3.12   # if your `python3` is older than 3.10 (macOS ships 3.9)
+   ```
+
+   It takes a few minutes (torch is large) and ends with `ready: …`. The UI finds it by itself: no restart.
+
+2. **A model for each game you play with it.** Download the trained ones: **⇩ Hugging Face** in the UI's
+   library (or `ibgamer library pull dino tetris`, about 700 MB a game), or train a game here (**✦ Train**, with
+   Laya chosen as the Engine).
+
+The UI's status says what is missing: Laya's Python, or a game with no model yet.
+
+To make Laya the default of the CLI (and of a play that names no engine), put it in a `.env` in the
+folder you start from — the repository's root for `npm run ui`:
+
+```bash
+IBGAMER_ENGINE=laya
+TYPESAFE_API_KEY=…   # only for Jev
+```
+
+The `.env` is read once, at start: restart the UI after changing it.
+
+### 4. Play
+
+Pick a game in the UI, choose **Laya** in the Engine list and press **Play**. Until the game's first frame (a
+Laya server to start, the browser, the page to load: several seconds) the screen says which step it is on
 and for how long, and why, if the game does not start. When a game ends, the screen says how: **Time's up**
 (its Game seconds are played — nothing hangs), **Game over**, or **Stopped**.
 
-What each part needs:
+### What each part needs
 
-- **Playing with Laya** (the default): the Python environment above, and the game's model — downloaded, or trained here.
-- **Playing with Jev**: its key, `export TYPESAFE_API_KEY=…` (or in a `.env` in the working directory).
-- **Training, and adding a game**: a coding-agent CLI, installed and logged in — the Claude Code CLI (`claude`) or the
-  Codex CLI (`codex`). The **Trainer** pill at the top of the UI says which one and which model is used, and chooses it.
+| To… | You need |
+|---|---|
+| Play with **Laya** | Laya's Python (step 3) and the game's model, downloaded or trained here |
+| Play with **Jev** | its key: `TYPESAFE_API_KEY=…` in the environment or the `.env` |
+| **Train**, **add a game** | a coding-agent CLI, installed and logged in: the Claude Code CLI (`claude`) or the Codex CLI (`codex`). The **Trainer** pill at the top of the UI says which one and which model is used, and chooses it |
+
+### From the terminal
 
 ```bash
 ibgamer library list                 # the games and their active profiles
 ibgamer play dino --seconds 30       # plays in the terminal; --watch paces it to the game's own speed
+ibgamer play dino --engine laya      # with Laya (the game's model, its server started for you)
 ibgamer train flappy-bird           # checks how it plays, fixes what loses (else trains for a higher score), keeps it only if it plays better
 ibgamer check pacman-ghosts          # plays a seed twice: the same frame for frame, or where it first differs
 ibgamer play pop-the-lock --lag 45   # real time simulated on the paused clock: each decision lands 45 ms late, every run the same
@@ -159,7 +210,8 @@ read with `HF_TOKEN`, else the token `hf auth login` keeps.
 In the UI, press **+ Add game**. A guided dialog takes a URL to a playable game in four steps:
 
 1. **Page.** The page is opened and looked at. The verdict says what draws the game and how it
-   will be read: a 2D canvas, Phaser, PixiJS or Cocos by a generic adapter. Any other canvas
+   will be read: a 2D canvas, Phaser, PixiJS, Cocos or Three.js by a generic adapter (a Three.js game by
+   its 3D scene: the objects nearest the camera, where each shows, and the page's text over it). Any other canvas
    (WebGL from another engine, a bundled one) can be read by its pixels — a small colour grid
    each step, which works for anything but is less exact. Better, **let the trainer read the
    game's code**: it reads the page's scripts and writes one expression that returns the game's

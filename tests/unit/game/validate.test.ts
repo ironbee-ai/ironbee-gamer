@@ -19,6 +19,17 @@ describe("validateGame", (): void => {
         expect((): unknown => validateGame({ ...fakeGameDefinition(), perception: { adapter: "phaser", read: "x" } })).toThrow(/perception\.format/);
     });
 
+    it("reads a Three.js game by its scene, or by its own state with the adapter still installed", (): void => {
+        const plain = validateGame({ ...fakeGameDefinition(), perception: { adapter: "three" } });
+        expect(plain.perception).toEqual({ adapter: Perception.THREE });
+        expect(openRequest(plain)).toMatchObject({ adapters: [Adapter.THREE], read: "window.__ibgamer.three.dump()" });
+        expect(rawFormat(plain)).toMatch(/Three\.js scene/);
+        const perception = { adapter: "three", read: "window.__ibgamer.three.scene().getObjectByName('car').userData", format: "the car" };
+        const own = validateGame({ ...fakeGameDefinition(), perception });
+        expect(openRequest(own)).toMatchObject({ adapters: [Adapter.THREE], read: perception.read });
+        expect(rawFormat(own)).toBe("the car");
+    });
+
     it("reads a game by its pixels, as a colour grid of the size it asks for", (): void => {
         const plain = validateGame({ ...fakeGameDefinition(), perception: { adapter: "pixels" } });
         expect(plain.perception).toEqual({ adapter: Perception.PIXELS });

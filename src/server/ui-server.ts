@@ -1707,7 +1707,9 @@ export function perceptionFor(suggested: string | undefined): Perception | undef
                 ? Perception.PIXI
                 : suggested === "cocos"
                     ? Perception.COCOS
-                    : suggested === "pixels"
-                        ? Perception.PIXELS
-                        : undefined;
+                    : suggested === "three"
+                        ? Perception.THREE
+                        : suggested === "pixels"
+                            ? Perception.PIXELS
+                            : undefined;
 }

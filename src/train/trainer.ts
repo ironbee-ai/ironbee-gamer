@@ -1369,7 +1369,7 @@ export class Trainer {
                 blindPlay: samples.filter((_: unknown, i: number): boolean => i % every === 0).slice(0, 3),
             };
         }
-        if (game.perception.adapter === Perception.PHASER || game.perception.adapter === Perception.PIXI || game.perception.adapter === Perception.COCOS) {
+        if (game.perception.adapter === Perception.PHASER || game.perception.adapter === Perception.PIXI || game.perception.adapter === Perception.COCOS || game.perception.adapter === Perception.THREE) {
             const kinds: Record<string, number> = {};
             for (const raw of all) {
                 for (const kind of perceivedKinds(game, raw)) {

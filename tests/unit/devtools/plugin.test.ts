@@ -11,6 +11,7 @@ import { installInputCounter } from "../../../src/devtools-plugin/page/inputs";
 import { installPhaserAdapter } from "../../../src/devtools-plugin/page/phaser";
 import { installPixiAdapter } from "../../../src/devtools-plugin/page/pixi";
 import { installProbe } from "../../../src/devtools-plugin/page/probe";
+import { installThreeAdapter } from "../../../src/devtools-plugin/page/three";
 import { seedRandom } from "../../../src/devtools-plugin/page/seed";
 import { clearSessionStorage } from "../../../src/devtools-plugin/page/storage";
 import { GamePageState, GameSessionState, pageState } from "../../../src/devtools-plugin/state";
@@ -134,6 +135,80 @@ describe("the PixiJS adapter", (): void => {
         const context: vm.Context = page();
         const dump: { objects: Array<{ tex?: string }> } = JSON.parse(vm.runInContext("JSON.stringify(window.__ibgamer.pixi.dump())", context));
         expect(dump.objects.map((o: { tex?: string }): string | undefined => o.tex)).toEqual(["hero.png", undefined]);
+    });
+});
+
+describe("the Three.js adapter", (): void => {
+    /**
+     * A page with the adapter installed, then what a Three.js build does: it announces a renderer and its scenes to
+     * window.__THREE_DEVTOOLS__ (a module build sets no THREE global). The camera stands at the origin looking down -z,
+     * 90° of view on an 800×600 canvas.
+     */
+    function page(): vm.Context {
+        const context: vm.Context = vm.createContext({ EventTarget, CustomEvent, Promise });
+        vm.runInContext("var window = this;", context);
+        vm.runInContext(`(${installThreeAdapter.toString()})()`, context);
+        vm.runInContext(
+            `var hub = window.__THREE_DEVTOOLS__;
+             hub.dispatchEvent(new CustomEvent("register", { detail: { revision: "168" } }));
+             function at(x, y, z) { return { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1] }; }
+             function mesh(name, x, y, z, colour) {
+                 return { isMesh: true, type: "Mesh", name: name, visible: true, children: [], matrixWorld: at(x, y, z),
+                     geometry: { type: "BoxGeometry", boundingSphere: { radius: 1 } },
+                     material: { color: { getHex: function () { return colour; } } } };
+             }
+             function scene(children) {
+                 var s = { isScene: true, type: "Scene", visible: true, children: children };
+                 children.forEach(function (c) { c.parent = s; });
+                 hub.dispatchEvent(new CustomEvent("observe", { detail: s }));
+                 return s;
+             }
+             var near = 0.1, far = 1000, aspect = 800 / 600;
+             var camera = { isCamera: true, type: "PerspectiveCamera", fov: 90, matrixWorld: at(0, 0, 0), matrixWorldInverse: at(0, 0, 0),
+                 projectionMatrix: { elements: [1 / aspect, 0, 0, 0, 0, 1, 0, 0, 0, 0, -(far + near) / (far - near), -1, 0, 0, -2 * far * near / (far - near), 0] } };
+             var car = { type: "Group", name: "player", visible: true, children: [], matrixWorld: at(5, 0, -5) };
+             var body = mesh("", 5, 0, -5, 0xff0000); body.parent = car; car.children.push(body);
+             var lights = mesh("lights", 5, 0, -5, 0xffff00); lights.geometry.boundingSphere.radius = 2; lights.parent = car; car.children.push(lights);
+             var ahead = mesh("tower", 0, 0, -10, 0x00ff00);
+             var behind = mesh("wall", 0, 0, 10, 0x0000ff);
+             var hidden = mesh("ghost", 0, 0, -2, 0xffffff); hidden.visible = false;
+             var world = scene([car, ahead, behind, hidden]);
+             var quad = scene([mesh("screen", 0, 0, 0, 0)]);
+             var renderer = { domElement: { getBoundingClientRect: function () { return { x: 0, y: 0, width: 800, height: 600 }; } },
+                 target: null, getRenderTarget: function () { return this.target; }, render: function (s, c) { this.drawn = s; } };
+             hub.dispatchEvent(new CustomEvent("observe", { detail: renderer }));`,
+            context
+        );
+        return context;
+    }
+    const dump: (context: vm.Context) => any = (context: vm.Context): any => JSON.parse(vm.runInContext("JSON.stringify(window.__ibgamer.three.dump())", context));
+
+    it("reads the largest scene its renderer draws, through the camera it draws it to the screen with: nearest first, where each shows", (): void => {
+        const context: vm.Context = page();
+        // A post-processing pass: the world into a target, then a quad of it to the screen.
+        vm.runInContext("renderer.target = {}; renderer.render(world, { type: 'OtherCamera' }); renderer.target = null; renderer.render(world, camera); renderer.render(quad, {});", context);
+        expect(vm.runInContext("renderer.drawn === quad", context)).toBe(true);
+        expect(dump(context)).toEqual({
+            version: "168",
+            camera: { type: "PerspectiveCamera", x: 0, y: 0, z: 0, yaw: 180, pitch: 0, fov: 90 },
+            canvas: { w: 800, h: 600 },
+            total: 4,
+            objects: [
+                { type: "Mesh", group: "player", geo: "BoxGeometry", x: 5, y: 0, z: -5, r: 2, yaw: 0, d: 7.07, sx: 700, sy: 300, col: "#ff0000", parts: 2 },
+                { type: "Mesh", name: "tower", geo: "BoxGeometry", x: 0, y: 0, z: -10, r: 1, yaw: 0, d: 10, sx: 400, sy: 300, col: "#00ff00" },
+                { type: "Mesh", name: "wall", geo: "BoxGeometry", x: 0, y: 0, z: 10, r: 1, yaw: 0, d: 10, off: true, col: "#0000ff" },
+            ],
+            hud: [],
+        });
+        expect(vm.runInContext("window.__ibgamer.three.scene() === world && window.__ibgamer.three.camera() === camera", context)).toBe(true);
+    });
+
+    it("before a frame is drawn (a menu, loading), reads the largest scene announced: world positions only", (): void => {
+        const context: vm.Context = page();
+        const before: any = dump(context);
+        expect(before.camera).toBeNull();
+        expect(before.objects.map((o: { name?: string; group?: string }): string | undefined => o.name ?? o.group)).toEqual(["player", "tower", "wall"]);
+        expect(before.objects[0]).not.toHaveProperty("sx");
     });
 });
 
@@ -1451,6 +1526,11 @@ describe("the probe", (): void => {
         expect(read().engines).toEqual([]);
         vm.runInContext(`window.PIXI = { VERSION: "7.4.2" };`, context);
         expect(read()).toMatchObject({ engines: ["PIXI"], suggested: "pixi" });
+        // A module or bundled Three.js sets no THREE global, only its revision: the Three.js adapter's own hook is no engine.
+        vm.runInContext(`(${installThreeAdapter.toString()})()`, vm.createContext({ window: context, EventTarget }));
+        expect(read().engines).toEqual(["PIXI"]);
+        vm.runInContext(`window.__THREE__ = "168";`, context);
+        expect(read().engines).toEqual(["PIXI", "__THREE__"]);
     });
 
     it("names each canvas by a selector a click can aim at (its id, else its place under one), and where the body is", (): void => {

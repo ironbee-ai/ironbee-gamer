@@ -20,6 +20,11 @@ export enum Perception {
     PIXI = "pixi",
     /** The Cocos adapter: any game on the Cocos engine (Creator 2.x / 3.x, cocos2d-js), read from the `cc` global. */
     COCOS = "cocos",
+    /**
+     * The Three.js adapter: any Three.js game (a module or bundled build too: it is caught through the hook Three.js
+     * announces its scenes and renderers to), read from its main scene and the page's text over it.
+     */
+    THREE = "three",
     /** Pixel perception: the largest canvas as a small colour grid — any game a canvas shows, less exact. */
     PIXELS = "pixels",
     /** The game's own page script (`script`) and read expression (`read`). */
@@ -35,7 +40,8 @@ export interface GamePerception {
     /**
      * Custom: the page expression that reads the raw input. Phaser: one that reads the game's own
      * state instead of the generic dump (`window.__ibgamer.phaser.game()` is the game), the adapter
-     * still installed (seeded RNG, frame-exact boot).
+     * still installed (seeded RNG, frame-exact boot). Three.js: one that reads the game's own objects
+     * (`window.__ibgamer.three.scene()` is its main scene), the adapter still installed.
      */
     read?: string;
     /** What that raw input looks like, in words (for the tuner). */

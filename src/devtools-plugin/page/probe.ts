@@ -41,6 +41,8 @@ export function installProbe(): void {
         "PIXI",
         "__PIXI_APP__",
         "THREE",
+        // Three.js sets its revision here as it loads, a module or bundled build too (no THREE global).
+        "__THREE__",
         "cc",
         "createjs",
         "unityInstance",
@@ -104,6 +106,8 @@ export function installProbe(): void {
                 suggested = "pixi";
             } else if (engines.includes("cc") && w.cc && w.cc.director) {
                 suggested = "cocos";
+            } else if ((engines.includes("THREE") || engines.includes("__THREE__")) && largest && /webgl/.test(largest.context || "")) {
+                suggested = "three";
             } else if (draws2d > 0 && largest && largest.context === "2d") {
                 suggested = "canvas2d";
             } else if (largest && largest.box.width > 0 && largest.box.height > 0) {

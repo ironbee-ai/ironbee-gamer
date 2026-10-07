@@ -11,7 +11,7 @@ src/
     client.ts               DevtoolsClient (POST /call, one session per run) — the GameBrowser the player uses
     daemon.ts               ensureDaemon: reuse or start a DevTools daemon with TOOL_PLUGINS=game-tools.mjs
   devtools-plugin/          the game tools, bundled into dist/devtools-plugin/game-tools.mjs (see devtools-plugin.md)
-    page/                   page-side adapters: canvas2d recorder, Phaser dump, PixiJS dump, Cocos dump, pixel grid, probe, seed, animation clock, input counter, timer nudge, clock log replay, boot work counter (decodes, WebAssembly, IndexedDB), session-storage clear
+    page/                   page-side adapters: canvas2d recorder, Phaser dump, PixiJS dump, Cocos dump, Three.js scene dump, pixel grid, probe, seed, animation clock, input counter, timer nudge, clock log replay, boot work counter (decodes, WebAssembly, IndexedDB), session-storage clear
     time.ts                 runGameTime: the frozen clock's game time, the CSS animations following it (animation clock)
   game/
     types.ts                GameDefinition (reach/start/measure), Profile (extractor, rules, actions, timing, tests), FailureWindow

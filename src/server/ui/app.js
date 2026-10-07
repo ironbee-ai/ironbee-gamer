@@ -1385,6 +1385,9 @@ function verdictOf(probe) {
     if (probe.suggested === "cocos") {
         return { ok: true, text: "A Cocos game: the scene the engine runs is read every step." };
     }
+    if (probe.suggested === "three") {
+        return { ok: true, text: "A Three.js game: its 3D scene — the objects near the camera, where each shows — and the page's text over it are read every step. Its own state is sharper: let the trainer read the game's code below." };
+    }
     if (probe.suggested === "canvas2d") {
         return { ok: true, text: "Drawn on a 2D canvas: what it draws is recorded every step." };
     }
@@ -1398,7 +1401,7 @@ function verdictOf(probe) {
     const main = gameCanvas(probe);
     const webgl = main ? /webgl/i.test(main.context || "") : probe.canvases.some((c) => /webgl/i.test(c.context || ""));
     if (webgl) {
-        return { ok: false, text: `Drawn with WebGL${probe.engines.length ? ` by ${probe.engines.join(", ")}` : ""}, by an engine this app does not read directly (it reads Phaser, PixiJS, Cocos and 2D canvases). Let the trainer read the game's code below.` };
+        return { ok: false, text: `Drawn with WebGL${probe.engines.length ? ` by ${probe.engines.join(", ")}` : ""}, by an engine this app does not read directly (it reads Phaser, PixiJS, Cocos, Three.js and 2D canvases). Let the trainer read the game's code below.` };
     }
     if (!probe.canvases.length) {
         return { ok: false, text: "No canvas on this page: the game may be made of page elements, or sit in a frame from another site (open the frame's own address instead)." };
@@ -2233,7 +2236,7 @@ function renderSetup() {
     const engine = trainEngine();
     const run = running() && state.run.gameId === g.id ? state.run : null;
     const steps = [];
-    const seen = g.perception.read ? "the game's own state" : { phaser: "Phaser", pixi: "PixiJS", cocos: "Cocos", canvas2d: "2D canvas", pixels: "its pixels" }[g.perception.adapter] || "custom";
+    const seen = g.perception.read ? "the game's own state" : { phaser: "Phaser", pixi: "PixiJS", cocos: "Cocos", three: "Three.js", canvas2d: "2D canvas", pixels: "its pixels" }[g.perception.adapter] || "custom";
     steps.push({ done: true, text: `Added · reads ${seen}` });
     const busyText = (r) => {
         const p = r.progress;
